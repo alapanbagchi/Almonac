@@ -16,7 +16,7 @@ Next.js (web) → Elysia on Bun (api, owns all three domains) → PostgreSQL via
 
 ## 2. Status — verify, never assume
 
-Implemented: `apps/web/`, a Next.js 16.4.3 App Router app (React 19.3, Tailwind 4, `cacheComponents` + `partialPrefetching`), with its own Git repository, placeholder data, no API calls or env vars. `frontend/` does not exist and must not be recreated (ADR-009, superseding ADR-007). Not implemented: Elysia app, Python service, worker, database schema, migrations, Docker, Terraform; `apps/api`, `apps/clinical-ai`, `apps/worker`, `database/`, `infrastructure/` are empty scaffolds. Label that work planned.
+Implemented: `apps/web/`, a Next.js 16.4.3 App Router app (React 19.3, Tailwind 4, `cacheComponents` + `partialPrefetching`), with its own Git repository, placeholder data, and one server-only Eden Treaty client (`src/lib/api`) used by the `GET /api/health` proxy route; no UI data calls or env file yet. Also implemented: `apps/api/`, a bare Elysia 2 service on Bun with `GET /health`, the shared error envelope, OpenAPI at `/openapi` and route tests; no database, auth or domain features. `frontend/` does not exist and must not be recreated (ADR-009, superseding ADR-007). Not implemented: Python service, worker, database schema, migrations, Docker, Terraform; `apps/clinical-ai`, `apps/worker`, `database/`, `infrastructure/` are empty scaffolds. Label that work planned.
 
 Never invent scripts, packages, env vars, endpoints or commands; read the manifest and if absent, say so. If code and docs disagree, stop and report it.
 
