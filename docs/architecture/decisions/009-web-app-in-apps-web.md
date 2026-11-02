@@ -42,3 +42,7 @@ Negative:
 
 - **Honour ADR-007 and move `apps/web/` to `frontend/`.** Rejected: it moves a repository with five days of history and a dirty working tree to satisfy a document that misread the tree, and it discards the layout the application was actually built in.
 - **Keep both documents and let agents guess.** Rejected: this is the failure ADR-007 itself was written to prevent.
+
+## Update — 2026-11-03
+
+The unused `apps/web/src/components/onboarding/onboarding-flow.tsx` was deleted rather than completed: no route or module imported it, and its six missing imports failed `tsc` and `next build`. `npm run build` and `npm run lint` now pass. The prototype remains recoverable from Git history (`72c34a8`).
