@@ -1,6 +1,6 @@
 # Almonac API — Elysia on Bun
 
-**Status: not implemented.** `apps/api` contains no `package.json`, no source and no installed Elysia version. Everything below is the intended architecture, binding on whoever implements it. Before writing code, check the Elysia version you install and read that version's documentation; do not copy examples from an older release.
+**Status: scaffolded.** `apps/api` is a bare Elysia 2 (`2.0.0-rc.1`) service on Bun: one `GET /health` route, the error-envelope plugin, OpenAPI at `/openapi`, and route tests. There is no database, authentication, tenant resolution or domain feature yet. Everything below is the intended architecture, binding on whoever implements it. Before writing code, check the Elysia version and read that version's documentation; do not copy examples from an older release.
 
 The API is a modular monolith owning the Control, Hospital and Terminology domains. It authorises every request, resolves the tenant, and is the only service that talks to PostgreSQL.
 
