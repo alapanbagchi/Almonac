@@ -1,0 +1,222 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * ALMONAC DESIGN SYSTEM
+ * Onyx base, bark surfaces, moss accents, parchment type.
+ * Single dark theme — there is no light mode.
+ *
+ * The four anchors and the job each one does:
+ *   ink        #1E201E  main background
+ *   bark       #3C3D37  input surfaces and subtle borders
+ *   moss       #697565  muted accents, secondary text, icons
+ *   parchment  #ECDFCC  headings, primary text, buttons
+ *
+ * Everything else below is a tint or shade derived from those four, never a
+ * new hue. Deep shadows recede toward ink; raised surfaces lift toward
+ * parchment. Type: Outfit (font-sans, interface) + Lora Medium (font-display).
+ */
+
+@theme {
+  /* Anchors */
+  --color-ink: #1e201e; /* main background */
+  --color-ink-deep: #191b19; /* sidebar, sunken below the page */
+  --color-bark: #3c3d37; /* input surfaces, subtle borders */
+  --color-moss: #697565; /* muted accents, secondary text, icons */
+  --color-parchment: #ecdfcc; /* headings, primary text, buttons */
+
+  /* Derived — bark lifted toward parchment (hover, selected, raised fills) */
+  --color-bark-raised: #47483f;
+  /* Derived — between ink and bark (quiet muted surfaces, tinted panels) */
+  --color-ink-raised: #262823;
+  /* Derived — moss lifted toward parchment. #697565 only clears AA as large
+     text on ink (3.38:1) and fails outright on bark (2.26:1), so small
+     secondary copy and helper text use this tint instead (5.98:1 on ink,
+     4.00:1 on bark). Pure moss stays for marks: rails, borders, illustration. */
+  --color-moss-bright: #93a08d;
+  /* Derived — the one non-palette hue, reserved for destructive only */
+  --color-clay: #b4594a;
+}
+
+@theme inline {
+  --font-sans: var(--font-sohne), ui-sans-serif, system-ui, sans-serif;
+  --font-serif: var(--font-lora), Georgia, "Times New Roman", serif;
+  --font-display: var(--font-lora), Georgia, "Times New Roman", serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+  color-scheme: dark;
+
+  --background: #1e201e;
+  --foreground: #ecdfcc;
+
+  --card: #3c3d37;
+  --card-foreground: #ecdfcc;
+  --popover: #3c3d37;
+  --popover-foreground: #ecdfcc;
+
+  /* Parchment on ink is the strongest pairing available: 12.5:1 */
+  --primary: #ecdfcc;
+  --primary-foreground: #1e201e;
+
+  --secondary: #3c3d37;
+  --secondary-foreground: #ecdfcc;
+
+  --muted: #262823;
+  --muted-foreground: #697565;
+
+  --accent: #47483f;
+  --accent-foreground: #ecdfcc;
+
+  --destructive: #b4594a;
+
+  --border: #3c3d372e;
+  /* Field edges sit on bark, so the hairline is lifted slightly off the
+     surface colour or it would disappear into it. */
+  --input: #3c3d372e;
+  /* Focus indicator: the bright moss tint, because pure moss at 50% alpha is
+     invisible on bark (1.52:1). Full-strength turns read clearly on both. */
+  --ring: #93a08d;
+
+  --chart-1: #ecdfcc;
+  --chart-2: #697565;
+  --chart-3: #47483f;
+  --chart-4: #b4594a;
+  --chart-5: #a8b0a2;
+
+  --radius: 0.625rem;
+
+  --sidebar: #1e201e;
+  --sidebar-foreground: #ecdfcc;
+  --sidebar-primary: #ecdfcc;
+  --sidebar-primary-foreground: #1e201e;
+  --sidebar-accent: #3c3d37;
+  --sidebar-accent-foreground: #ecdfcc;
+  --sidebar-border: #3c3d37;
+  --sidebar-ring: #697565;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground text-sm;
+  }
+  html {
+    @apply font-sans;
+  }
+  ::selection {
+    background: var(--color-parchment);
+    color: var(--color-ink);
+  }
+  /* Chrome paints autofilled fields bone white by default — repaint them in
+     the surface colour so filled and empty fields still match. */
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus,
+  textarea:-webkit-autofill,
+  select:-webkit-autofill {
+    -webkit-text-fill-color: var(--foreground);
+    -webkit-box-shadow: 0 0 0 100rem var(--muted) inset;
+    caret-color: var(--foreground);
+    transition: background-color 9999s ease-out 0s;
+  }
+}
+
+/* The supplied logo is solid black; masking it lets the mark take its colour
+   from the theme instead of shipping a second hardcoded asset. */
+@utility logo-mark {
+  background-color: var(--color-parchment);
+  -webkit-mask: url("/logo.svg") no-repeat center / contain;
+  mask: url("/logo.svg") no-repeat center / contain;
+}
+
+@keyframes step-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* The single authored motion on the page: each step settles once on arrival. */
+@utility step-in {
+  animation: step-in 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Dropdown expand/collapse, mirroring the profile menu's reveal. */
+@keyframes select-expand {
+  from {
+    opacity: 0;
+    transform: scaleY(0.92) translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: scaleY(1) translateY(0);
+  }
+}
+
+@utility select-expand {
+  animation: select-expand 250ms ease-out both;
+}
+
+@keyframes select-collapse {
+  from {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+  to {
+    opacity: 0;
+    transform: scaleY(0.96);
+  }
+}
+
+@utility select-collapse {
+  animation: select-collapse 150ms ease-in both;
+}
