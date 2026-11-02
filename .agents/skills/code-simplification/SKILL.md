@@ -1,6 +1,6 @@
 ---
 name: code-simplification
-description: Simplifies code for clarity. Use when refactoring code for clarity without changing behavior. Use when code works but is harder to read, maintain, or extend than it should be. Use when reviewing code that has accumulated unnecessary complexity. Use when asked to simplify, clean up, or reduce the nesting of a function or module that already works, even when the code is pasted inline and nothing else needs to change.
+description: Simplifies code for clarity without changing behaviour. Use when a function or module works but is harder to read than it should be, when nesting, duplication or dead branches have accumulated, or when asked to simplify, clean up or flatten code — including when the code is pasted inline and nothing else needs to change.
 ---
 
 # Code Simplification

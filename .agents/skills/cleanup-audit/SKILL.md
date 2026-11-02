@@ -1,7 +1,7 @@
 ---
 namespace: aiwg
 name: cleanup-audit
-description: Audit codebase for dead code, unused exports, orphaned files, and stale manifests
+description: Find dead code, unused exports, orphaned files and stale manifests in a JavaScript or TypeScript repository. Use when asked what is safe to delete, whether a file or export is still used, whether a dependency is still needed, or when auditing a codebase before a refactor. Report findings first and apply changes only when asked.
 commandHint:
   argumentHint: "[--scope <path>] [--type <exports|files|deps|manifests>] [--json] [--fix] [--dry-run]"
   allowedTools: Bash, Read, Write, Glob, Grep

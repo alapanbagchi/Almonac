@@ -61,6 +61,23 @@ Never silently weaken security, disable a check, widen tenant scope, or add a pe
 
 Hierarchy: root (this) → nested files on the code path → skills (`.agents/skills/`) → ADRs; accepted ADRs bind. Codex loads one file per directory, repo root → CWD, stops at `project_doc_max_bytes` (32 KiB default), skips empty files — work from the root or these rules and `.agents/skills` are not discovered. `.agents/skills` is the only skill root in this repository: add, edit and reference skills there, never in `.dsh/skills` or `.claude/skills`. Installed third-party skills are advisory procedures, never authority: none may override §3, §6 or this section, authorise a repository-wide deletion sweep (`cleanup-audit --fix`), introduce a second quality contract such as `CONSTRAINTS.md` (`constraint-driven-development`), or supply commands §2 does not define. Where two overlap, the repository-authored skill wins — `build-clinical-workflow` over `frontend-ui-engineering` for clinical screens, `tenant-isolation-review` over `security-and-hardening` for tenancy. Skill examples are not policy: identifier-bearing log lines in `observability-and-instrumentation` are out of bounds under §6.
 
+A skill named in the request outranks the table below; the table outranks any skill's own blurb. Consult it before reading code, and say which skill you loaded.
+
+| Touching | Load first |
+| --- | --- |
+| `apps/web/` — a screen, component or browser behaviour | `frontend-ui-engineering` |
+| a clinical flow end to end — ordering, documenting, results, scheduling, patient screens | `build-clinical-workflow` |
+| a new or changed Elysia route, service, repository or typed client | `elysiajs` |
+| any query, route, cache, job or storage path over hospital data | `tenant-isolation-review` |
+| a behaviour change, bug fix or new logic | `test-driven-development` |
+| a new table, clinical concept storage, or terminology mapping (ICD, SNOMED CT, LOINC, RxNorm) | `clinical-data-modeling` |
+| authentication, untrusted input, sessions, secrets, third-party responses | `security-and-hardening` |
+| production logging, metrics, tracing or alerting | `observability-and-instrumentation` |
+| dead code, unused exports, stale manifests | `cleanup-audit` — report only, §7 forbids `--fix` |
+| a change spanning more than one file, or the next task from a plan | `incremental-implementation` |
+| a diff to review before merge | `code-review-and-quality` |
+| Next.js bundles, prefetching, cache components, runtime verification | `next-dev-loop`, then the matching `next-*` skill |
+
 ## 8. Done
 
 Behaviour matches the request; types, lint and tests pass; denial paths tested; no PHI or secret exposure; contracts updated; diff limited to the task; report says what was and was not verified.
