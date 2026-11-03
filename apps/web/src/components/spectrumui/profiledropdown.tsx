@@ -3,7 +3,6 @@
 import * as React from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 
 import { ArrowDown01 } from "@/components/animate-ui/icons/hugeicons/arrow-down-01";
@@ -37,14 +36,7 @@ export function ProfileDropdown({
   imageSrc: string;
   onNavigate?: () => void;
 }) {
-  const router = useRouter();
   const [isOpen, setIsOpen] = React.useState(false);
-
-  const handleSignOut = () => {
-    onNavigate?.();
-    // TODO: replace with real sign-out when auth lands.
-    router.push("/registration");
-  };
 
   return (
     <div className="relative">
@@ -69,14 +61,15 @@ export function ProfileDropdown({
                   <span>{item.label}</span>
                 </Link>
               ))}
-              <button
-                type="button"
-                onClick={handleSignOut}
-                className={rowClass + " w-full text-destructive hover:bg-destructive/10 hover:pl-4"}
-              >
-                <Logout01 size={18} />
-                <span>Sign out</span>
-              </button>
+              <form action="/api/auth/logout" method="post" onSubmit={onNavigate}>
+                <button
+                  type="submit"
+                  className={rowClass + " w-full text-destructive hover:bg-destructive/10 hover:pl-4"}
+                >
+                  <Logout01 size={18} />
+                  <span>Sign out</span>
+                </button>
+              </form>
             </div>
           </motion.div>
         ) : null}
