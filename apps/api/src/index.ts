@@ -1,5 +1,34 @@
-import { app } from './app'
+import { createApp } from './app'
+import { ConfigError, loadConfig } from './config'
+import { checkControlDatabase, createControlPool } from './db/pool'
 
-export { app }
+const config = loadConfigOrExit()
 
-app.listen(Number(process.env.PORT ?? 3001))
+const pool = createControlPool(config.databaseUrl)
+const app = createApp({ checkDatabase: () => checkControlDatabase(pool) })
+
+const server = app.listen(config.port)
+console.info(`[api] listening on ${config.port}`)
+
+const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
+  console.info(`[api] ${signal} received; shutting down`)
+  await server.stop()
+  await pool.end()
+  process.exit(0)
+}
+
+process.once('SIGINT', () => void shutdown('SIGINT'))
+process.once('SIGTERM', () => void shutdown('SIGTERM'))
+
+function loadConfigOrExit() {
+  try {
+    return loadConfig()
+  } catch (error) {
+    if (error instanceof ConfigError) {
+      for (const issue of error.issues) console.error(`[api] config: ${issue}`)
+    } else {
+      console.error('[api] config: unexpected validation failure')
+    }
+    process.exit(1)
+  }
+}
