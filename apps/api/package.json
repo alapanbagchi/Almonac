@@ -17,6 +17,7 @@
   "dependencies": {
     "@elysia/openapi": "2.0.0-rc.0",
     "elysia": "2.0.0-rc.1",
+    "jose": "^6.2.15",
     "node-pg-migrate": "^9.0.0",
     "pg": "^8.23.1"
   },
