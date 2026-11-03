@@ -13,6 +13,7 @@ import {
   AppUserEmailConflictError,
   AppUserRepository,
 } from '../../../src/identity/app-user-repository'
+import { SessionRepository } from '../../../src/identity/session-repository'
 
 const databaseUrl = process.env.TEST_DATABASE_URL
 
@@ -115,7 +116,7 @@ async function createDomain(
 }
 
 async function createUser(
-  client: PoolClient,
+  client: Pool | PoolClient,
   subject: string,
   email: string,
 ): Promise<string> {
@@ -1749,5 +1750,73 @@ describe('app user repository', () => {
         homeOrganisationId: null,
       }),
     ).rejects.toBeInstanceOf(AppUserEmailConflictError)
+  })
+})
+
+describe('session repository', () => {
+  test('stores sessions by hash and revokes them conditionally', async () => {
+    const userId = await createUser(ownerPool, 'repository-session-user', 'session@example.test')
+    const sessions = new SessionRepository(appPool)
+    const now = new Date()
+    const created = await sessions.create({
+      userId,
+      identityIssuer: 'http://localhost:8080',
+      tokenHash: randomBytes(32),
+      zitadelSessionId: 'zitadel-session',
+      oidcSid: 'oidc-sid',
+      acr: 'urn:zitadel:iam:org:project:id:test:aud',
+      idTokenHintCiphertext: Buffer.from('sealed-hint'),
+      keyVersion: 1,
+      amr: ['pwd'],
+      authTime: new Date(now.getTime() - 60_000),
+      aal: 1,
+      idleExpiresAt: new Date(now.getTime() + 15 * 60_000),
+      absoluteExpiresAt: new Date(now.getTime() + 8 * 60 * 60_000),
+      ip: '127.0.0.1',
+      userAgentHash: randomBytes(32),
+    })
+
+    expect(await sessions.findByTokenHash(created.tokenHash)).toEqual(created)
+    expect(await sessions.findByTokenHash(randomBytes(32))).toBeNull()
+
+    const touchedAt = new Date(now.getTime() + 60_000)
+    const idle = new Date(touchedAt.getTime() + 15 * 60_000)
+    expect(await sessions.touch(created.id, touchedAt, idle)).toBe(true)
+    expect((await sessions.findById(created.id))?.lastSeenAt).toEqual(touchedAt)
+
+    expect(await sessions.revoke(created.id, touchedAt, 'logout')).toBe(true)
+    expect(await sessions.revoke(created.id, touchedAt, 'logout')).toBe(false)
+    expect(await sessions.touch(created.id, touchedAt, idle)).toBe(false)
+    expect((await sessions.findById(created.id))?.revokeReason).toBe('logout')
+  })
+
+  test('revokes every live session for one user', async () => {
+    const userId = await createUser(ownerPool, 'repository-revoke-all', 'revoke-all@example.test')
+    const sessions = new SessionRepository(appPool)
+    const now = new Date()
+
+    for (let index = 0; index < 2; index += 1) {
+      await sessions.create({
+        userId,
+        identityIssuer: 'http://localhost:8080',
+        tokenHash: randomBytes(32),
+        zitadelSessionId: null,
+        oidcSid: null,
+        acr: null,
+        idTokenHintCiphertext: null,
+        keyVersion: null,
+        amr: ['pwd'],
+        authTime: new Date(now.getTime() - 60_000),
+        aal: 1,
+        idleExpiresAt: new Date(now.getTime() + 15 * 60_000),
+        absoluteExpiresAt: new Date(now.getTime() + 8 * 60 * 60_000),
+        ip: null,
+        userAgentHash: null,
+      })
+    }
+
+    const revokedAt = new Date()
+    expect(await sessions.revokeAllForUser(userId, revokedAt, 'account_suspended')).toBe(2)
+    expect(await sessions.revokeAllForUser(userId, revokedAt, 'account_suspended')).toBe(0)
   })
 })
