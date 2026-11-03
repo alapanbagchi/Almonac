@@ -153,8 +153,11 @@ where template_id in (
 );
 delete from control.role_template
 where key in ('org_admin', 'hospital_admin', 'clinician', 'auditor');
-delete from audit.event_type
-where key in (
+-- Keep any catalogue row that audit events still reference. The audit schema
+-- down migration drops these rows with the schema; deleting them here would
+-- require deleting audit evidence.
+delete from audit.event_type as event_type
+where event_type.key in (
   'auth.login',
   'auth.login_failed',
   'auth.logout',
@@ -165,6 +168,10 @@ where key in (
   'break_glass.activate',
   'break_glass.review',
   'admin.change'
+)
+and not exists (
+  select 1 from audit.event as event
+  where event.event_type = event_type.key
 );
 delete from control.role
 where organisation_id is null
