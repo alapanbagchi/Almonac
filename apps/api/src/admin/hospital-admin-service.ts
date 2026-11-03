@@ -1,0 +1,205 @@
+import { AppError } from '../shared/errors'
+import { hashToken, mintToken } from '../shared/tokens'
+import type { AuditSink } from '../audit/audit-writer'
+import type { AuthorizationRepository } from '../access/authorization-repository'
+import type { AdminRequestContext } from './admin-context'
+import type { Hospital, HospitalDomain, HospitalRepository } from './hospital-repository'
+import type { OrganisationRepository } from './organisation-repository'
+import { asAdminError } from './admin-errors'
+
+export class HospitalAdminService {
+  constructor(
+    private readonly hospitals: HospitalRepository,
+    private readonly organisations: OrganisationRepository,
+    private readonly authorization: AuthorizationRepository,
+    private readonly audit: AuditSink,
+  ) {}
+
+  async list(context: AdminRequestContext, organisationId: string): Promise<Hospital[]> {
+    await this.requireOrganisationManage(context, organisationId)
+    return this.hospitals.listByOrganisation(organisationId)
+  }
+
+  async create(
+    context: AdminRequestContext,
+    organisationId: string,
+    input: { name: string; slug: string; timezone: string },
+  ): Promise<Hospital> {
+    await this.requireOrganisationManage(context, organisationId)
+    let hospital: Hospital
+    try {
+      hospital = await this.hospitals.create({ organisationId, ...input })
+    } catch (error) {
+      throw asAdminError(error)
+    }
+    await this.auditChange(context, organisationId, hospital.id, 'hospital', hospital.id, 'hospital.created')
+    return hospital
+  }
+
+  async listDomains(
+    context: AdminRequestContext,
+    hospitalId: string,
+  ): Promise<HospitalDomain[]> {
+    const hospital = await this.requireHospitalManage(context, hospitalId)
+    return this.hospitals.listDomains(hospital.id)
+  }
+
+  async addDomain(
+    context: AdminRequestContext,
+    hospitalId: string,
+    rawDomain: string,
+  ): Promise<{ domain: HospitalDomain; token: string }> {
+    const hospital = await this.requireHospitalManage(context, hospitalId)
+    const domain = normaliseDomain(rawDomain)
+    const minted = mintToken()
+    let created: HospitalDomain
+    try {
+      created = await this.hospitals.addDomain({
+        hospitalId: hospital.id,
+        domain,
+        tokenHash: minted.tokenHash,
+      })
+    } catch (error) {
+      throw asAdminError(error)
+    }
+    await this.auditChange(
+      context,
+      hospital.organisationId,
+      hospital.id,
+      'hospital_domain',
+      created.id,
+      'hospital.domain_added',
+    )
+    return { domain: created, token: minted.token }
+  }
+
+  async verifyDomain(
+    context: AdminRequestContext,
+    hospitalId: string,
+    domainId: string,
+    token: string,
+  ): Promise<HospitalDomain> {
+    const hospital = await this.requireHospitalManage(context, hospitalId)
+    if (token.length === 0 || token.length > 128) throw validation('Verification token is not valid.')
+    const verified = await this.hospitals.verifyDomain({
+      hospitalId: hospital.id,
+      domainId,
+      tokenHash: hashToken(token),
+      at: new Date(),
+    })
+    if (verified === null) {
+      throw new AppError('DOMAIN_VERIFICATION_FAILED', 422, 'Domain verification failed.')
+    }
+    await this.auditChange(
+      context,
+      hospital.organisationId,
+      hospital.id,
+      'hospital_domain',
+      verified.id,
+      'hospital.domain_verified',
+    )
+    return verified
+  }
+
+  async setPrimaryDomain(
+    context: AdminRequestContext,
+    hospitalId: string,
+    domainId: string,
+  ): Promise<Hospital> {
+    const hospital = await this.requireHospitalManage(context, hospitalId)
+    const updated = await this.hospitals.setPrimaryDomain({ hospitalId, domainId, at: new Date() })
+    if (updated === null) throw new AppError('DOMAIN_NOT_VERIFIED', 422, 'Domain is not verified.')
+    await this.auditChange(
+      context,
+      hospital.organisationId,
+      hospital.id,
+      'hospital',
+      hospital.id,
+      'hospital.primary_domain_set',
+    )
+    return updated
+  }
+
+  private async requireOrganisationManage(
+    context: AdminRequestContext,
+    organisationId: string,
+  ): Promise<void> {
+    const allowed =
+      (await this.authorization.hasPlatformPermission(context.actor.id, 'platform.manage')) ||
+      (await this.authorization.hasPermission(context.actor.id, 'hospital.manage', {
+        organisationId,
+      }))
+    if (!allowed) throw forbidden()
+  }
+
+  private async requireHospitalManage(
+    context: AdminRequestContext,
+    hospitalId: string,
+  ): Promise<Hospital> {
+    const hospital = await this.hospitals.findById(hospitalId)
+    if (hospital === null) throw notFound()
+    const allowed =
+      (await this.authorization.hasPlatformPermission(context.actor.id, 'platform.manage')) ||
+      (await this.authorization.hasPermission(context.actor.id, 'hospital.manage', {
+        organisationId: hospital.organisationId,
+        hospitalId: hospital.id,
+      }))
+    if (!allowed) throw forbidden()
+    return hospital
+  }
+
+  private async auditChange(
+    context: AdminRequestContext,
+    organisationId: string,
+    hospitalId: string | null,
+    resourceType: string,
+    resourceId: string,
+    reasonCode: string,
+  ): Promise<void> {
+    await this.audit.write({
+      actorUserId: context.actor.id,
+      actorType: 'user',
+      sessionId: context.sessionId,
+      organisationId,
+      hospitalId,
+      eventType: 'admin.change',
+      outcome: 'success',
+      targetType: resourceType,
+      targetId: resourceId,
+      requestId: context.requestId,
+      reason: humanReason(reasonCode),
+      reasonCode,
+      ip: context.ip,
+      userAgentHash: context.userAgentHash,
+      metadata: { resource_type: resourceType, resource_id: resourceId },
+    })
+  }
+}
+
+function normaliseDomain(value: string): string {
+  const domain = value.trim().toLowerCase().replace(/\.$/, '')
+  if (
+    domain.length < 4 ||
+    domain.length > 253 ||
+    !/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(domain)
+  ) {
+    throw validation('Domain is not valid.')
+  }
+  return domain
+}
+
+function humanReason(code: string): string {
+  return code.replace(/\./g, ' ').replace(/_/g, ' ').slice(0, 500)
+}
+
+function validation(message: string): AppError {
+  return new AppError('VALIDATION_FAILED', 400, message)
+}
+
+function forbidden(): AppError {
+  return new AppError('FORBIDDEN', 403, 'You do not have permission for this action.')
+}
+
+function notFound(): AppError {
+  return new AppError('NOT_FOUND', 404, 'Hospital not found.')
+}
