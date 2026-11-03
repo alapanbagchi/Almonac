@@ -14,11 +14,11 @@ export default function Home() {
           </Link>
 
           <Button
-            render={<Link href="/registration" />}
+            render={<Link href="/login" />}
             size="lg"
             className="group h-[52px] rounded-xl px-5 text-[15px] font-semibold"
           >
-            Sign up
+            Sign in
             <ArrowRight02
               size={16}
               className="transition-transform duration-300 ease-out group-hover:translate-x-1"
