@@ -11,10 +11,13 @@
   },
   "dependencies": {
     "@elysia/openapi": "2.0.0-rc.0",
-    "elysia": "2.0.0-rc.1"
+    "elysia": "2.0.0-rc.1",
+    "node-pg-migrate": "^9.0.0",
+    "pg": "^8.23.1"
   },
   "devDependencies": {
     "@types/bun": "1.4.4",
+    "@types/pg": "^8.23.1",
     "typescript": "^5.7.0"
   }
 }
