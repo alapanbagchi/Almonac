@@ -1,6 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
 const port = 3100;
+const apiPort = 3101;
 
 export default defineConfig({
   testDir: "./e2e",
@@ -13,14 +14,22 @@ export default defineConfig({
     trace: "on-first-retry",
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"], channel: "chromium" } }],
-  webServer: {
-    command: `npm run dev -- --port ${port}`,
-    url: `http://localhost:${port}`,
-    reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
-    env: {
-      AUTH_PUBLIC_ORIGIN: `http://localhost:${port}`,
-      API_URL: "http://localhost:3101",
+  webServer: [
+    {
+      command: "bun e2e/support/api.ts",
+      url: `http://localhost:${apiPort}/health`,
+      reuseExistingServer: !process.env.CI,
+      timeout: 30_000,
     },
-  },
+    {
+      command: `npm run dev -- --port ${port}`,
+      url: `http://localhost:${port}`,
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000,
+      env: {
+        AUTH_PUBLIC_ORIGIN: `http://localhost:${port}`,
+        API_URL: `http://localhost:${apiPort}`,
+      },
+    },
+  ],
 });
