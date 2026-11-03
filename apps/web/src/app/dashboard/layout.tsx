@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { DashboardSidebar } from "@/components/dashboard/dashboard-sidebar";
 import { buttonVariants } from "@/components/ui/button";
 import { getSession } from "@/lib/auth/session";
+import { toSessionHospitals, toSessionUser } from "@/lib/auth/session-view";
 
 // The dashboard must not render a shell before the session is known.
 export const instant = false;
@@ -21,9 +22,12 @@ export default async function DashboardLayout({
   }
   if (session === null) redirect("/login?returnTo=/dashboard");
 
+  const hospitals = toSessionHospitals(session);
+  const user = toSessionUser(session);
+
   return (
     <div className="flex min-h-svh flex-col bg-background lg:flex-row">
-      <DashboardSidebar />
+      <DashboardSidebar hospitals={hospitals} user={user} />
       <main className="flex-1 px-6 py-10 lg:px-12">
         <div className="mx-auto w-full max-w-[760px]">{children}</div>
       </main>

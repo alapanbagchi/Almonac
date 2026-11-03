@@ -10,18 +10,18 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
+import { HOSPITAL_LOGO, type SessionHospital, type SessionUser } from "@/lib/auth/session-view";
+
 import { DashboardNav } from "./dashboard-nav";
-import { DEFAULT_HOSPITAL_ID, DEFAULT_HOSPITAL_LOGO, HOSPITALS, type Hospital } from "./hospital";
 import { HospitalSwitcher } from "./hospital-switcher";
 import { LogoTile } from "./logo-tile";
-import { CURRENT_USER } from "./profile";
 
 function HospitalBrand({
   hospital,
   tileSize,
   showSlogan,
 }: {
-  hospital: Hospital;
+  hospital: SessionHospital;
   tileSize: number;
   showSlogan: boolean;
 }) {
@@ -42,21 +42,21 @@ function HospitalBrand({
   );
 }
 
-export function DashboardSidebar() {
+export function DashboardSidebar({
+  hospitals,
+  user,
+}: {
+  hospitals: SessionHospital[];
+  user: SessionUser;
+}) {
   const [open, setOpen] = React.useState(false);
-  const [hospitals, setHospitals] = React.useState<Hospital[]>(HOSPITALS);
-  const [currentId, setCurrentId] = React.useState(DEFAULT_HOSPITAL_ID);
-  const current = hospitals.find((hospital) => hospital.id === currentId) ?? hospitals[0];
-
-  const addHospital = (name: string, type: string) => {
-    const hospital: Hospital = {
-      id: "hospital-" + Date.now(),
-      name,
-      type,
-      logo: DEFAULT_HOSPITAL_LOGO,
-    };
-    setHospitals((prev) => [...prev, hospital]);
-    setCurrentId(hospital.id);
+  const [currentId, setCurrentId] = React.useState(hospitals[0]?.id ?? "");
+  const selected = hospitals.find((hospital) => hospital.id === currentId) ?? hospitals[0];
+  const current: SessionHospital = selected ?? {
+    id: "workspace",
+    name: "Almonac",
+    type: "No hospital access",
+    logo: HOSPITAL_LOGO,
   };
 
   return (
@@ -79,22 +79,23 @@ export function DashboardSidebar() {
             <div className="pr-10">
               <HospitalBrand hospital={current} tileSize={44} showSlogan={true} />
             </div>
-            <div className="mt-4">
-              <HospitalSwitcher
-                hospitals={hospitals}
-                currentId={current.id}
-                onSelect={setCurrentId}
-                onAdd={addHospital}
-              />
-            </div>
+            {hospitals.length > 0 ? (
+              <div className="mt-4">
+                <HospitalSwitcher
+                  hospitals={hospitals}
+                  currentId={current.id}
+                  onSelect={setCurrentId}
+                />
+              </div>
+            ) : null}
             <div className="mt-6">
               <DashboardNav onNavigate={() => setOpen(false)} />
             </div>
             <div className="mt-auto pt-4">
               <ProfileDropdown
-                name={CURRENT_USER.name}
-                designation={CURRENT_USER.designation}
-                imageSrc={CURRENT_USER.avatar}
+                name={user.name}
+                designation={user.designation}
+                imageSrc={user.avatar}
                 onNavigate={() => setOpen(false)}
               />
             </div>
@@ -104,22 +105,23 @@ export function DashboardSidebar() {
       </header>
       <aside className="sticky top-0 hidden h-svh w-72 shrink-0 flex-col border-r border-border bg-ink-deep p-4 lg:flex">
         <HospitalBrand hospital={current} tileSize={44} showSlogan={true} />
-        <div className="mt-4">
-          <HospitalSwitcher
-            hospitals={hospitals}
-            currentId={current.id}
-            onSelect={setCurrentId}
-            onAdd={addHospital}
-          />
-        </div>
+        {hospitals.length > 0 ? (
+          <div className="mt-4">
+            <HospitalSwitcher
+              hospitals={hospitals}
+              currentId={current.id}
+              onSelect={setCurrentId}
+            />
+          </div>
+        ) : null}
         <div className="mt-6">
           <DashboardNav />
         </div>
         <div className="mt-auto pt-4">
           <ProfileDropdown
-            name={CURRENT_USER.name}
-            designation={CURRENT_USER.designation}
-            imageSrc={CURRENT_USER.avatar}
+            name={user.name}
+            designation={user.designation}
+            imageSrc={user.avatar}
           />
         </div>
       </aside>
