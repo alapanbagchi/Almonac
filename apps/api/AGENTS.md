@@ -1,6 +1,6 @@
 # Almonac API — Elysia on Bun
 
-**Status: scaffolded.** `apps/api` is a bare Elysia 2 (`2.0.0-rc.1`) service on Bun: one `GET /health` route, the error-envelope plugin, OpenAPI at `/openapi`, and route tests. There is no database, authentication, tenant resolution or domain feature yet. Everything below is the intended architecture, binding on whoever implements it. Before writing code, check the Elysia version and read that version's documentation; do not copy examples from an older release.
+**Status: control database foundation.** `apps/api` is an Elysia 2 (`2.0.0-rc.1`) service on Bun: `GET /health` and `GET /health/ready`, the error-envelope plugin, OpenAPI at `/openapi`, startup configuration validation, a bounded control PostgreSQL pool, SQL migrations for the `identity`, `control` and `audit` schemas (issuer-scoped identities, OIDC session metadata, invitations, tenancy, scoped roles and template versions, membership history, break-glass review and a catalogued append-only audit log), and a least-privilege `almonac_app` runtime role. Unit and integration tests cover the foundation. There is no authentication, session endpoint, tenant resolution, hospital database or domain feature yet. Everything below is the intended architecture, binding on whoever implements it. Before writing code, check the Elysia version and read that version's documentation; do not copy examples from an older release.
 
 The API is a modular monolith owning the Control, Hospital and Terminology domains. It authorises every request, resolves the tenant, and is the only service that talks to PostgreSQL.
 
@@ -8,7 +8,8 @@ The API is a modular monolith owning the Control, Hospital and Terminology domai
 
 ```text
 apps/api/src/
-├── index.ts                 composition root (the exported app)
+├── index.ts                 process entry: config, pool, port and shutdown
+├── app.ts                   composition root (exports App for Eden)
 ├── plugins/                 db, auth, tenant, errors, openapi
 ├── domains/
 │   ├── control/<feature>/
@@ -41,7 +42,7 @@ Do not add Express-style controllers, a mandatory `validators/` directory, gener
 - Validate params, query, body and response with `t`. Response schemas are contracts: do not use `t.Any()` to escape a mismatch; fix the shape.
 - Errors: throw typed errors in services; map them once in a root `onError` handler to `{ error: { code, message, requestId } }`. Never return raw exception messages.
 - OpenAPI: register the OpenAPI plugin once at the root; every route gets `detail.summary`, a tag and explicit security. Generated docs are part of the deliverable.
-- Eden Treaty: export `type App = typeof app` from the composition root for the web client. Do not hand-write request/response types that Eden already infers.
+- Eden Treaty: export `type App` from `app.ts` for the web client. Do not hand-write request/response types that Eden already infers.
 
 Minimal feature:
 
@@ -73,7 +74,7 @@ export async function listPatients(tenant: TenantContext, query: PatientListQuer
 ## 3. Composition
 
 ```ts
-// index.ts (root)
+// app.ts (composition root)
 import { Elysia } from 'elysia'
 import { errors } from './plugins/errors'
 import { openapi } from './plugins/openapi'
@@ -81,15 +82,20 @@ import { control } from './domains/control'
 import { hospital } from './domains/hospital'
 import { terminology } from './domains/terminology'
 
-export const app = new Elysia({ name: 'almonac.api' })
-  .use(errors)
-  .use(openapi)
-  .use(control)
-  .use(hospital)
-  .use(terminology)
+export function createApp(dependencies: AppDependencies) {
+  return new Elysia({ name: 'almonac.api' })
+    .use(errors)
+    .use(openapi)
+    .use(control)
+    .use(hospital)
+    .use(terminology)
+}
 
-export type App = typeof app
+export type App = ReturnType<typeof createApp>
 ```
+
+`index.ts` loads configuration, creates the pools, calls `createApp`, opens the
+port and closes both on shutdown. Tests call `createApp` with fakes.
 
 Each domain `index.ts` mounts its features with their own prefixes. A feature never mounts itself; only its domain does. Prefixes are relative to the domain, so a hospital feature is not reachable under the control prefix.
 
