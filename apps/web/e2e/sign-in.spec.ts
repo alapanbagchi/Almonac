@@ -15,8 +15,13 @@ test("signs in, shows the member and signs out", async ({ page, context }) => {
   expect(session?.secure).toBe(true);
   expect(session?.sameSite).toBe("Lax");
 
-  await page.locator('[data-slot="profile-chip"]').click();
-  await page.getByRole("button", { name: "Sign out" }).click();
+  const chip = page.locator('[data-slot="profile-chip"]');
+  const signOut = page.getByRole("button", { name: "Sign out" });
+  await expect(async () => {
+    if (!(await signOut.isVisible())) await chip.click();
+    await expect(signOut).toBeVisible({ timeout: 1000 });
+  }).toPass({ timeout: 10_000 });
+  await signOut.click();
   await expect(page).toHaveURL(/\/login$/);
 
   await page.goto("/dashboard");
