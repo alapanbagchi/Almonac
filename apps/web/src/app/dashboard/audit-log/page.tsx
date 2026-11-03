@@ -1,5 +1,8 @@
 export const metadata = { title: "Audit Log" };
 
+// The session guard must resolve before this page renders.
+export const instant = false;
+
 export default function AuditLogPage() {
   return (
     <div>

@@ -1,5 +1,8 @@
 export const metadata = { title: "Users & Roles" };
 
+// The session guard must resolve before this page renders.
+export const instant = false;
+
 export default function UsersPage() {
   return (
     <div>

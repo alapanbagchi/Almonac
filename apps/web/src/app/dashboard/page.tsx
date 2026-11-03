@@ -9,6 +9,9 @@ import { UserRound } from "@/components/animate-ui/icons/hugeicons/user-round";
 
 export const metadata = { title: "Overview" };
 
+// The session guard must resolve before this page renders.
+export const instant = false;
+
 type SectionIcon = React.ComponentType<{
   size?: number;
   className?: string;

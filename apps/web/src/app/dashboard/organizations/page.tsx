@@ -1,5 +1,8 @@
 export const metadata = { title: "Organizations" };
 
+// The session guard must resolve before this page renders.
+export const instant = false;
+
 export default function OrganizationsPage() {
   return (
     <div>
