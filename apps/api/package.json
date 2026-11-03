@@ -10,6 +10,7 @@
     "test:integration": "bun test test/integration",
     "test:all": "bun test",
     "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
     "db:migrate": "bun --env-file=.env ./node_modules/.bin/node-pg-migrate up",
     "db:migrate:down": "bun --env-file=.env ./node_modules/.bin/node-pg-migrate down"
   },
@@ -20,8 +21,11 @@
     "pg": "^8.23.1"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/bun": "1.4.4",
     "@types/pg": "^8.23.1",
-    "typescript": "^5.7.0"
+    "eslint": "^10.14.0",
+    "typescript": "^5.7.0",
+    "typescript-eslint": "^8.72.1"
   }
 }
