@@ -173,11 +173,16 @@ and not exists (
   select 1 from audit.event as event
   where event.event_type = event_type.key
 );
-delete from control.role
-where organisation_id is null
-  and key in ('platform_admin', 'break_glass_approver');
-delete from control.permission
-where key in (
+delete from control.role as role
+where role.organisation_id is null
+  and role.key in ('platform_admin', 'break_glass_approver')
+  and not exists (
+    select 1
+    from control.platform_assignment as assignment
+    where assignment.role_id = role.id
+  );
+delete from control.permission as permission
+where permission.key in (
   'platform.manage',
   'organisation.manage',
   'hospital.manage',
@@ -187,5 +192,15 @@ where key in (
   'audit.read',
   'break_glass.request',
   'break_glass.approve'
+)
+and not exists (
+  select 1
+  from control.role_permission as role_permission
+  where role_permission.permission_key = permission.key
+)
+and not exists (
+  select 1
+  from control.role_template_permission as template_permission
+  where template_permission.permission_key = permission.key
 );
 delete from control.schema_metadata where id = 1;
