@@ -10,8 +10,17 @@ export const CONTROL_IDLE_TIMEOUT_MS = 30_000
 export const CONTROL_STATEMENT_TIMEOUT_MS = 10_000
 export const CONTROL_IDLE_IN_TRANSACTION_TIMEOUT_MS = 10_000
 
+export interface DatabaseResult {
+  readonly rows: readonly unknown[]
+}
+
+/**
+ * The narrow database surface that repositories use. It deliberately hides
+ * pool and client details, so a repository cannot leak a connection or choose
+ * its own role. Rows stay unknown until the repository validates them.
+ */
 export interface DatabaseQuery {
-  query(text: string): Promise<unknown>
+  query(text: string, values?: unknown[]): Promise<DatabaseResult>
 }
 
 /**
