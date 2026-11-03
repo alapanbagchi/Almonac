@@ -44,6 +44,7 @@ export interface SessionChanges {
 
 export interface IssuedSession {
   readonly token: string
+  /** Absolute expiry. Idle expiry stays server-side. */
   readonly expiresAt: Date
   readonly session: WebSession
 }
@@ -114,7 +115,13 @@ export class SessionService {
       userAgentHash: input.userAgentHash,
     })
 
-    return { token, expiresAt: idleExpiresAt, session }
+    return { token, expiresAt: absoluteExpiresAt, session }
+  }
+
+  /** Find a session by token without requiring it to be active. */
+  async findByToken(token: string): Promise<WebSession | null> {
+    if (!isSessionToken(token)) return null
+    return this.store.findByTokenHash(hashToken(token))
   }
 
   /**
@@ -122,10 +129,8 @@ export class SessionService {
    * interval. The returned session reflects the new idle expiry.
    */
   async authenticate(token: string): Promise<WebSession | null> {
-    if (!isSessionToken(token)) return null
-
     const now = this.clock()
-    const session = await this.store.findByTokenHash(hashToken(token))
+    const session = await this.findByToken(token)
     if (session === null || !isActive(session, now)) return null
 
     if (now.getTime() - session.lastSeenAt.getTime() < this.touchIntervalMs) {
@@ -187,13 +192,15 @@ export class SessionService {
       userAgentHash: session.userAgentHash,
     })
 
-    return { token: nextToken, expiresAt: idleExpiresAt, session: next }
+    return {
+      token: nextToken,
+      expiresAt: session.absoluteExpiresAt,
+      session: next,
+    }
   }
 
   async revoke(token: string, reason: string): Promise<boolean> {
-    if (!isSessionToken(token)) return false
-
-    const session = await this.store.findByTokenHash(hashToken(token))
+    const session = await this.findByToken(token)
     if (session === null) return false
 
     return this.store.revoke(session.id, this.clock(), reason)

@@ -22,12 +22,16 @@ export interface AuditEvent {
   readonly metadata?: AuditMetadata
 }
 
+export interface AuditSink {
+  write(event: AuditEvent): Promise<void>
+}
+
 /**
  * Append one security event. The database catalogue rejects unknown event
  * types, missing reasons and metadata keys outside the allowlist. There is no
  * catch: a sensitive action must fail when its audit record cannot be written.
  */
-export class AuditWriter {
+export class AuditWriter implements AuditSink {
   constructor(private readonly db: DatabaseQuery) {}
 
   async write(event: AuditEvent): Promise<void> {

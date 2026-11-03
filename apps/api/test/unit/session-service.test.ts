@@ -104,7 +104,9 @@ describe('session service', () => {
     expect(store.rows).toHaveLength(1)
     expect(store.rows[0]!.tokenHash).toEqual(hashToken(issued.token))
     expect(store.rows[0]!.tokenHash).not.toEqual(Buffer.from(issued.token))
-    expect(issued.expiresAt).toEqual(new Date(START.getTime() + SESSION_IDLE_TIMEOUT_MS))
+    expect(issued.expiresAt).toEqual(
+      new Date(START.getTime() + SESSION_ABSOLUTE_TIMEOUT_MS),
+    )
     expect(changes(store).absoluteExpiresAt).toEqual(
       new Date(START.getTime() + SESSION_ABSOLUTE_TIMEOUT_MS),
     )
@@ -192,6 +194,7 @@ describe('session service', () => {
       { id: 'session-1', at: now, reason: 'rotated' },
     ])
     expect(rotated!.session.absoluteExpiresAt).toEqual(absolute)
+    expect(rotated!.expiresAt).toEqual(absolute)
     expect(rotated!.session.authTime).toEqual(now)
     expect(rotated!.session.amr).toEqual(['pwd', 'mfa'])
   })

@@ -48,6 +48,36 @@ export function createControlPool(databaseUrl: string): Pool {
   return pool
 }
 
+/**
+ * Run repository work in one transaction. A failed rollback destroys the
+ * connection instead of returning an unknown state to the pool.
+ */
+export async function withTransaction<T>(
+  pool: Pool,
+  run: (db: DatabaseQuery) => Promise<T>,
+): Promise<T> {
+  const client = await pool.connect()
+  let broken = false
+
+  try {
+    await client.query('begin')
+    const result = await run({
+      query: (text, values) => client.query(text, values),
+    })
+    await client.query('commit')
+    return result
+  } catch (error) {
+    try {
+      await client.query('rollback')
+    } catch {
+      broken = true
+    }
+    throw error
+  } finally {
+    client.release(broken)
+  }
+}
+
 const READINESS_QUERY = `
   select
     current_user as runtime_role,

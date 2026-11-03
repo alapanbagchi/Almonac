@@ -103,11 +103,16 @@ export class AppUserRepository {
     return mapOptionalRow(result.rows[0])
   }
 
+  /**
+   * Mark a successful login. The status predicate closes the race where an
+   * administrator suspends the user after the login check but before the
+   * session is created.
+   */
   async markLogin(id: string, at: Date): Promise<AppUser | null> {
     const result = await this.db.query(
       `update identity.app_user
-          set last_login_at = $2
-        where id = $1
+          set last_login_at = greatest($2, created_at)
+        where id = $1 and status = 'active'
         returning ${COLUMNS}`,
       [id, at],
     )

@@ -15,6 +15,11 @@ import {
 } from '../../../src/identity/app-user-repository'
 import { AuditWriter } from '../../../src/audit/audit-writer'
 import { SessionRepository } from '../../../src/identity/session-repository'
+import { AccessRepository } from '../../../src/identity/access-repository'
+import { PostgresLoginStore } from '../../../src/auth/postgres-login-store'
+import { LoginRejectedError } from '../../../src/auth/login-service'
+import type { LoginAttempt } from '../../../src/auth/login-attempt-repository'
+import type { VerifiedIdentity } from '../../../src/auth/id-token-verifier'
 
 const databaseUrl = process.env.TEST_DATABASE_URL
 
@@ -59,7 +64,7 @@ async function rejects(
 }
 
 async function createOrganisation(
-  client: PoolClient,
+  client: Pool | PoolClient,
   slug: string,
 ): Promise<string> {
   const result = await client.query<{ id: string }>(
@@ -74,7 +79,7 @@ async function createOrganisation(
 }
 
 async function createHospital(
-  client: PoolClient,
+  client: Pool | PoolClient,
   organisationId: string,
   slug: string,
   active = false,
@@ -101,7 +106,7 @@ async function createHospital(
 }
 
 async function createDomain(
-  client: PoolClient,
+  client: Pool | PoolClient,
   hospitalId: string,
   domain: string,
   verified = false,
@@ -132,7 +137,7 @@ async function createUser(
 }
 
 async function createRole(
-  client: PoolClient,
+  client: Pool | PoolClient,
   organisationId: string,
   key: string,
   scope: string,
@@ -170,7 +175,7 @@ async function createTemplateVersion(
 }
 
 async function findSystemRole(
-  client: PoolClient,
+  client: Pool | PoolClient,
   key: string,
 ): Promise<string> {
   const result = await client.query<{ id: string }>(
@@ -185,7 +190,7 @@ async function findSystemRole(
 }
 
 async function createMembership(
-  client: PoolClient,
+  client: Pool | PoolClient,
   userId: string,
   organisationId: string,
   hospitalId: string | null,
@@ -194,7 +199,7 @@ async function createMembership(
 ): Promise<string> {
   const result = await client.query<{ id: string }>(
     `insert into control.membership
-       (user_id, organisation_id, hospital_id, accepted_at, validity)
+       (user_id, organisation_id, hospital_id, accepted_at, validity, created_at, updated_at)
      values (
        $1,
        $2,
@@ -204,7 +209,9 @@ async function createMembership(
          now() + $4::interval,
          case when $5::interval is null then null else now() + $5::interval end,
          '[)'
-       )
+       ),
+       now() + $4::interval,
+       now() + $4::interval
      )
      returning id`,
     [
@@ -220,7 +227,7 @@ async function createMembership(
 }
 
 async function createInvitation(
-  client: PoolClient,
+  client: Pool | PoolClient,
   email: string,
   organisationId: string,
   hospitalId: string | null,
@@ -1723,11 +1730,17 @@ describe('app user repository', () => {
     expect(afterLogin.status).toBe('deactivated')
 
     const loginAt = new Date(Date.now() + 60_000)
+    expect(await users.markLogin(first.id, loginAt)).toBeNull()
+
+    await users.setStatus(first.id, 'active')
     const marked = await users.markLogin(first.id, loginAt)
     expect(marked?.lastLoginAt).toEqual(loginAt)
     expect(await users.findBySubject('http://localhost:8080', 'repository-user-1')).toEqual(
       marked,
     )
+
+    const clamped = await users.markLogin(first.id, new Date('2000-01-01T00:00:00.000Z'))
+    expect(clamped?.lastLoginAt).toEqual(clamped?.createdAt)
   })
 
   test('rejects a second identity that claims the same email', async () => {
@@ -1903,5 +1916,221 @@ describe('audit writer', () => {
         metadata: { session_id: 'session-1', patient_name: 'Jane Doe' },
       }),
     ).rejects.toMatchObject({ code: '23514' })
+  })
+})
+
+
+function loginAttempt(now: Date): LoginAttempt {
+  return {
+    id: 'attempt-1',
+    userId: null,
+    stateHash: randomBytes(32),
+    nonceHash: randomBytes(32),
+    pkceVerifierCiphertext: Buffer.from('sealed-verifier'),
+    keyVersion: 1,
+    returnTo: '/dashboard',
+    purpose: 'login',
+    ip: null,
+    userAgentHash: null,
+    createdAt: now,
+    expiresAt: new Date(now.getTime() + 600_000),
+    consumedAt: now,
+  }
+}
+
+function identityFor(
+  email: string,
+  subject: string,
+  now: Date,
+): VerifiedIdentity {
+  return {
+    issuer: 'http://localhost:8080',
+    subject,
+    email,
+    emailVerifiedAt: now,
+    displayName: 'Login Store User',
+    authTime: new Date(now.getTime() - 60_000),
+    amr: ['pwd'],
+    aal: 1,
+    sid: 'zitadel-session-1',
+    acr: null,
+    idToken: 'signed.id.token',
+  }
+}
+
+describe('login completion store', () => {
+  test('accepts an invitation and mints a session in one transaction', async () => {
+    const organisation = await createOrganisation(ownerPool, 'login-store')
+    const inviter = await createUser(ownerPool, 'login-inviter', 'inviter@example.test')
+    const role = await createRole(ownerPool, organisation, 'login_clinician', 'organisation')
+    await ownerPool.query(
+      "insert into control.role_permission (role_id, permission_key) values ($1, 'clinical.read')",
+      [role],
+    )
+    const invitation = await createInvitation(
+      ownerPool,
+      'invitee.login@example.test',
+      organisation,
+      null,
+      inviter,
+    )
+    await ownerPool.query(
+      'insert into control.invitation_role (invitation_id, role_id) values ($1, $2)',
+      [invitation, role],
+    )
+
+    const now = new Date(Date.now() + 1_000)
+    const result = await new PostgresLoginStore(appPool).complete({
+      attempt: loginAttempt(now),
+      identity: identityFor('invitee.login@example.test', 'login-invitee', now),
+      idTokenHintCiphertext: Buffer.from('sealed-hint'),
+      keyVersion: 1,
+      now,
+      ip: '127.0.0.1',
+      userAgentHash: null,
+      requestId: 'login-request-1',
+    })
+
+    expect(result.token).toHaveLength(43)
+    expect(result.returnTo).toBe('/dashboard')
+
+    const user = await ownerPool.query<{ id: string; home_organisation_id: string }>(
+      'select id, home_organisation_id from identity.app_user where zitadel_sub = $1',
+      ['login-invitee'],
+    )
+    expect(user.rows[0]!.home_organisation_id).toBe(organisation)
+    const userId = user.rows[0]!.id
+
+    const accepted = await ownerPool.query<{ status: string; accepted_by_user_id: string }>(
+      'select status, accepted_by_user_id from identity.invitation where id = $1',
+      [invitation],
+    )
+    expect(accepted.rows[0]!.status).toBe('accepted')
+    expect(accepted.rows[0]!.accepted_by_user_id).toBe(userId)
+
+    const membership = await ownerPool.query<{ id: string; hospital_id: string | null }>(
+      'select id, hospital_id from control.membership where user_id = $1',
+      [userId],
+    )
+    expect(membership.rowCount).toBe(1)
+    expect(membership.rows[0]!.hospital_id).toBeNull()
+
+    const assigned = await ownerPool.query<{ count: number }>(
+      'select count(*)::int as count from control.membership_role where membership_id = $1 and role_id = $2',
+      [membership.rows[0]!.id, role],
+    )
+    expect(assigned.rows[0]!.count).toBe(1)
+
+    const audit = await ownerPool.query<{ count: number }>(
+      "select count(*)::int as count from audit.event where actor_user_id = $1 and event_type in ('auth.login', 'invitation.accept')",
+      [userId],
+    )
+    expect(audit.rows[0]!.count).toBe(2)
+
+    const access = await new AccessRepository(appPool).listForUser(
+      userId,
+      new Date(now.getTime() + 1_000),
+    )
+    expect(access.memberships).toHaveLength(1)
+    expect(access.memberships[0]!.organisationId).toBe(organisation)
+    expect(access.memberships[0]!.roles).toEqual(['login_clinician'])
+    expect(access.permissions).toEqual(['clinical.read'])
+  })
+
+  test('rejects a suspended user and creates no session', async () => {
+    const user = await createUser(ownerPool, 'login-suspended', 'suspended.login@example.test')
+    await ownerPool.query("update identity.app_user set status = 'suspended' where id = $1", [user])
+    const now = new Date(Date.now() + 1_000)
+
+    await expect(
+      new PostgresLoginStore(appPool).complete({
+        attempt: loginAttempt(now),
+        identity: identityFor('suspended.login@example.test', 'login-suspended', now),
+        idTokenHintCiphertext: Buffer.from('sealed-hint'),
+        keyVersion: 1,
+        now,
+        ip: null,
+        userAgentHash: null,
+        requestId: null,
+      }),
+    ).rejects.toBeInstanceOf(LoginRejectedError)
+
+    const sessions = await ownerPool.query<{ count: number }>(
+      'select count(*)::int as count from identity.web_session where user_id = $1',
+      [user],
+    )
+    expect(sessions.rows[0]!.count).toBe(0)
+  })
+
+  test('ignores an expired invitation', async () => {
+    const organisation = await createOrganisation(ownerPool, 'login-expired')
+    const inviter = await createUser(ownerPool, 'login-expired-inviter', 'expired.inviter@example.test')
+    await createInvitation(
+      ownerPool,
+      'expired.invitee@example.test',
+      organisation,
+      null,
+      inviter,
+      -120,
+      -60,
+    )
+    const now = new Date(Date.now() + 1_000)
+
+    const result = await new PostgresLoginStore(appPool).complete({
+      attempt: loginAttempt(now),
+      identity: identityFor('expired.invitee@example.test', 'login-expired-invitee', now),
+      idTokenHintCiphertext: Buffer.from('sealed-hint'),
+      keyVersion: 1,
+      now,
+      ip: null,
+      userAgentHash: null,
+      requestId: null,
+    })
+
+    const membership = await ownerPool.query<{ count: number }>(
+      'select count(*)::int as count from control.membership where user_id = $1',
+      [result.userId],
+    )
+    expect(membership.rows[0]!.count).toBe(0)
+  })
+})
+
+describe('session access repository', () => {
+  test('returns only current memberships and their permissions', async () => {
+    const organisation = await createOrganisation(ownerPool, 'access-read')
+    const hospital = await createHospital(ownerPool, organisation, 'access-hospital', true)
+    const role = await createRole(ownerPool, organisation, 'access_clinician', 'hospital')
+    await ownerPool.query(
+      "insert into control.role_permission (role_id, permission_key) values ($1, 'clinical.read')",
+      [role],
+    )
+    const user = await createUser(ownerPool, 'access-user', 'access@example.test')
+    const membership = await createMembership(ownerPool, user, organisation, hospital, -5, 30)
+    await ownerPool.query(
+      "insert into control.membership_role (membership_id, role_id, validity) values ($1, $2, tstzrange(now(), now() + interval '29 minutes'))",
+      [membership, role],
+    )
+    await createMembership(ownerPool, user, organisation, hospital, 60, 120)
+
+    const access = await new AccessRepository(appPool).listForUser(user, new Date())
+    expect(access.memberships).toHaveLength(1)
+    expect(access.memberships[0]!.hospitalId).toBe(hospital)
+    expect(access.memberships[0]!.roles).toEqual(['access_clinician'])
+    expect(access.permissions).toEqual(['clinical.read'])
+  })
+
+  test('includes platform permissions without a membership', async () => {
+    const user = await createUser(ownerPool, 'access-platform', 'platform@example.test')
+    const role = await findSystemRole(ownerPool, 'platform_admin')
+    await ownerPool.query(
+      'insert into control.platform_assignment (user_id, role_id) values ($1, $2)',
+      [user, role],
+    )
+
+    const access = await new AccessRepository(appPool).listForUser(user, new Date())
+    expect(access.memberships).toEqual([])
+    expect(access.permissions).toEqual(['platform.manage'])
+
+    await ownerPool.query('delete from control.platform_assignment where user_id = $1', [user])
   })
 })
