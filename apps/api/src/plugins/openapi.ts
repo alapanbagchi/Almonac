@@ -10,5 +10,14 @@ export const docs = openapi({
       title: 'Almonac API',
       version: '0.0.0',
     },
+    components: {
+      securitySchemes: {
+        bearerAuth: {
+          type: 'http',
+          scheme: 'bearer',
+          bearerFormat: 'session token',
+        },
+      },
+    },
   },
 })
