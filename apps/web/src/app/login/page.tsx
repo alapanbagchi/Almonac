@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 
 import { ArrowRight02 } from "@/components/animate-ui/icons/hugeicons/arrow-right-02";
+import { LoginContinue } from "@/components/auth/login-continue";
 import { buttonVariants } from "@/components/ui/button";
 import { loginErrorMessage } from "@/lib/auth/login-error";
 import { normaliseReturnTo } from "@/lib/auth/return-to";
@@ -26,17 +27,24 @@ export default function LoginPage({ searchParams }: LoginPageProps) {
 
 async function LoginContent({ searchParams }: LoginPageProps) {
   const params = await searchParams;
+  const returnTo = safeReturnTo(params.returnTo);
   return (
     <LoginPanel
       message={loginErrorMessage(params.error)}
-      loginHref={loginHref(params.returnTo)}
+      loginHref={loginHref(returnTo)}
+      returnTo={returnTo}
     />
   );
 }
 
-function LoginPanel({ message = null, loginHref = "/api/auth/login" }: {
+function LoginPanel({
+  message = null,
+  loginHref = "/api/auth/login",
+  returnTo = "/dashboard",
+}: {
   message?: string | null;
   loginHref?: string;
+  returnTo?: string;
 }) {
   return (
     <div className="flex min-h-svh flex-col bg-background">
@@ -80,8 +88,9 @@ function LoginPanel({ message = null, loginHref = "/api/auth/login" }: {
           )}
 
           <div className="mt-8 rounded-2xl border border-bark bg-ink-raised p-6 sm:p-8">
-            <a
+            <LoginContinue
               href={loginHref}
+              returnTo={returnTo}
               className={buttonVariants({
                 className: "group h-[52px] w-full rounded-xl text-[15px] font-semibold",
               })}
@@ -91,7 +100,7 @@ function LoginPanel({ message = null, loginHref = "/api/auth/login" }: {
                 size={16}
                 className="transition-transform duration-300 ease-out group-hover:translate-x-1"
               />
-            </a>
+            </LoginContinue>
             <p className="mt-4 text-center text-[12px] leading-relaxed text-moss">
               Almonac never sees your password. Your hospital identity service verifies it.
             </p>
@@ -106,9 +115,8 @@ function LoginPanel({ message = null, loginHref = "/api/auth/login" }: {
   );
 }
 
-function loginHref(returnTo: unknown): string {
-  const target = safeReturnTo(returnTo);
-  return `/api/auth/login?returnTo=${encodeURIComponent(target)}`;
+function loginHref(returnTo: string): string {
+  return `/api/auth/login?returnTo=${encodeURIComponent(returnTo)}`;
 }
 
 function safeReturnTo(value: unknown): string {
