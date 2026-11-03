@@ -1,8 +1,8 @@
 # Almonac Infrastructure
 
-**Status: not implemented.** There is no Dockerfile, Compose file, Terraform configuration or CI deployment pipeline in this repository, and no cloud provider has been chosen. Treat every service definition below as a target to implement, not a description of what exists.
+**Status: partially implemented.** `infrastructure/local/compose.yaml` runs a development-only Zitadel identity stack (proxy, Zitadel API, login UI, PostgreSQL, Mailpit) on 127.0.0.1. It creates the first instance and an administrator. It does not create an Almonac project, OIDC application, SMTP provider or users. There is no Dockerfile, Terraform configuration or CI deployment pipeline yet, and no cloud provider has been chosen. Treat every service definition below other than the local identity stack as a target to implement, not a description of what exists.
 
-The only thing running today is the Next.js app in `frontend/` via `npm run dev` on port 3000. Nothing else is deployed.
+The Next.js app in `apps/web/` and the local identity stack run on a developer machine. Nothing is deployed.
 
 ## 1. Environments
 
@@ -21,7 +21,7 @@ No environment shares credentials, buckets, databases or encryption keys with an
 
 ## 2. Containers
 
-- One Dockerfile per deployable app (`apps/api`, `apps/clinical-ai`, `apps/worker`, and the web app — currently `frontend/`, later `apps/web/` under ADR-007). No "everything" image.
+- One Dockerfile per deployable app (`apps/api`, `apps/clinical-ai`, `apps/worker`, `apps/web`). No "everything" image.
 - Multi-stage builds: dependency install, build, then a minimal runtime. No compilers, package caches or dev dependencies in the final image.
 - Run as a non-root user with a fixed UID, read-only root filesystem where possible, and no shell needed at runtime.
 - Pin base images by digest or exact version, never `latest`. Rebuild on a schedule to pick up patches.
@@ -33,11 +33,12 @@ No environment shares credentials, buckets, databases or encryption keys with an
 
 Compose is for local development and CI, not production:
 
-- PostgreSQL services for control, one demo hospital and terminology; separate volumes; no shared superuser across them beyond local convenience.
-- A local object store (S3-compatible) for document uploads instead of writing to a developer's disk inside the container.
-- Do not bake production-like secrets. Use obvious local values and document them in an example env file.
-- `docker compose up` must give a working stack from a clean clone with synthetic seed data. If it needs manual SQL, that is a bug in the seed script.
-- Health checks and dependency ordering so `up` does not race migrations.
+- The local identity stack is `infrastructure/local/compose.yaml`: Zitadel, its login UI, PostgreSQL, Mailpit and a development proxy. It is synthetic and binds to 127.0.0.1. Its README documents the required values and the start and reset steps.
+- PostgreSQL services for control, one demo hospital and terminology are still target state; add them as separate services with separate volumes and no shared runtime role.
+- A local object store (S3-compatible) for document uploads instead of writing to a developer's disk inside the container is still target state.
+- Do not bake secrets into images or committed files. Leave secret values blank in the example env file and document how to generate them.
+- After the developer sets the required values, `docker compose up` must give a working stack from a clean clone. If it needs manual SQL, that is a bug in the seed script.
+- Health checks and dependency ordering so `up` does not race migrations or setup.
 
 ## 4. Networking and PostgreSQL
 
