@@ -15,6 +15,10 @@ describe('loadConfig', () => {
     })
   })
 
+  test('rejects an empty environment', () => {
+    expect(() => loadConfig({})).toThrow(ConfigError)
+  })
+
   test('accepts production with a verifying sslmode', () => {
     const config = loadConfig({
       NODE_ENV: 'production',

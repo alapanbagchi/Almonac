@@ -1,8 +1,4 @@
-/**
- * Runtime configuration. Read once at startup; fail closed on anything
- * malformed. Auth-specific settings (Zitadel, sealing key) are added with the
- * auth module that consumes them, not before.
- */
+/** Runtime configuration, read once at startup. */
 export type NodeEnv = 'development' | 'test' | 'production'
 
 export interface Config {
@@ -23,87 +19,44 @@ export class ConfigError extends Error {
   }
 }
 
-/**
- * Parse and validate environment variables. The returned object is the only
- * configuration the process should use.
- */
+const NODE_ENVS: readonly NodeEnv[] = ['development', 'test', 'production']
+
+/** Read every known label once and fail closed on any malformed value. */
 export function loadConfig(env: Env = process.env): Config {
   const issues: string[] = []
-  const nodeEnv = readNodeEnv(env.NODE_ENV, issues)
-  const port = readPort(env.PORT, issues)
-  const databaseUrl = readDatabaseUrl(env.DATABASE_URL, nodeEnv, issues)
+  const port = env.PORT || '3001'
+  const nodeEnv = NODE_ENVS.find((value) => value === (env.NODE_ENV || 'development'))
+  const databaseUrl = env.DATABASE_URL?.trim() ?? ''
 
-  if (issues.length > 0) throw new ConfigError(issues)
-
-  return { nodeEnv, port, databaseUrl }
-}
-
-function readNodeEnv(raw: string | undefined, issues: string[]): NodeEnv {
-  if (raw === undefined || raw === '') return 'development'
-
-  if (raw === 'development' || raw === 'test' || raw === 'production') return raw
-
-  issues.push('NODE_ENV must be development, test or production.')
-  return 'development'
-}
-
-function readPort(raw: string | undefined, issues: string[]): number {
-  if (raw === undefined || raw === '') return 3001
-
-  if (!/^\d+$/.test(raw)) {
+  if (!nodeEnv) issues.push('NODE_ENV must be development, test or production.')
+  if (!/^\d+$/.test(port) || Number(port) < 1 || Number(port) > 65535) {
     issues.push('PORT must be an integer between 1 and 65535.')
-    return 3001
   }
 
-  const port = Number(raw)
-  if (!Number.isSafeInteger(port) || port < 1 || port > 65535) {
-    issues.push('PORT must be an integer between 1 and 65535.')
-    return 3001
-  }
-
-  return port
-}
-
-function readDatabaseUrl(
-  raw: string | undefined,
-  nodeEnv: NodeEnv,
-  issues: string[],
-): string {
-  if (raw === undefined || raw.trim() === '') {
+  if (!databaseUrl) {
     issues.push('DATABASE_URL is required.')
-    return ''
-  }
-
-  const value = raw.trim()
-  let url: URL
-  try {
-    url = new URL(value)
-  } catch {
-    issues.push('DATABASE_URL must be a valid PostgreSQL URL.')
-    return ''
-  }
-
-  if (url.protocol !== 'postgres:' && url.protocol !== 'postgresql:') {
-    issues.push('DATABASE_URL must use the postgres or postgresql scheme.')
-  }
-
-  if (url.hostname === '') {
-    issues.push('DATABASE_URL must include a host.')
-  }
-
-  if (url.pathname === '' || url.pathname === '/') {
-    issues.push('DATABASE_URL must include a database name.')
-  }
-
-  if (url.hash !== '') {
-    issues.push('DATABASE_URL must not include a fragment.')
-  }
-
-  if (nodeEnv === 'production') {
-    if (url.searchParams.get('sslmode') !== 'verify-full') {
-      issues.push('DATABASE_URL must set sslmode to verify-full in production.')
+  } else {
+    try {
+      const url = new URL(databaseUrl)
+      issues.push(
+        ...[
+          !['postgres:', 'postgresql:'].includes(url.protocol) &&
+            'DATABASE_URL must use the postgres or postgresql scheme.',
+          !url.hostname && 'DATABASE_URL must include a host.',
+          (!url.pathname || url.pathname === '/') &&
+            'DATABASE_URL must include a database name.',
+          url.hash && 'DATABASE_URL must not include a fragment.',
+          nodeEnv === 'production' &&
+            url.searchParams.get('sslmode') !== 'verify-full' &&
+            'DATABASE_URL must set sslmode to verify-full in production.',
+        ].filter((issue): issue is string => Boolean(issue)),
+      )
+    } catch {
+      issues.push('DATABASE_URL must be a valid PostgreSQL URL.')
     }
   }
 
-  return value
+  if (issues.length > 0) throw new ConfigError(issues)
+
+  return { nodeEnv: nodeEnv ?? 'development', port: Number(port), databaseUrl }
 }
