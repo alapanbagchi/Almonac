@@ -352,11 +352,9 @@ export class InvitationService {
   }
 
   private async requireManage(actorId: string, target: AccessTarget): Promise<void> {
-    const allowed = await this.dependencies.authorization.hasPermission(
-      actorId,
-      'membership.manage',
-      target,
-    )
+    const allowed =
+      (await this.dependencies.authorization.hasPlatformPermission(actorId, 'platform.manage')) ||
+      (await this.dependencies.authorization.hasPermission(actorId, 'membership.manage', target))
     if (!allowed) throw forbidden()
   }
 

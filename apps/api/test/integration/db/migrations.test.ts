@@ -2381,6 +2381,54 @@ describe('admin routes', () => {
     expect(response.headers.get('x-request-id')).not.toBeNull()
   })
 
+  test('allows a platform administrator to invite staff without a membership', async () => {
+    const organisation = await createOrganisation(ownerPool, 'platform-invite')
+    const role = await createRole(ownerPool, organisation, 'platform_invite_role', 'organisation')
+    const invitee = await createUser(ownerPool, 'platform-invitee', 'platform-invitee@example.test')
+    const platformRole = await findSystemRole(ownerPool, 'platform_admin')
+    await ownerPool.query(
+      'insert into control.platform_assignment (user_id, role_id) values ($1, $2)',
+      [invitee, platformRole],
+    )
+
+    try {
+      const { app, sessions } = application()
+      const issued = await sessions.mint({
+        userId: invitee,
+        identityIssuer: 'http://localhost:8080',
+        zitadelSessionId: null,
+        oidcSid: null,
+        acr: null,
+        idTokenHintCiphertext: null,
+        keyVersion: null,
+        amr: ['pwd'],
+        authTime: new Date(Date.now() - 60_000),
+        aal: 1,
+        ip: null,
+        userAgentHash: null,
+      })
+      const response = await app.handle(
+        new Request(`http://localhost/v1/admin/organisations/${organisation}/invitations`, {
+          method: 'POST',
+          headers: {
+            authorization: `Bearer ${issued.token}`,
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify({
+            email: 'platform-invitee@example.test',
+            roleIds: [role],
+          }),
+        }),
+      )
+      expect(response.status).toBe(201)
+      const body = await response.json() as { kind: string; email: string }
+      expect(body.kind).toBe('existing_user')
+      expect(body.email).toBe('platform-invitee@example.test')
+    } finally {
+      await ownerPool.query('delete from control.platform_assignment where user_id = $1', [invitee])
+    }
+  })
+
   test('denies organisation creation without platform permission', async () => {
     const user = await createUser(ownerPool, 'admin-route-user', 'route@example.test')
     const { app, sessions } = application()
