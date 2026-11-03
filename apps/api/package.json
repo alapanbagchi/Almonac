@@ -19,11 +19,13 @@
     "elysia": "2.0.0-rc.1",
     "jose": "^6.2.15",
     "node-pg-migrate": "^9.0.0",
+    "nodemailer": "^10.3.1",
     "pg": "^8.23.1"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/bun": "1.4.4",
+    "@types/nodemailer": "^8.0.2",
     "@types/pg": "^8.23.1",
     "eslint": "^10.14.0",
     "typescript": "^5.7.0",
