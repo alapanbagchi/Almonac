@@ -9,6 +9,10 @@ import { randomBytes } from 'node:crypto'
 import { Pool, type PoolClient } from 'pg'
 import { migrateDatabase } from '../../../src/db/migrate'
 import { CONTROL_RUNTIME_ROLE } from '../../../src/db/pool'
+import {
+  AppUserEmailConflictError,
+  AppUserRepository,
+} from '../../../src/identity/app-user-repository'
 
 const databaseUrl = process.env.TEST_DATABASE_URL
 
@@ -1674,5 +1678,76 @@ describe('access model', () => {
     expect(links.rows[0]!.count).toBe(13)
     expect(versions.rows[0]!.count).toBe(4)
     expect(events.rows[0]!.count).toBe(10)
+  })
+})
+
+describe('app user repository', () => {
+  test('upserts a user by subject and never reactivates a deactivated user', async () => {
+    const users = new AppUserRepository(appPool)
+    const first = await users.upsertFromIdentity({
+      identityIssuer: 'http://localhost:8080',
+      zitadelSubject: 'repository-user-1',
+      email: 'repository.one@example.test',
+      emailVerifiedAt: new Date('2026-01-01T00:00:00.000Z'),
+      displayName: 'Repository One',
+      homeOrganisationId: null,
+    })
+
+    const second = await users.upsertFromIdentity({
+      identityIssuer: 'http://localhost:8080',
+      zitadelSubject: 'repository-user-1',
+      email: 'repository.one.changed@example.test',
+      emailVerifiedAt: new Date('2026-01-02T00:00:00.000Z'),
+      displayName: 'Repository One Changed',
+      homeOrganisationId: null,
+    })
+
+    expect(second.id).toBe(first.id)
+    expect(second.createdAt).toEqual(first.createdAt)
+    expect(second.email).toBe('repository.one.changed@example.test')
+    expect(second.displayName).toBe('Repository One Changed')
+
+    const deactivated = await users.setStatus(first.id, 'deactivated')
+    expect(deactivated?.status).toBe('deactivated')
+
+    const afterLogin = await users.upsertFromIdentity({
+      identityIssuer: 'http://localhost:8080',
+      zitadelSubject: 'repository-user-1',
+      email: 'repository.one.changed@example.test',
+      emailVerifiedAt: new Date('2026-01-03T00:00:00.000Z'),
+      displayName: 'Repository One Changed',
+      homeOrganisationId: null,
+    })
+    expect(afterLogin.status).toBe('deactivated')
+
+    const loginAt = new Date(Date.now() + 60_000)
+    const marked = await users.markLogin(first.id, loginAt)
+    expect(marked?.lastLoginAt).toEqual(loginAt)
+    expect(await users.findBySubject('http://localhost:8080', 'repository-user-1')).toEqual(
+      marked,
+    )
+  })
+
+  test('rejects a second identity that claims the same email', async () => {
+    const users = new AppUserRepository(appPool)
+    await users.upsertFromIdentity({
+      identityIssuer: 'http://localhost:8080',
+      zitadelSubject: 'repository-user-2',
+      email: 'repository.two@example.test',
+      emailVerifiedAt: null,
+      displayName: 'Repository Two',
+      homeOrganisationId: null,
+    })
+
+    await expect(
+      users.upsertFromIdentity({
+        identityIssuer: 'http://localhost:8080',
+        zitadelSubject: 'repository-user-3',
+        email: 'repository.two@example.test',
+        emailVerifiedAt: null,
+        displayName: 'Repository Three',
+        homeOrganisationId: null,
+      }),
+    ).rejects.toBeInstanceOf(AppUserEmailConflictError)
   })
 })
