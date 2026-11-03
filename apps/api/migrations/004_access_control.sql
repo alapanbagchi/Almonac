@@ -128,13 +128,13 @@ begin
     raise exception 'invitation acceptance is final' using errcode = '23514';
   end if;
   if new.status = 'accepted'
-    and (new.accepted_at > now() or now() >= new.expires_at) then
+    and (new.accepted_at > clock_timestamp() or clock_timestamp() >= new.expires_at) then
     raise exception 'invitation acceptance must happen before expiry' using errcode = '23514';
   end if;
-  if new.status = 'revoked' and new.revoked_at > now() then
+  if new.status = 'revoked' and new.revoked_at > clock_timestamp() then
     raise exception 'invitation revocation cannot be in the future' using errcode = '23514';
   end if;
-  if new.status = 'expired' and new.expires_at > now() then
+  if new.status = 'expired' and new.expires_at > clock_timestamp() then
     raise exception 'an invitation cannot expire before its expiry time' using errcode = '23514';
   end if;
   return new;
@@ -584,7 +584,7 @@ begin
   if new.status = 'active' and old.status not in ('approved', 'active') then
     raise exception 'only an approved grant can activate' using errcode = '23514';
   end if;
-  if new.status = 'active' and now() >= upper(new.validity) then
+  if new.status = 'active' and clock_timestamp() >= upper(new.validity) then
     raise exception 'an expired grant cannot activate' using errcode = '23514';
   end if;
   if new.status in ('revoked', 'expired') and old.status not in ('approved', 'active') then
@@ -627,7 +627,7 @@ begin
   if new.reviewed_at < access_end then
     raise exception 'break-glass review must follow the access window' using errcode = '23514';
   end if;
-  if new.reviewed_at > now() then
+  if new.reviewed_at > clock_timestamp() then
     raise exception 'break-glass review cannot be in the future' using errcode = '23514';
   end if;
   return new;

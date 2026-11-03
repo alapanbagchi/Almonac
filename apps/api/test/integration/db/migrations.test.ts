@@ -5,7 +5,7 @@
  * race on the same database.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { randomBytes } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
 import { Pool, type PoolClient } from 'pg'
 import { migrateDatabase } from '../../../src/db/migrate'
 import { CONTROL_RUNTIME_ROLE } from '../../../src/db/pool'
@@ -18,6 +18,24 @@ import { SessionRepository } from '../../../src/identity/session-repository'
 import { AccessRepository } from '../../../src/identity/access-repository'
 import { PostgresLoginStore } from '../../../src/auth/postgres-login-store'
 import { LoginRejectedError } from '../../../src/auth/login-service'
+import { AuthorizationRepository } from '../../../src/access/authorization-repository'
+import { InvitationRepository } from '../../../src/admin/invitation-repository'
+import { InvitationService } from '../../../src/admin/invitation-service'
+import { MembershipAdminRepository } from '../../../src/admin/membership-admin-repository'
+import { OrganisationRepository } from '../../../src/admin/organisation-repository'
+import { HospitalRepository } from '../../../src/admin/hospital-repository'
+import { ZitadelManagementClient } from '../../../src/admin/zitadel-management-client'
+import { AppError } from '../../../src/shared/errors'
+import { Elysia } from 'elysia'
+import { createAdmin } from '../../../src/admin/routes'
+import { errors } from '../../../src/plugins/errors'
+import { OrganisationAdminService } from '../../../src/admin/organisation-admin-service'
+import { OrganisationProvisioningService } from '../../../src/admin/organisation-provisioning-service'
+import { HospitalAdminService } from '../../../src/admin/hospital-admin-service'
+import { MembershipAdminService } from '../../../src/admin/membership-admin-service'
+import { AuditAdminService } from '../../../src/admin/audit-admin-service'
+import { AuditReadRepository } from '../../../src/admin/audit-read-repository'
+import { SessionService } from '../../../src/identity/session-service'
 import type { LoginAttempt } from '../../../src/auth/login-attempt-repository'
 import type { VerifiedIdentity } from '../../../src/auth/id-token-verifier'
 
@@ -234,17 +252,21 @@ async function createInvitation(
   invitedBy: string,
   createdMinutes = 0,
   expiresMinutes = 60,
+  kind: 'new_user' | 'existing_user' = 'new_user',
+  zitadelSub: string | null = null,
 ): Promise<string> {
   const result = await client.query<{ id: string }>(
     `insert into identity.invitation
-       (email, organisation_id, hospital_id, token_hash, kind, invited_by, created_at, expires_at)
-     values ($1, $2, $3, $4, 'new_user', $5, now() + $6::interval, now() + $7::interval)
+       (email, organisation_id, hospital_id, token_hash, kind, zitadel_sub, invited_by, created_at, expires_at)
+     values ($1, $2, $3, $4, $5, $6, $7, now() + $8::interval, now() + $9::interval)
      returning id`,
     [
       email,
       organisationId,
       hospitalId,
       randomBytes(32),
+      kind,
+      zitadelSub,
       invitedBy,
       `${createdMinutes} minutes`,
       `${expiresMinutes} minutes`,
@@ -331,7 +353,7 @@ describe('control database schema', () => {
       'select version from control.schema_metadata where id = 1',
     )
 
-    expect(result.rows[0]?.version).toBe(2)
+    expect(result.rows[0]?.version).toBe(4)
   })
 })
 
@@ -491,7 +513,7 @@ describe('runtime privileges', () => {
     await withTransaction(appPool, async (client) => {
       await expect(
         client.query(
-          'update control.schema_metadata set version = 3 where id = 1',
+          'update control.schema_metadata set version = 4 where id = 1',
         ),
       ).rejects.toMatchObject({ code: '42501' })
     })
@@ -763,6 +785,62 @@ describe('access model', () => {
         '23514',
       )
     })
+  })
+
+
+  test('instantiates a role from the newest template version as the runtime', async () => {
+    const suffix = randomBytes(4).toString('hex')
+    const organisation = await createOrganisation(
+      ownerPool,
+      `instantiate-${suffix}`,
+    )
+
+    const first = await appPool.query<{ role_id: string }>(
+      'select control.instantiate_role_template($1, $2) as role_id',
+      [organisation, 'org_admin'],
+    )
+    const second = await appPool.query<{ role_id: string }>(
+      'select control.instantiate_role_template($1, $2) as role_id',
+      [organisation, 'org_admin'],
+    )
+    const roleId = first.rows[0]!.role_id
+    expect(second.rows[0]!.role_id).toBe(roleId)
+
+    const role = await appPool.query<{
+      key: string
+      scope: string
+      is_system: boolean
+      source_template_version_id: string
+    }>(
+      `select key, scope, is_system, source_template_version_id
+         from control.role where id = $1`,
+      [roleId],
+    )
+    expect(role.rows[0]).toMatchObject({
+      key: 'org_admin',
+      scope: 'organisation',
+      is_system: false,
+    })
+
+    const permissions = await appPool.query<{ permission_key: string }>(
+      'select permission_key from control.role_permission where role_id = $1 order by 1',
+      [roleId],
+    )
+    expect(permissions.rows.map((row) => row.permission_key)).toEqual([
+      'audit.read',
+      'hospital.manage',
+      'membership.manage',
+      'organisation.manage',
+    ])
+
+    await expect(
+      appPool.query('select control.instantiate_role_template($1, $2)', [
+        organisation,
+        'missing_template',
+      ]),
+    ).rejects.toMatchObject({ code: '23503' })
+
+    await ownerPool.query('delete from control.role where id = $1', [roleId])
   })
 
   test('scopes external identities by issuer', async () => {
@@ -2092,6 +2170,251 @@ describe('login completion store', () => {
       [result.userId],
     )
     expect(membership.rows[0]!.count).toBe(0)
+  })
+
+  test('does not auto-accept an invitation for an existing user', async () => {
+    const organisation = await createOrganisation(ownerPool, 'login-existing')
+    const inviter = await createUser(ownerPool, 'login-existing-inviter', 'existing.inviter@example.test')
+    await createUser(ownerPool, 'login-existing-invitee', 'existing.invitee@example.test')
+    const invitation = await createInvitation(
+      ownerPool,
+      'existing.invitee@example.test',
+      organisation,
+      null,
+      inviter,
+      0,
+      60,
+      'existing_user',
+      'login-existing-invitee',
+    )
+    const now = new Date(Date.now() + 1_000)
+
+    const result = await new PostgresLoginStore(appPool).complete({
+      attempt: loginAttempt(now),
+      identity: identityFor('existing.invitee@example.test', 'login-existing-invitee', now),
+      idTokenHintCiphertext: Buffer.from('sealed-hint'),
+      keyVersion: 1,
+      now,
+      ip: null,
+      userAgentHash: null,
+      requestId: null,
+    })
+
+    const pending = await ownerPool.query<{ status: string }>(
+      'select status from identity.invitation where id = $1',
+      [invitation],
+    )
+    expect(pending.rows[0]!.status).toBe('pending')
+    const membership = await ownerPool.query<{ count: number }>(
+      'select count(*)::int as count from control.membership where user_id = $1',
+      [result.userId],
+    )
+    expect(membership.rows[0]!.count).toBe(0)
+  })
+})
+
+describe('invitation service', () => {
+  function invitationService(sent: { token: string | null }): InvitationService {
+    const zitadel = new ZitadelManagementClient(
+      'http://localhost:8080',
+      { token: async () => 'service-token' },
+    )
+    return new InvitationService({
+      pool: appPool,
+      invitations: new InvitationRepository(appPool),
+      organisations: new OrganisationRepository(appPool),
+      hospitals: new HospitalRepository(appPool),
+      memberships: new MembershipAdminRepository(appPool),
+      users: new AppUserRepository(appPool),
+      authorization: new AuthorizationRepository(appPool),
+      zitadel,
+      audit: new AuditWriter(appPool),
+      mailer: {
+        async send(input) {
+          sent.token = input.token
+        },
+      },
+    })
+  }
+
+  test('accepts an existing-user invitation once and rejects a different session', async () => {
+    const organisation = await createOrganisation(ownerPool, 'invitation-service')
+    const inviterId = await createUser(ownerPool, 'invite-issuer', 'issuer@example.test')
+    const inviteeId = await createUser(ownerPool, 'invite-target', 'target@example.test')
+    const role = await createRole(ownerPool, organisation, 'invite_manager', 'organisation')
+    await ownerPool.query(
+      "insert into control.role_permission (role_id, permission_key) values ($1, 'membership.manage')",
+      [role],
+    )
+    const inviterMembership = await createMembership(
+      ownerPool,
+      inviterId,
+      organisation,
+      null,
+      -5,
+      60,
+    )
+    await ownerPool.query(
+      "insert into control.membership_role (membership_id, role_id, validity) values ($1, $2, tstzrange(now(), now() + interval '30 minutes'))",
+      [inviterMembership, role],
+    )
+    const inviter = await new AppUserRepository(ownerPool).findById(inviterId)
+    const invitee = await new AppUserRepository(ownerPool).findById(inviteeId)
+    expect(inviter).not.toBeNull()
+    expect(invitee).not.toBeNull()
+
+    const sent: { token: string | null } = { token: null }
+    const service = invitationService(sent)
+    const invitation = await service.create(
+      {
+        actor: inviter!,
+        sessionId: randomUUID(),
+        requestId: 'request-invite',
+        ip: null,
+        userAgentHash: null,
+      },
+      {
+        email: 'target@example.test',
+        organisationId: organisation,
+        roleIds: [role],
+      },
+    )
+    expect(invitation.kind).toBe('existing_user')
+    expect(sent.token).not.toBeNull()
+
+    const wrongActor = await service.accept(
+      {
+        actor: inviter!,
+        sessionId: randomUUID(),
+        requestId: 'request-accept',
+        ip: null,
+        userAgentHash: null,
+      },
+      sent.token!,
+    ).catch((error: unknown) => error)
+    expect(wrongActor).toBeInstanceOf(AppError)
+    expect((wrongActor as AppError).status).toBe(403)
+
+    const accepted = await service.accept(
+      {
+        actor: invitee!,
+        sessionId: randomUUID(),
+        requestId: 'request-accept',
+        ip: null,
+        userAgentHash: null,
+      },
+      sent.token!,
+    )
+    expect(accepted.status).toBe('accepted')
+    expect(accepted.acceptedByUserId).toBe(inviteeId)
+
+    const membership = await ownerPool.query<{ count: number }>(
+      'select count(*)::int as count from control.membership where user_id = $1 and organisation_id = $2',
+      [inviteeId, organisation],
+    )
+    expect(membership.rows[0]!.count).toBe(1)
+
+    const replay = await service.accept(
+      {
+        actor: invitee!,
+        sessionId: randomUUID(),
+        requestId: 'request-replay',
+        ip: null,
+        userAgentHash: null,
+      },
+      sent.token!,
+    ).catch((error: unknown) => error)
+    expect(replay).toBeInstanceOf(AppError)
+    expect((replay as AppError).status).toBe(409)
+  })
+})
+
+describe('admin routes', () => {
+  function application() {
+    const audit = new AuditWriter(appPool)
+    const authorization = new AuthorizationRepository(appPool)
+    const users = new AppUserRepository(appPool)
+    const organisations = new OrganisationRepository(appPool)
+    const hospitals = new HospitalRepository(appPool)
+    const memberships = new MembershipAdminRepository(appPool)
+    const invitations = new InvitationRepository(appPool)
+    const sessions = new SessionService({ store: new SessionRepository(appPool) })
+    const zitadel = new ZitadelManagementClient(
+      'http://localhost:8080',
+      { token: async () => 'service-token' },
+    )
+    const app = new Elysia().use(errors).use(
+      createAdmin({
+        organisations: new OrganisationAdminService(
+          organisations,
+          authorization,
+          new OrganisationProvisioningService(appPool, zitadel, audit),
+        ),
+        hospitals: new HospitalAdminService(hospitals, organisations, authorization, audit),
+        memberships: new MembershipAdminService(memberships, authorization, audit),
+        invitations: new InvitationService({
+          pool: appPool,
+          invitations,
+          organisations,
+          hospitals,
+          memberships,
+          users,
+          authorization,
+          zitadel,
+          audit,
+          mailer: { async send() {} },
+        }),
+        audit: new AuditAdminService(new AuditReadRepository(appPool), authorization),
+        sessions,
+        users,
+      }),
+    )
+    return { app, sessions }
+  }
+
+  test('rejects a missing session before any administration code runs', async () => {
+    const { app } = application()
+    const response = await app.handle(new Request('http://localhost/v1/admin/organisations'))
+    expect(response.status).toBe(401)
+    const body = await response.json() as { error: { code: string } }
+    expect(body.error.code).toBe('AUTH_REQUIRED')
+    expect(response.headers.get('x-request-id')).not.toBeNull()
+  })
+
+  test('denies organisation creation without platform permission', async () => {
+    const user = await createUser(ownerPool, 'admin-route-user', 'route@example.test')
+    const { app, sessions } = application()
+    const issued = await sessions.mint({
+      userId: user,
+      identityIssuer: 'http://localhost:8080',
+      zitadelSessionId: null,
+      oidcSid: null,
+      acr: null,
+      idTokenHintCiphertext: null,
+      keyVersion: null,
+      amr: ['pwd'],
+      authTime: new Date(Date.now() - 60_000),
+      aal: 1,
+      ip: null,
+      userAgentHash: null,
+    })
+    const response = await app.handle(
+      new Request('http://localhost/v1/admin/organisations', {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${issued.token}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ name: 'Denied', slug: 'denied' }),
+      }),
+    )
+    expect(response.status).toBe(403)
+    const body = await response.json() as { error: { code: string } }
+    expect(body.error.code).toBe('FORBIDDEN')
+    const created = await ownerPool.query<{ count: number }>(
+      "select count(*)::int as count from control.organisation where slug = 'denied'",
+    )
+    expect(created.rows[0]!.count).toBe(0)
   })
 })
 
