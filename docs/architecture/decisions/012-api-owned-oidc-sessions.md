@@ -27,7 +27,7 @@ The alternative is a backend for frontend (BFF). The API owns the OIDC flow and 
 4. The web app redirects the browser to the authorization URL.
 5. Zitadel authenticates the user with a password, MFA or passkey. It redirects the browser to `/api/auth/callback?code&state` on the web app.
 6. The web app forwards `code` and `state` to `POST /v1/auth/callback` on the API.
-7. The API consumes the attempt in one atomic update. It exchanges the code at the token endpoint with the client secret. It verifies the ID token. It creates or updates `app_user` by `zitadel_sub`. It checks the account status. It activates a pending invitation when one matches. It creates a session, writes an audit record and returns `{ token, expiresAt, returnTo }`.
+7. The API consumes the attempt in one atomic update. It exchanges the code at the token endpoint with the client secret. It verifies the ID token. It creates or updates `app_user` by `zitadel_sub`. It checks the account status. It activates a pending invitation when one matches. It creates a session, writes an audit record and returns `{ token, expiresAt, returnTo }`. `expiresAt` is the absolute session expiry, not the idle expiry.
 8. The web app sets the session cookie and redirects the browser to the validated `returnTo`.
 9. On later requests, the web server sends `Authorization: Bearer <token>` to the API.
 10. The API hashes the token, loads the session, user, memberships and permissions.
@@ -36,9 +36,9 @@ The alternative is a backend for frontend (BFF). The API owns the OIDC flow and 
 
 - `POST /v1/auth/login-attempts` creates a login attempt. It returns the authorization URL and expiry.
 - `POST /v1/auth/callback` consumes the attempt, exchanges the code, verifies the ID token, updates the user, checks access, activates an invitation and creates a session. It audits the result.
-- `POST /v1/auth/logout` revokes the current session and audits the action. It returns a Zitadel `end_session_endpoint` URL built from the encrypted `id_token_hint`.
-- `GET /v1/auth/session` returns the current user, active memberships and the union of permissions. It never returns tokens or data from another tenant.
-- A Bearer guard resolves `Authorization: Bearer <opaque token>` on every protected route. A missing, malformed, expired or revoked token returns `401 AUTH_REQUIRED`. The API never reads cookies.
+- `POST /v1/auth/logout` revokes the current session and audits the action. It returns a Zitadel `end_session_endpoint` URL built from the encrypted `id_token_hint`. A missing or malformed token returns `401 AUTH_REQUIRED`. An unknown token returns no provider URL. An expired or already revoked token still returns the provider URL, so a shared workstation also ends the Zitadel single sign-on session. A second logout does not write a second audit record.
+- `GET /v1/auth/session` returns the current user, active memberships and the union of permissions. It never returns tokens or data from another tenant. The response is informational. It is not the authorisation decision for a protected route, because a membership can change between its two queries. Every protected route must resolve access again.
+- A Bearer guard resolves `Authorization: Bearer <opaque token>` on every protected route. A missing or malformed token returns `401 AUTH_REQUIRED`. An unknown, expired or revoked token returns `401 AUTH_FAILED`. The API never reads cookies.
 
 ### Session model
 
@@ -48,6 +48,8 @@ The alternative is a backend for frontend (BFF). The API owns the OIDC flow and 
 - The API updates `last_seen_at` at most once per 60 seconds for each session. This prevents a database write on every request.
 - Revocation is a row update and takes effect immediately. A step-up revokes the old row and creates a new token. The old token never works again.
 - A new login always creates a new session. The API does not reuse an existing session for the same user.
+- The assurance level is derived from `amr`. `mfa` gives AAL 2. A password plus one of `otp`, `hwk`, `swk`, `webauthn` or `passkey` gives AAL 2. Any other combination is AAL 1. A passkey alone is single-factor.
+- The provider can report an authentication time up to 60 seconds ahead of the API clock. The login service clamps such a value to the login time so the session timestamp stays ordered.
 
 ### Cookie at the web origin
 

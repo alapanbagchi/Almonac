@@ -1,7 +1,7 @@
 # Zitadel local verification record
 
-- **Date:** 2026-11-03
-- **Status:** Passed for the local stack. Production deployment is still gated by ADR-013.
+- **Date:** 2026-11-04
+- **Status:** Passed for the local stack, including the product API login, session and logout path. Production deployment is still gated by ADR-013.
 - **Scope:** Prove that the self-hosted Zitadel stack can issue the authorization code, ID token and claims that the API design in ADR-012 depends on.
 - **Environment:** Docker Compose, Zitadel v4.20.1, Zitadel login v4.20.1, PostgreSQL 17.10, Traefik v3.7.7, Mailpit v1.33.0 and Node 26.11.1.
 
@@ -25,6 +25,10 @@ The local verification scripts are not part of the product repository. This reco
 | SMTP provider is created and activated through the Admin API | Passed |
 | Initialization email is delivered to Mailpit | Passed |
 | Initialization link loads the Activate User page | Passed |
+| Product API verifies a live ID token against the Zitadel JWKS | Passed |
+| Product API creates an opaque session and reads it with a bearer token | Passed |
+| Logout revokes the local session and ends the Zitadel session | Passed |
+| A replayed callback is rejected | Passed |
 | Zitadel Helm chart 10.4.0 lints and renders | Passed. No Kubernetes cluster was available. |
 
 ## Findings
@@ -111,11 +115,37 @@ Chart `zitadel/zitadel` 10.4.0 declares `appVersion: v4.19.2`. ADR-013 pins Zita
 
 With these values, `helm lint` passed and `helm template` rendered two Deployments, three Jobs, two Services, one Role and one RoleBinding. The default `replicaCount` is 1 for the API and for login. Production values must set both to at least 2. No cluster was available, so scheduling, probes, PodDisruptionBudgets and ingress behaviour remain unverified.
 
+### A live login exposed a login-time bug
+
+The product API completed a real authorization code flow against the local Zitadel instance. The first callback failed with a database check violation on `identity.app_user`:
+
+```text
+new row for relation "app_user" violates check constraint "app_user_last_login_check"
+```
+
+The API set `last_login_at` from its own clock before the database created the row. The row's `created_at` default was a few milliseconds later, so `last_login_at >= created_at` failed. `AppUserRepository.markLogin` now uses `greatest($2, created_at)`. A clock earlier than the row creation clamps to `created_at`. The integration test covers this case.
+
+This failure was not visible to unit tests with a fake store or to a login test that used a future timestamp. The live path found it.
+
+### The live session has the expected shape
+
+The session response contained the synthetic doctor and an empty membership list, because no invitation existed for that user. The stored session had:
+
+- the configured issuer `http://localhost:8080`;
+- an OIDC `sid`;
+- `amr` `["pwd"]` and AAL 1;
+- `auth_time` before `created_at`;
+- idle expiry before absolute expiry;
+- a sealed `id_token_hint` with key version 1.
+
+Logout returned a Zitadel end-session URL with an `id_token_hint`. Following it ended the Zitadel session and redirected to the post-logout URI. The local session returned `401` after logout. A second logout also returned `200` and a provider URL, but it added no second audit record. A replayed callback returned `401 AUTH_FAILED`.
+
+The audit trail contained one `auth.login` and one `auth.logout` event for the session. Their metadata held only `session_id`.
+
 ## Not verified
 
-- **Signature verification.** The local verification decoded the ID token but did not verify its signature. The API must verify the token against the JSON Web Key Set (JWKS) from OIDC discovery before it trusts a claim.
-- **Logout.** The end-session redirect, `id_token_hint` and post-logout redirect were not exercised.
-- **Deactivation against an existing Almonac session.** Zitadel user deactivation blocks a new login. No local session existed to test suspension. The API must enforce account status on every request.
+- **Token tampering.** The live API verified a valid signature against the Zitadel JWKS. Unit tests reject a wrong signature, `alg: none` and an expired token. A tampered live token was not sent.
+- **Deactivation against an existing Almonac session.** Zitadel user deactivation blocks a new login. The live session was not tested against a later Zitadel deactivation. The API must enforce account status on every request.
 - **Step-up.** `prompt=login`, `max_age=0` and session rotation were not exercised.
 - **Invitation completion and password reset.** The initialization email and landing page work. Setting a password, reusing the code, expiry and reset emails were not exercised.
 - **Email failure handling.** Only Mailpit delivery was tested. Provider errors, bounces and retries are unverified.

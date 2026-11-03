@@ -1,6 +1,8 @@
 # Almonac API — Elysia on Bun
 
-**Status: control database foundation.** `apps/api` is an Elysia 2 (`2.0.0-rc.1`) service on Bun: `GET /health` and `GET /health/ready`, the error-envelope plugin, OpenAPI at `/openapi`, startup configuration validation, a bounded control PostgreSQL pool, SQL migrations for the `identity`, `control` and `audit` schemas (issuer-scoped identities, OIDC session metadata, invitations, tenancy, scoped roles and template versions, membership history, break-glass review and a catalogued append-only audit log), and a least-privilege `almonac_app` runtime role. Unit and integration tests cover the foundation. Identity primitives are implemented as modules but not wired to HTTP: token minting and hashing, AES-256-GCM sealing, user and session repositories, a session service with idle and absolute expiry, and an audit writer. There is no authentication endpoint, session endpoint, tenant resolution, hospital database or domain feature yet. Everything below is the intended architecture, binding on whoever implements it. Before writing code, check the Elysia version and read that version's documentation; do not copy examples from an older release.
+**Status: authentication foundation.** `apps/api` is an Elysia 2 (`2.0.0-rc.1`) service on Bun: `GET /health` and `GET /health/ready`, the error-envelope plugin, OpenAPI at `/openapi`, startup configuration validation, a bounded control PostgreSQL pool, SQL migrations for the `identity`, `control` and `audit` schemas (issuer-scoped identities, OIDC session metadata, invitations, tenancy, scoped roles and template versions, membership history, break-glass review and a catalogued append-only audit log), and a least-privilege `almonac_app` runtime role. Unit and integration tests cover the foundation.
+
+OpenID Connect authentication is implemented on `/v1/auth`: login-attempt start, callback exchange, session read and logout. The API owns the flow, verifies the ID token once, and issues an opaque server-side session token; the web app relays the authorization code and state and sets the cookie. Bearer authentication is enforced on the session and logout routes and reads the session, user, memberships and permissions. Tenant resolution, permission guards on domain routes, hospital databases and domain features are not implemented yet. Everything below is the intended architecture, binding on whoever implements it. Before writing code, check the Elysia version and read that version's documentation; do not copy examples from an older release.
 
 The API is a modular monolith owning the Control, Hospital and Terminology domains. It authorises every request, resolves the tenant, and is the only service that talks to PostgreSQL.
 
@@ -99,7 +101,7 @@ port and closes both on shutdown. Tests call `createApp` with fakes.
 
 Each domain `index.ts` mounts its features with their own prefixes. A feature never mounts itself; only its domain does. Prefixes are relative to the domain, so a hospital feature is not reachable under the control prefix.
 
-API versioning and the root path are **not decided** (see ADR-003 and `docs/architecture/unresolved-decisions.md`). Do not invent `/v1` or `/api` in new code before that decision; keep feature prefixes relative so the mount point stays a one-line change.
+API versioning and the root path are **not decided** for new features (see ADR-003 and `docs/architecture/unresolved-decisions.md`, U-15). The authentication routes use `/v1/auth` because accepted ADR-012 names those paths. Do not extend `/v1` to another feature before the decision; keep feature prefixes relative so the mount point stays a one-line change.
 
 ## 4. Authentication and authorisation
 

@@ -6,11 +6,14 @@ bounded PostgreSQL pool, readiness checks, SQL migrations for the identity,
 control and audit schemas, and a least-privilege runtime role. The schema covers
 issuer-scoped identities, OIDC session metadata, invitations, organisation and
 hospital tenancy, scoped roles and templates, membership history, break-glass
-review and a catalogued append-only audit log. Identity primitives are
-implemented as modules but not wired to HTTP: token minting and hashing,
-AES-256-GCM sealing, user and session repositories, a session service with idle
-and absolute expiry, and an audit writer. Authentication endpoints, tenant
-resolution, hospital databases and domain features are not implemented.
+review and a catalogued append-only audit log.
+
+OpenID Connect authentication is implemented: login attempts with PKCE and
+nonce, the callback exchange, ID token verification, opaque server-side
+sessions, bearer authentication, session access read and logout. The API owns
+the flow and holds the client secret; the web app relays the authorization code
+and state. Tenant resolution, permission guards on domain routes, hospital
+databases and domain features are not implemented.
 
 ## Run
 
@@ -18,7 +21,7 @@ Requires Bun (developed on 1.4.2) and PostgreSQL 17 for the control database.
 
 ```bash
 bun install
-cp .env.example .env    # set DATABASE_URL and TEST_DATABASE_URL
+cp .env.example .env    # set DATABASE_URL, TEST_DATABASE_URL and the auth values
 bun run db:migrate
 bun run dev             # http://localhost:3001, watch mode
 bun run start           # no watch
@@ -26,6 +29,14 @@ bun run start           # no watch
 
 The local stack in `infrastructure/local/` provides a control database on
 `127.0.0.1:5433`. `PORT` defaults to `3001`.
+
+Authentication needs the Zitadel issuer, client ID, client secret, redirect URI
+and post-logout URI. `ZITADEL_REDIRECT_URI` points at the web callback
+(`http://localhost:3000/api/auth/callback` locally), not at this API.
+`SEALING_KEY` is 32 random bytes as unpadded base64url (43 characters) and
+`SEALING_KEY_VERSION` identifies it. Production URLs must use HTTPS. The API
+exits at startup when a value is missing or malformed and prints only the
+variable name.
 
 ## Check
 
@@ -47,11 +58,26 @@ production data.
 | --- | --- | --- |
 | GET | `/health` | Liveness probe: `{ "status": "ok" }` |
 | GET | `/health/ready` | Readiness probe; 503 unless the schema version and runtime privileges are correct |
+| POST | `/v1/auth/login-attempts` | Start a login: returns the Zitadel authorization URL and its expiry |
+| POST | `/v1/auth/callback` | Complete a login: consumes the attempt, exchanges the code and returns a session token once; `expiresAt` is the absolute expiry |
+| GET | `/v1/auth/session` | Current user, active memberships and permissions; requires a bearer session token |
+| POST | `/v1/auth/logout` | Revoke the current session and return an optional Zitadel end-session URL; idempotent |
 | GET | `/openapi` | Scalar API reference |
 | GET | `/openapi/json` | OpenAPI 3.1 document |
 
-Feature prefixes stay relative; the root path and versioning are undecided
-(`docs/architecture/unresolved-decisions.md`, U-15).
+The `/v1` prefix follows ADR-012. The root path and versioning policy remain
+undecided (`docs/architecture/unresolved-decisions.md`, U-15).
+
+Authentication is external. Credentials, MFA and the hosted login page belong
+to Zitadel. The API never reads cookies: the web app sends
+`Authorization: Bearer <session token>`. A session token is returned only by
+the callback response and is stored as a hash in the control database.
+
+The idle timeout is 15 minutes and the absolute lifetime is 8 hours. The
+cookie uses the absolute expiry. `GET /v1/auth/session` is informational; it
+is not the access check for a protected route. Logout is idempotent: a second
+call does not add another audit record, and an expired session still returns
+the Zitadel end-session URL.
 
 Every failure uses one envelope:
 
@@ -110,12 +136,13 @@ as a proxy. Do not call this API from the browser.
 migrations/          SQL migrations for identity, control and audit
 src/
 ├── app.ts           composition root (exports App for Eden)
+├── auth/            OIDC flow, sessions, bearer guard, auth routes
 ├── config.ts        startup configuration validation
 ├── index.ts         opens the port and owns the pool lifecycle
 ├── audit/           append-only event writer
 ├── db/              control pool, migration runner, row parsing
 ├── health/          liveness and readiness features
-├── identity/        user and session repositories, session service
+├── identity/        user, session and access repositories, session service
 ├── plugins/         errors, OpenAPI
 └── shared/          error envelope, AppError, tokens, sealing
 test/
