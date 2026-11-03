@@ -6,8 +6,11 @@ bounded PostgreSQL pool, readiness checks, SQL migrations for the identity,
 control and audit schemas, and a least-privilege runtime role. The schema covers
 issuer-scoped identities, OIDC session metadata, invitations, organisation and
 hospital tenancy, scoped roles and templates, membership history, break-glass
-review and a catalogued append-only audit log. Authentication, tenant resolution,
-hospital databases and domain features are not implemented.
+review and a catalogued append-only audit log. Identity primitives are
+implemented as modules but not wired to HTTP: token minting and hashing,
+AES-256-GCM sealing, user and session repositories, a session service with idle
+and absolute expiry, and an audit writer. Authentication endpoints, tenant
+resolution, hospital databases and domain features are not implemented.
 
 ## Run
 
@@ -109,10 +112,12 @@ src/
 ├── app.ts           composition root (exports App for Eden)
 ├── config.ts        startup configuration validation
 ├── index.ts         opens the port and owns the pool lifecycle
-├── db/              control pool and migration runner
+├── audit/           append-only event writer
+├── db/              control pool, migration runner, row parsing
 ├── health/          liveness and readiness features
+├── identity/        user and session repositories, session service
 ├── plugins/         errors, OpenAPI
-└── shared/          error envelope, AppError
+└── shared/          error envelope, AppError, tokens, sealing
 test/
 ├── unit/            no database
 └── integration/     real PostgreSQL
