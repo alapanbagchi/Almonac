@@ -13,6 +13,7 @@ import {
   AppUserEmailConflictError,
   AppUserRepository,
 } from '../../../src/identity/app-user-repository'
+import { AuditWriter } from '../../../src/audit/audit-writer'
 import { SessionRepository } from '../../../src/identity/session-repository'
 
 const databaseUrl = process.env.TEST_DATABASE_URL
@@ -1818,5 +1819,89 @@ describe('session repository', () => {
     const revokedAt = new Date()
     expect(await sessions.revokeAllForUser(userId, revokedAt, 'account_suspended')).toBe(2)
     expect(await sessions.revokeAllForUser(userId, revokedAt, 'account_suspended')).toBe(0)
+  })
+})
+
+describe('audit writer', () => {
+  test('appends catalogued events with allowed metadata', async () => {
+    const actorId = await createUser(ownerPool, 'audit-writer-user', 'audit.writer@example.test')
+    const events = new AuditWriter(appPool)
+
+    await events.write({
+      actorUserId: actorId,
+      actorType: 'user',
+      sessionId: null,
+      organisationId: null,
+      hospitalId: null,
+      eventType: 'auth.login',
+      outcome: 'success',
+      requestId: 'req-1',
+      metadata: { session_id: 'session-1' },
+    })
+
+    await events.write({
+      actorUserId: actorId,
+      actorType: 'user',
+      sessionId: null,
+      organisationId: null,
+      hospitalId: null,
+      eventType: 'session.revoke',
+      outcome: 'success',
+      reason: 'User logged out.',
+      reasonCode: 'user_logout',
+      metadata: { session_id: 'session-1', reason_code: 'user_logout' },
+    })
+
+    const count = await ownerPool.query<{ count: number }>(
+      `select count(*)::int as count
+         from audit.event
+        where actor_user_id = $1`,
+      [actorId],
+    )
+    expect(count.rows[0]!.count).toBe(2)
+  })
+
+  test('fails closed on an unknown event, missing reason and forbidden metadata', async () => {
+    const actorId = await createUser(ownerPool, 'audit-writer-denied', 'audit.denied@example.test')
+    const events = new AuditWriter(appPool)
+
+    await expect(
+      events.write({
+        actorUserId: actorId,
+        actorType: 'user',
+        sessionId: null,
+        organisationId: null,
+        hospitalId: null,
+        eventType: 'unknown.event',
+        outcome: 'success',
+      }),
+    ).rejects.toMatchObject({ code: '23503' })
+
+    await expect(
+      events.write({
+        actorUserId: actorId,
+        actorType: 'user',
+        sessionId: null,
+        organisationId: null,
+        hospitalId: null,
+        eventType: 'session.revoke',
+        outcome: 'success',
+        metadata: { session_id: 'session-1' },
+      }),
+    ).rejects.toMatchObject({ code: '23514' })
+
+    await expect(
+      events.write({
+        actorUserId: actorId,
+        actorType: 'user',
+        sessionId: null,
+        organisationId: null,
+        hospitalId: null,
+        eventType: 'session.revoke',
+        outcome: 'success',
+        reasonCode: 'user_logout',
+        metadata: { session_id: 'session-1', patient_name: 'Jane Doe' },
+      }),
+    ).rejects.toMatchObject({ code: '23514' })
   })
 })
