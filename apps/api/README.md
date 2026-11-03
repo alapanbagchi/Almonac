@@ -12,7 +12,14 @@ OpenID Connect authentication is implemented: login attempts with PKCE and
 nonce, the callback exchange, ID token verification, opaque server-side
 sessions, bearer authentication, session access read and logout. The API owns
 the flow and holds the client secret; the web app relays the authorization code
-and state. Tenant resolution, permission guards on domain routes, hospital
+and state.
+
+The admin plane is implemented at `/v1/admin`: organisation provisioning through
+the Zitadel management API, hospital and domain management, staff invitations
+and acceptance, membership and role changes, and a paginated audit read.
+Invitations bind to the signed-in subject. An existing user accepts an
+invitation explicitly; a new user accepts it through the initialization login.
+Tenant resolution and permission guards on clinical domain routes, hospital
 databases and domain features are not implemented.
 
 ## Run
@@ -34,9 +41,12 @@ Authentication needs the Zitadel issuer, client ID, client secret, redirect URI
 and post-logout URI. `ZITADEL_REDIRECT_URI` points at the web callback
 (`http://localhost:3000/api/auth/callback` locally), not at this API.
 `SEALING_KEY` is 32 random bytes as unpadded base64url (43 characters) and
-`SEALING_KEY_VERSION` identifies it. Production URLs must use HTTPS. The API
-exits at startup when a value is missing or malformed and prints only the
-variable name.
+`SEALING_KEY_VERSION` identifies it. The admin plane also needs
+`ZITADEL_SERVICE_USER_ID`, `ZITADEL_SERVICE_USER_KEY_ID` and
+`ZITADEL_SERVICE_USER_PRIVATE_KEY` for the management API, plus `SMTP_URL`,
+optional `SMTP_USER`/`SMTP_PASSWORD`, `MAIL_FROM` and `WEB_PUBLIC_ORIGIN`
+for invitation email. Production requires HTTPS. The API exits at startup when
+a value is missing or malformed and prints only the variable name.
 
 ## Check
 
@@ -62,6 +72,20 @@ production data.
 | POST | `/v1/auth/callback` | Complete a login: consumes the attempt, exchanges the code and returns a session token once; `expiresAt` is the absolute expiry |
 | GET | `/v1/auth/session` | Current user, active memberships and permissions; requires a bearer session token |
 | POST | `/v1/auth/logout` | Revoke the current session and return an optional Zitadel end-session URL; idempotent |
+| POST/GET | `/v1/admin/organisations` | Create a provisioned organisation or list the caller's organisations |
+| GET | `/v1/admin/organisations/:organisationId` | Read one organisation |
+| GET/POST | `/v1/admin/organisations/:organisationId/hospitals` | List or create hospitals |
+| GET/POST | `/v1/admin/hospitals/:hospitalId/domains` | List or add a hospital domain |
+| POST | `/v1/admin/hospitals/:hospitalId/domains/:domainId/verify` | Verify a domain with its one-time token |
+| POST | `/v1/admin/hospitals/:hospitalId/domains/:domainId/primary` | Make a verified domain primary and activate the hospital |
+| GET | `/v1/admin/organisations/:organisationId/memberships` | List staff memberships |
+| GET | `/v1/admin/organisations/:organisationId/roles` | List instantiated roles |
+| POST | `/v1/admin/memberships/:membershipId/suspend` / `revoke` | Suspend or revoke a membership |
+| POST/DELETE | `/v1/admin/memberships/:membershipId/roles` | Assign or revoke a membership role |
+| GET/POST | `/v1/admin/organisations/:organisationId/invitations` | List or create invitations |
+| POST/DELETE | `/v1/admin/invitations/:invitationId/resend` / delete | Resend or revoke a pending invitation |
+| POST | `/v1/admin/invitations/accept` | Accept an invitation for the signed-in subject |
+| GET | `/v1/admin/organisations/:organisationId/audit` | Paginated organisation or hospital audit read |
 | GET | `/openapi` | Scalar API reference |
 | GET | `/openapi/json` | OpenAPI 3.1 document |
 
@@ -136,6 +160,8 @@ as a proxy. Do not call this API from the browser.
 migrations/          SQL migrations for identity, control and audit
 src/
 ├── app.ts           composition root (exports App for Eden)
+├── access/          effective permission checks
+├── admin/           provisioning, invitations, admin services and routes
 ├── auth/            OIDC flow, sessions, bearer guard, auth routes
 ├── config.ts        startup configuration validation
 ├── index.ts         opens the port and owns the pool lifecycle
