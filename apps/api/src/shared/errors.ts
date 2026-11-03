@@ -18,8 +18,9 @@ export class AppError extends Error {
     readonly code: string,
     readonly status: number,
     message: string,
+    options?: ErrorOptions,
   ) {
-    super(message)
+    super(message, options)
     this.name = 'AppError'
   }
 }

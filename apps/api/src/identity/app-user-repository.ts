@@ -90,6 +90,14 @@ export class AppUserRepository {
     return mapOptionalRow(result.rows[0])
   }
 
+  async findByEmail(email: string): Promise<AppUser | null> {
+    const result = await this.db.query(
+      `select ${COLUMNS} from identity.app_user where email = $1`,
+      [email],
+    )
+    return mapOptionalRow(result.rows[0])
+  }
+
   async findBySubject(
     identityIssuer: string,
     zitadelSubject: string,

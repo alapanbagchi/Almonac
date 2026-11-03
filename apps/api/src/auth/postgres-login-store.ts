@@ -29,7 +29,7 @@ const PENDING_INVITATION_QUERY = `
   where email = $1
     and status = 'pending'
     and expires_at > $2
-    and (kind = 'new_user' or zitadel_sub = $3)
+    and kind = 'new_user'
   order by created_at, id
   for update
 `
@@ -73,12 +73,7 @@ export class PostgresLoginStore implements LoginCompletionStore {
       throw new LoginRejectedError('user_inactive', user.id)
     }
 
-    const invitations = await this.pendingInvitations(
-      db,
-      user,
-      input.identity.subject,
-      input.now,
-    )
+    const invitations = await this.pendingInvitations(db, user, input.now)
     for (const invitation of invitations) {
       await this.acceptInvitation(db, user, invitation, input)
     }
@@ -134,13 +129,11 @@ export class PostgresLoginStore implements LoginCompletionStore {
   private async pendingInvitations(
     db: DatabaseQuery,
     user: AppUser,
-    subject: string,
     now: Date,
   ): Promise<PendingInvitation[]> {
     const result = await db.query(PENDING_INVITATION_QUERY, [
       user.email,
       now,
-      subject,
     ])
 
     return result.rows.map((value) => {

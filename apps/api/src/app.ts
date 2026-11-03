@@ -1,4 +1,6 @@
 import { Elysia } from 'elysia'
+import type { AdminDependencies } from './admin/admin-context'
+import { createAdmin } from './admin/routes'
 import type { AuthDependencies } from './auth/routes'
 import { createAuth } from './auth/routes'
 import { createHealth, type ReadinessCheck } from './health'
@@ -9,6 +11,7 @@ export interface AppDependencies {
   readonly checkDatabase: ReadinessCheck
   readonly readinessTimeoutMs?: number
   readonly auth?: AuthDependencies
+  readonly admin?: AdminDependencies
 }
 
 /**
@@ -20,13 +23,15 @@ export function createApp({
   checkDatabase,
   readinessTimeoutMs,
   auth,
+  admin,
 }: AppDependencies) {
   const app = new Elysia({ name: 'almonac.api' })
     .use(errors)
     .use(docs)
     .use(createHealth(checkDatabase, readinessTimeoutMs))
 
-  return auth === undefined ? app : app.use(createAuth(auth))
+  const withAuth = auth === undefined ? app : app.use(createAuth(auth))
+  return admin === undefined ? withAuth : withAuth.use(createAdmin(admin))
 }
 
 export type App = ReturnType<typeof createApp>

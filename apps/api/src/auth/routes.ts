@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto'
 import { Elysia, t } from 'elysia'
 import type { SessionAccess } from '../identity/access-repository'
 import { AppError } from '../shared/errors'
@@ -14,6 +13,7 @@ import type {
   LoginStart,
 } from './login-service'
 import type { LogoutContext, LogoutResult } from './logout-service'
+import { requestContext, requestIdOf, type RequestServer } from './request-context'
 
 export interface LoginFlow {
   start(returnTo: unknown, context: LoginRequestContext): Promise<LoginStart>
@@ -86,33 +86,6 @@ const routeDetail = (summary: string, authenticated = false) => ({
   tags: ['Authentication'],
   ...(authenticated ? { security: [{ bearerAuth: [] }] } : {}),
 })
-
-/**
- * The global error plugin derives a request ID, but its type does not cross
- * plugin boundaries. Read it at runtime and mint one only if it is absent.
- */
-function requestIdOf(context: object): string {
-  const value: unknown = Reflect.get(context, 'requestId')
-  return typeof value === 'string' ? value : crypto.randomUUID()
-}
-
-interface RequestServer {
-  requestIP?: (request: Request) => { address?: string } | null
-}
-
-function requestContext(
-  request: Request,
-  server: RequestServer | null | undefined,
-  requestId: string,
-): LoginRequestContext {
-  const agent = request.headers.get('user-agent')?.slice(0, 1_024) ?? ''
-  return {
-    ip: server?.requestIP?.(request)?.address ?? null,
-    userAgentHash:
-      agent.length === 0 ? null : createHash('sha256').update(agent).digest(),
-    requestId,
-  }
-}
 
 /**
  * API-owned OIDC and session routes. The browser talks to the Next.js BFF;
