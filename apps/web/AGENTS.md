@@ -29,14 +29,13 @@ These are standing instructions from the product owner. Apply them to every UI t
 - Prefer Spectrum UI components (registry `https://spectrumhq.in/r/<name>.json`) where one genuinely fits; install with `env npm_config_cache=/tmp/npmcache ./node_modules/.bin/shadcn add <item> --yes`.
 - All other primitives come from shadcn/ui in `src/components/ui` (Base UI based — not Radix).
 - `--dry-run` before adding; never swap Base UI primitives for Radix ones.
-- Dashboard sidebar: `src/app/dashboard/layout.tsx` wraps all sections with `DashboardSidebar` (desktop aside + mobile top-bar/Sheet); the tree itself is `DashboardNav` (Overview + Manage/System collapsible groups with normal-case headers, active pill `bg-bark-raised/25`), shared by both shells — add new sections there and as stub pages under `src/app/dashboard/<section>/page.tsx`. Both shells end with the Spectrum `ProfileDropdown` (`src/components/spectrumui/profiledropdown.tsx`, placeholder user in `src/components/dashboard/profile.ts`).
+- Dashboard sidebar: `src/app/dashboard/layout.tsx` wraps all sections with `DashboardSidebar` (desktop aside + mobile top-bar/Sheet); the tree itself is `DashboardNav` (Overview + Manage/System collapsible groups with normal-case headers, active pill `bg-bark-raised/25`), shared by both shells — add new sections there and as stub pages under `src/app/dashboard/<section>/page.tsx`. Both shells end with the Spectrum `ProfileDropdown` (`src/components/spectrumui/profiledropdown.tsx`) and its sign-out form. The member name, role and hospitals come from the API session passed by the dashboard layout.
 
 ### Forms
 - Validation is TanStack Form + Zod. Every field goes through `ValidatedField` (`src/components/form/validated-field.tsx`): pass `form`, `name`, `label`, a zod `schema` and render the control from its `input`/`select` props — label, error message, ids and aria wiring come free.
 - Invalid styling is a primitive default, not per-form CSS: `Input` and `SelectTrigger` style `aria-invalid` with a clay border, clay-tinted background and clay ring (including focus/hover states); an invalid field also renders its label, text, placeholder and leading icon in clay until the error clears. Never add your own error colours.
 - Errors show after blur or submit — typing in a pristine field never flags it; once flagged, fixing clears live. Keep `noValidate` on forms (no native bubbles) and never use `required`.
 - Every `useForm` sets `canSubmitWhenInvalid: true` so submit always runs full validation (TanStack otherwise skips `validateAllFields` on attempt #1 when a coinciding blur already invalidated the form).
-- Password strength is the Spectrum `PasswordStrengthInput` (`src/components/spectrumui/password-strength.tsx`, themed in-palette); criteria live in `PASSWORD_RULES` (`src/components/registration/registration-form.tsx`) — the single source the checklist renders and the schema enforces.
 
 ### Icons
 - Icons come from the animate-ui hugeicons shadcn registry: `@animate-ui/icons-hugeicons-<name>` → `src/components/animate-ui/icons/hugeicons/`.
@@ -47,7 +46,7 @@ These are standing instructions from the product owner. Apply them to every UI t
 ### Assets
 - Logo: `public/logo.svg` (abstract monogram mark, 1317×1194 viewBox; render via the `logo-mark` utility which masks it in parchment, e.g. `aspect-[1317/1194] w-[64px]`).
 - App background: flat `bg-background` (#1E201E).
-- Dashboard header shows placeholder hospital branding (`HOSPITALS` in `src/components/dashboard/hospital.ts`: logo `public/hospital/logo.svg`, name, NUCC type as slogan; `HospitalSwitcher` dropdown below the brand (with an add-hospital option opening the dialog)) — swap for backend data when the hospital endpoint lands. `LogoTile` samples the logo at runtime: light logos get a dark tile, dark logos a light one.
+- Dashboard header shows the signed-in member's hospital memberships (`src/lib/auth/session-view.ts` maps the API session; logo `public/hospital/logo.svg`; organisation name as slogan). `HospitalSwitcher` only switches between verified memberships; adding a hospital belongs to the admin plane. `LogoTile` samples the logo at runtime: light logos get a dark tile, dark logos a light one.
 
 ### Working style
 - The hard part is the layout in the reference image, not the design decisions. Match the reference and move on; don't invent alternatives or re-derive the design system.
@@ -64,9 +63,9 @@ These are standing instructions from the product owner. Apply them to every UI t
 
 # Web architecture rules
 
-**Location.** The web application lives at `apps/web/` (ADR-009 supersedes ADR-007). `apps/web` is a self-contained Git repository; the workspace root is not a Git repository. Run commands from `apps/web/`.
+**Location.** The web application lives at `apps/web/` (ADR-009 supersedes ADR-007). The workspace root is the Git repository; `apps/web` is not a separate repository. Run commands from `apps/web/`.
 
-**Installed baseline** (`package.json`): Next.js 16.4.3 (App Router), React 19.3, TypeScript 5 strict, Tailwind CSS 4 via `@tailwindcss/turbopack`, shadcn with the `base-nova` style on Base UI, TanStack Form 1.x, Zod 4, animate-ui icons. `next.config.ts` enables `cacheComponents` and `partialPrefetching`. There is no API client, no authentication, no test runner and no environment file yet; dashboard data is a local mock. Do not describe these as integrated.
+**Installed baseline** (`package.json`): Next.js 16.4.3 (App Router), React 19.3, TypeScript 5 strict, Tailwind CSS 4 via `@tailwindcss/turbopack`, shadcn with the `base-nova` style on Base UI, TanStack Form 1.x, Zod 4, animate-ui icons. `next.config.ts` enables `cacheComponents` and `partialPrefetching`. The app has a server-only Eden client for `GET /api/health`, a server-side authentication BFF, a session reader, a guarded dashboard and a Playwright suite. `.env.example` documents `API_URL` and `AUTH_PUBLIC_ORIGIN`. Dashboard memberships, hospitals and identity come from the API session.
 
 ## 1. Architecture
 
@@ -109,7 +108,7 @@ Do not create a global component for something used once. A complex clinical com
 
 ## 3. Talking to the backend
 
-- `apps/api` has no implementation yet. When it does, the web client uses **Eden Treaty** against the exported `App` type; do not hand-write request/response types that Eden infers. Create one client module in `lib/api` and import it everywhere; no ad-hoc `fetch` in components.
+- The web client uses **Eden Treaty** against the exported `App` type for API routes; do not hand-write request/response types that Eden infers. The server-only auth BFF uses its own Zod-validated client in `src/lib/auth/api.ts` because it must never import server internals into the browser. Keep ad-hoc `fetch` out of components.
 - Python services (`apps/clinical-ai`) are called through the Elysia API, not directly from the browser. If a browser call is ever required, generate a typed client from that service's OpenAPI document; do not retype schemas by hand.
 - The browser never holds database credentials and never connects to PostgreSQL. There is no client-side SQL, no Supabase-style direct table access.
 - Every request carries the authenticated session, never a user ID or hospital ID taken from local state as proof of identity. The hospital selector sends a hospital ID as a *selector*; the API re-authorises it.
