@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 import { ArrowRight02 } from "@/components/animate-ui/icons/hugeicons/arrow-right-02";
-import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 
 export default function Home() {
   return (
@@ -13,17 +13,19 @@ export default function Home() {
             <span className="text-[15px] font-medium tracking-[0.02em] text-foreground">Almonac</span>
           </Link>
 
-          <Button
-            render={<Link href="/login" />}
-            size="lg"
-            className="group h-[52px] rounded-xl px-5 text-[15px] font-semibold"
+          <Link
+            href="/login"
+            className={buttonVariants({
+              size: "lg",
+              className: "group h-[52px] rounded-xl px-5 text-[15px] font-semibold",
+            })}
           >
             Sign in
             <ArrowRight02
               size={16}
               className="transition-transform duration-300 ease-out group-hover:translate-x-1"
             />
-          </Button>
+          </Link>
         </div>
       </header>
 

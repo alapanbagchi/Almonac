@@ -3,7 +3,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 
 import { ArrowRight02 } from "@/components/animate-ui/icons/hugeicons/arrow-right-02";
-import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import { loginErrorMessage } from "@/lib/auth/login-error";
 import { normaliseReturnTo } from "@/lib/auth/return-to";
 
@@ -80,16 +80,18 @@ function LoginPanel({ message = null, loginHref = "/api/auth/login" }: {
           )}
 
           <div className="mt-8 rounded-2xl border border-bark bg-ink-raised p-6 sm:p-8">
-            <Button
-              render={<a href={loginHref} />}
-              className="group h-[52px] w-full rounded-xl text-[15px] font-semibold"
+            <a
+              href={loginHref}
+              className={buttonVariants({
+                className: "group h-[52px] w-full rounded-xl text-[15px] font-semibold",
+              })}
             >
               Continue to sign in
               <ArrowRight02
                 size={16}
                 className="transition-transform duration-300 ease-out group-hover:translate-x-1"
               />
-            </Button>
+            </a>
             <p className="mt-4 text-center text-[12px] leading-relaxed text-moss">
               Almonac never sees your password. Your hospital identity service verifies it.
             </p>
