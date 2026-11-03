@@ -32,9 +32,10 @@ These are standing instructions from the product owner. Apply them to every UI t
 - Dashboard sidebar: `src/app/dashboard/layout.tsx` wraps all sections with `DashboardSidebar` (desktop aside + mobile top-bar/Sheet); the tree itself is `DashboardNav` (Overview + Manage/System collapsible groups with normal-case headers, active pill `bg-bark-raised/25`), shared by both shells — add new sections there and as stub pages under `src/app/dashboard/<section>/page.tsx`. Both shells end with the Spectrum `ProfileDropdown` (`src/components/spectrumui/profiledropdown.tsx`) and its sign-out form. The member name, role and hospitals come from the API session passed by the dashboard layout.
 
 ### Forms
-- Validation is TanStack Form + Zod. Every field goes through `ValidatedField` (`src/components/form/validated-field.tsx`): pass `form`, `name`, `label`, a zod `schema` and render the control from its `input`/`select` props — label, error message, ids and aria wiring come free.
+- Two form patterns exist. A multi-field editor uses TanStack Form + Zod and sends every field through `ValidatedField` (`src/components/form/validated-field.tsx`): pass `form`, `name`, `label`, a zod `schema` and render the control from its `input`/`select` props — label, error message, ids and aria wiring come free.
+- A short administration action (one to three fields, for example create organisation, add hospital, invite staff) uses a native `form` with HTML constraints. Do not add TanStack Form to a small action form. The API validates the request and remains the authority; client validation is UX only.
 - Invalid styling is a primitive default, not per-form CSS: `Input` and `SelectTrigger` style `aria-invalid` with a clay border, clay-tinted background and clay ring (including focus/hover states); an invalid field also renders its label, text, placeholder and leading icon in clay until the error clears. Never add your own error colours.
-- Errors show after blur or submit — typing in a pristine field never flags it; once flagged, fixing clears live. Keep `noValidate` on forms (no native bubbles) and never use `required`.
+- TanStack Form errors show after blur or submit — typing in a pristine field never flags it; once flagged, fixing clears live. Keep `noValidate` on those forms (no native bubbles) and do not use `required` there.
 - Every `useForm` sets `canSubmitWhenInvalid: true` so submit always runs full validation (TanStack otherwise skips `validateAllFields` on attempt #1 when a coinciding blur already invalidated the form).
 
 ### Icons
@@ -65,7 +66,7 @@ These are standing instructions from the product owner. Apply them to every UI t
 
 **Location.** The web application lives at `apps/web/` (ADR-009 supersedes ADR-007). The workspace root is the Git repository; `apps/web` is not a separate repository. Run commands from `apps/web/`.
 
-**Installed baseline** (`package.json`): Next.js 16.4.3 (App Router), React 19.3, TypeScript 5 strict, Tailwind CSS 4 via `@tailwindcss/turbopack`, shadcn with the `base-nova` style on Base UI, TanStack Form 1.x, Zod 4, animate-ui icons. `next.config.ts` enables `cacheComponents` and `partialPrefetching`. The app has a server-only Eden client for `GET /api/health`, a server-side authentication BFF, a session reader, a guarded dashboard and a Playwright suite. `.env.example` documents `API_URL` and `AUTH_PUBLIC_ORIGIN`. Dashboard memberships, hospitals and identity come from the API session.
+**Installed baseline** (`package.json`): Next.js 16.4.3 (App Router), React 19.3, TypeScript 5 strict, Tailwind CSS 4 via `@tailwindcss/turbopack`, shadcn with the `base-nova` style on Base UI, TanStack Form 1.x, Zod 4, animate-ui icons. `next.config.ts` enables `cacheComponents` and `partialPrefetching`. The app has a server-only Eden client for `GET /api/health`, a server-side authentication BFF, an allowlisted administration BFF, a session reader, a guarded dashboard and a Playwright suite. `.env.example` documents `API_URL` and `AUTH_PUBLIC_ORIGIN`. Dashboard memberships, hospitals and identity come from the API session.
 
 ## 1. Architecture
 
