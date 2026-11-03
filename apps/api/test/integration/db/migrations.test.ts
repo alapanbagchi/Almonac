@@ -2429,6 +2429,33 @@ describe('admin routes', () => {
     }
   })
 
+  test('rejects malformed route identifiers before the handler', async () => {
+    const user = await createUser(ownerPool, 'malformed-id-user', 'malformed@example.test')
+    const { app, sessions } = application()
+    const issued = await sessions.mint({
+      userId: user,
+      identityIssuer: 'http://localhost:8080',
+      zitadelSessionId: null,
+      oidcSid: null,
+      acr: null,
+      idTokenHintCiphertext: null,
+      keyVersion: null,
+      amr: ['pwd'],
+      authTime: new Date(Date.now() - 60_000),
+      aal: 1,
+      ip: null,
+      userAgentHash: null,
+    })
+    const response = await app.handle(
+      new Request('http://localhost/v1/admin/organisations/not-a-uuid/hospitals', {
+        headers: { authorization: `Bearer ${issued.token}` },
+      }),
+    )
+    expect(response.status).toBe(400)
+    const body = await response.json() as { error: { code: string } }
+    expect(body.error.code).toBe('VALIDATION_FAILED')
+  })
+
   test('denies organisation creation without platform permission', async () => {
     const user = await createUser(ownerPool, 'admin-route-user', 'route@example.test')
     const { app, sessions } = application()

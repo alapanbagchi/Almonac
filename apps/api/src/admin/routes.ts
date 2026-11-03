@@ -3,6 +3,7 @@ import type { AdminDependencies } from './admin-context'
 import { adminContext } from './admin-context'
 import {
   acceptBody,
+  auditId,
   auditSchema,
   domainBody,
   domainSchema,
@@ -394,7 +395,7 @@ export function createAdmin(dependencies: AdminDependencies) {
           hospitalId: t.Optional(uuid),
           limit: listLimit,
           before: t.Optional(t.String({ maxLength: 40 })),
-          beforeId: t.Optional(uuid),
+          beforeId: t.Optional(auditId),
         }),
         response: {
           200: t.Object({ entries: t.Array(auditSchema), nextCursor: t.Union([t.String(), t.Null()]) }),
