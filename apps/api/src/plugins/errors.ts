@@ -6,6 +6,11 @@ function envelope(code: string, message: string, requestId: string): ErrorEnvelo
   return { error: { code, message, requestId } }
 }
 
+function safeToken(value: string | undefined, fallback: string): string {
+  const token = value?.replace(/[^A-Za-z0-9_.-]/g, '').slice(0, 64)
+  return token || fallback
+}
+
 /**
  * One response shape for every failure: `{ error: { code, message, requestId } }`.
  *
@@ -43,8 +48,11 @@ export const errors = new Elysia({ name: 'plugins.errors' })
       return envelope('NOT_FOUND', 'Resource not found.', requestId)
     }
 
-    // Log the cause server-side; never return it.
-    console.error(`[api] unhandled error requestId=${requestId} code=${code}`, error)
+    // Log bounded class names only. Error codes and messages can contain
+    // request data, so the log records whether a code exists, not its value.
+    console.error(
+      `[api] unhandled error requestId=${requestId} code=${code === undefined ? 'none' : 'other'} name=${safeToken(error instanceof Error ? error.name : undefined, 'Unknown')}`,
+    )
     set.status = 500
     return envelope('INTERNAL', 'Unexpected server error.', requestId)
   })
