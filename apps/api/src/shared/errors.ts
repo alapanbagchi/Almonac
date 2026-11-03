@@ -14,13 +14,12 @@ export interface ErrorEnvelope {
  * Messages are public, so they must never contain SQL, stack traces or PHI.
  */
 export class AppError extends Error {
-  readonly code: string
-  readonly status: number
-
-  constructor(code: string, status: number, message: string) {
+  constructor(
+    readonly code: string,
+    readonly status: number,
+    message: string,
+  ) {
     super(message)
     this.name = 'AppError'
-    this.code = code
-    this.status = status
   }
 }

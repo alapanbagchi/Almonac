@@ -75,7 +75,7 @@ SNOMED CT needs an affiliate licence and has country-specific release rules. RxN
 
 This entry covers where audit records live (the same database, a separate append-only store or an external sink), how to achieve tamper evidence, who can query them and how long to retain them. Audit is mandatory for clinical actions. The storage decision is open.
 
-Starting point: `identity.audit_event` in the control database is append-only. A trigger rejects UPDATE and DELETE. The API writes this table, including denials. This is not a final tamper-evidence or retention design. An external sink, hash chaining and a retention policy remain open (U-06).
+Starting point: `audit.event` in the control database is append-only (ADR-014). Triggers reject UPDATE, DELETE and TRUNCATE. The runtime role can only select from and insert into the table, and cannot change the event time. The API writes this table, including denials. This is not a final tamper-evidence or retention design. An external sink, hash chaining, partition retention and a retention policy remain open (U-06).
 
 ## U-13 - Clinical AI
 

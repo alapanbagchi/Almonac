@@ -42,6 +42,7 @@ ADR-001 rejected one database per hospital for all data, including users. That m
 
 - Every hospital route resolves a hospital selector and then checks for an **active** membership for the authenticated user at that hospital. The selector is a lookup key only. It is not proof.
 - Permissions are operation-specific, for example `patient.read`, `note.sign` or `staff.manage`. Roles on the membership provide the permissions. There is no implicit "organisation administrator can see patients" path.
+- A role has a scope: platform, organisation or hospital. A platform role is never a membership role. An organisation role requires an organisation membership. A hospital role requires a hospital membership. The database enforces these rules, and the authorisation service checks them again.
 - An organisation-scoped membership grants administrative capabilities over the organisation's hospitals, such as create hospital, invite staff and read audit. The role decides the capabilities. This membership does not grant clinical permissions.
 - Cross-tenant lookups return 404. A known resource that the actor cannot access returns 403 only when its existence is not sensitive. The route decides once, in a central location.
 - Platform administrators use a separate audited break-glass path (ADR-004). They do not get a hidden superuser branch in hospital routes.
@@ -79,7 +80,7 @@ Negative:
 
 ## Follow-ups
 
-- Define the exact role catalogue and permission keys before implementation.
+- Define the custom role catalogue and contextual permission checks. The system role and permission baseline is seeded in migration 005.
 - Define what happens when a hospital changes organisation: membership migration, audit and session invalidation.
 - Define organisation deletion and hospital decommissioning, including data retention (U-06).
 - Add a reconciliation job. It must report Zitadel users without `app_user` rows and memberships that point to missing users or hospitals.
