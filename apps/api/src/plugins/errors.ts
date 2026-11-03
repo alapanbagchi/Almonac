@@ -11,16 +11,21 @@ function envelope(code: string, message: string, requestId: string): ErrorEnvelo
  * One response shape for every failure: `{ error: { code, message, requestId } }`.
  *
  * Registered once on the root instance; the 'global' scope makes it apply to
- * every route mounted afterwards. Error responses mint their own ID because
- * `derive` has not run when validation rejects a request.
+ * every route mounted afterwards. A handler error keeps its derived request
+ * ID; validation can fail before `derive` runs, so the fallback mints one.
  */
 export const errors = new Elysia({ name: 'plugins.errors' })
   .derive('global', () => ({ requestId: crypto.randomUUID() }))
   .onAfterHandle('global', ({ requestId, set }) => {
     set.headers['x-request-id'] = requestId
   })
-  .onError('global', ({ error, set }) => {
-    const requestId = crypto.randomUUID()
+  .onError('global', (context) => {
+    const { error, set } = context
+    const derived = Reflect.get(context, 'requestId')
+    const requestId =
+      typeof derived === 'string' && derived.length > 0
+        ? derived
+        : crypto.randomUUID()
     set.headers['x-request-id'] = requestId
 
     if (error instanceof AppError) {

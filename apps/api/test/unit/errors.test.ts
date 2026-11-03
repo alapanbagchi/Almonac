@@ -41,6 +41,23 @@ describe('error envelope', () => {
     })
   })
 
+  test('keeps the derived request ID in the error response', async () => {
+    console.error = () => {}
+    let derived = ''
+    const app = new Elysia().use(errors).get('/probe', (context) => {
+      derived = String(Reflect.get(context, 'requestId'))
+      throw new Error('boom')
+    })
+    const response = await app.handle(new Request('http://localhost/probe'))
+    const body = (await response.json()) as {
+      error: { requestId: string }
+    }
+
+    expect(response.status).toBe(500)
+    expect(body.error.requestId).toBe(derived)
+    expect(response.headers.get('x-request-id')).toBe(derived)
+  })
+
   test('maps an unexpected error to INTERNAL without leaking it', async () => {
     const logged: string[] = []
     console.error = (...args: unknown[]) => {
