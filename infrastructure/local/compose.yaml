@@ -139,6 +139,28 @@ services:
     networks:
       - almonac-local
 
+  control-postgres:
+    image: ${POSTGRES_IMAGE}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${CONTROL_POSTGRES_DB}
+      POSTGRES_USER: ${CONTROL_POSTGRES_USER}
+      POSTGRES_PASSWORD: "${CONTROL_POSTGRES_PASSWORD:?set CONTROL_POSTGRES_PASSWORD in .env}"
+      CONTROL_POSTGRES_TEST_DB: ${CONTROL_POSTGRES_TEST_DB}
+    ports:
+      - "127.0.0.1:${CONTROL_POSTGRES_PORT:-5433}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    volumes:
+      - control-postgres:/var/lib/postgresql/data:rw
+      - ./init/control-db/01-create-test-db.sh:/docker-entrypoint-initdb.d/01-create-test-db.sh:ro
+    networks:
+      - almonac-local
+
   postgres:
     image: ${POSTGRES_IMAGE}
     restart: unless-stopped
@@ -162,5 +184,6 @@ networks:
     name: almonac-local
 
 volumes:
+  control-postgres:
   zitadel-postgres:
   zitadel-bootstrap:

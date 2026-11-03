@@ -1,6 +1,6 @@
 # Almonac Infrastructure
 
-**Status: partially implemented.** `infrastructure/local/compose.yaml` runs a development-only Zitadel identity stack (proxy, Zitadel API, login UI, PostgreSQL, Mailpit) on 127.0.0.1. It creates the first instance and an administrator. It does not create an Almonac project, OIDC application, SMTP provider or users. There is no Dockerfile, Terraform configuration or CI deployment pipeline yet, and no cloud provider has been chosen. Treat every service definition below other than the local identity stack as a target to implement, not a description of what exists.
+**Status: partially implemented.** `infrastructure/local/compose.yaml` runs a development-only stack (proxy, Zitadel API, login UI, PostgreSQL, Mailpit and a separate control PostgreSQL) on 127.0.0.1. It creates the first Zitadel instance and an administrator. It does not create an Almonac project, OIDC application, SMTP provider or users. The control database has the P1 `identity`, `control` and `audit` migrations and the least-privilege `almonac_app` runtime role; hospital and terminology databases do not exist. There is no Dockerfile, Terraform configuration or CI deployment pipeline yet, and no cloud provider has been chosen. Treat every service definition below other than the local stack as a target to implement, not a description of what exists.
 
 The Next.js app in `apps/web/` and the local identity stack run on a developer machine. Nothing is deployed.
 
@@ -33,8 +33,8 @@ No environment shares credentials, buckets, databases or encryption keys with an
 
 Compose is for local development and CI, not production:
 
-- The local identity stack is `infrastructure/local/compose.yaml`: Zitadel, its login UI, PostgreSQL, Mailpit and a development proxy. It is synthetic and binds to 127.0.0.1. Its README documents the required values and the start and reset steps.
-- PostgreSQL services for control, one demo hospital and terminology are still target state; add them as separate services with separate volumes and no shared runtime role.
+- The local stack is `infrastructure/local/compose.yaml`: Zitadel, its login UI, PostgreSQL for Zitadel, a separate control PostgreSQL, Mailpit and a development proxy. It is synthetic and binds to 127.0.0.1. Its README documents the required values, the control database and the start and reset steps.
+- PostgreSQL services for one demo hospital and terminology are still target state; add them as separate services with separate volumes and no shared runtime role.
 - A local object store (S3-compatible) for document uploads instead of writing to a developer's disk inside the container is still target state.
 - Do not bake secrets into images or committed files. Leave secret values blank in the example env file and document how to generate them.
 - After the developer sets the required values, `docker compose up` must give a working stack from a clean clone. If it needs manual SQL, that is a bug in the seed script.

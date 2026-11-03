@@ -1,8 +1,8 @@
-# Local Zitadel stack
+# Local development stack
 
 This stack is for development and CI only. It runs one single-replica Zitadel
-deployment, the Login v2 UI, PostgreSQL, Mailpit and a development proxy. It is
-not the production topology. See ADR-013.
+deployment, the Login v2 UI, the Zitadel database, a separate control database,
+Mailpit and a development proxy. It is not the production topology. See ADR-013.
 
 ## What runs
 
@@ -12,15 +12,17 @@ not the production topology. See ADR-013.
 | `zitadel-api` | Zitadel API and OIDC provider | internal `zitadel-api:8080` |
 | `zitadel-login` | Login v2 UI | http://localhost:8080/ui/v2/login/ |
 | `postgres` | Zitadel database | internal only |
+| `control-postgres` | Almonac control database and test database | `127.0.0.1:5433` |
 | `mailpit` | Catches email | http://localhost:8025 |
 
-Only the proxy and Mailpit publish host ports. Both bind to 127.0.0.1.
-PostgreSQL, the Zitadel API and the login container are reachable only on the
-Compose network.
+Only the proxy, Mailpit and control PostgreSQL publish host ports. All bind to
+127.0.0.1. The Zitadel API, the login container and the Zitadel database are
+reachable only on the Compose network.
 
 ## Prerequisites
 
 - Docker with Compose v2
+- Bun, for `apps/api`
 
 ## First run
 
@@ -38,9 +40,10 @@ Set the required values in `.env`:
 | `LOGIN_SESSION_COOKIE_SECRET` | At least 32 characters. Generate with `openssl rand -hex 32`. |
 | `ZITADEL_ADMIN_PASSWORD` | Must meet the Zitadel default password policy. Use a password manager. |
 | `POSTGRES_PASSWORD` | Letters and digits only. Generate with `openssl rand -hex 16`. |
+| `CONTROL_POSTGRES_PASSWORD` | Letters and digits only. Generate with `openssl rand -hex 16`. |
 
 The stack embeds `POSTGRES_PASSWORD` in a local connection URL. Letters and
-digits avoid URL encoding problems.
+digits avoid URL encoding problems. Use a different password for each database.
 
 Start the stack:
 
@@ -48,12 +51,67 @@ Start the stack:
 docker compose up -d --wait
 ```
 
-The first start creates the database schema, the first instance, the
-administrator and the login client. It does not create an Almonac project, OIDC
+The first start creates the Zitadel database schema, the first instance, the
+administrator and the login client. It also creates the control database and
+the control test database. It does not create an Almonac project, OIDC
 application, SMTP provider or users. Product provisioning is not implemented.
 
 Keep `ZITADEL_MASTERKEY` unchanged while the database volume exists. A
 different key makes the existing data unreadable.
+
+## Control database
+
+The control PostgreSQL service is separate from the Zitadel database. It uses
+the values in `.env`:
+
+| Setting | Default |
+| --- | --- |
+| Database | `almonac_control` |
+| Test database | `almonac_control_test` |
+| User | `almonac` |
+| Host and port | `127.0.0.1:5433` |
+| Password | `CONTROL_POSTGRES_PASSWORD` |
+
+The init script creates the test database only when the control volume is
+empty. If the volume already existed before the test database was added, reset
+the stack.
+
+Create `apps/api/.env` from `apps/api/.env.example` and set both URLs. Use the
+password from `CONTROL_POSTGRES_PASSWORD`:
+
+```sh
+DATABASE_URL=postgresql://almonac:<password>@127.0.0.1:5433/almonac_control
+TEST_DATABASE_URL=postgresql://almonac:<password>@127.0.0.1:5433/almonac_control_test
+```
+
+Then, from `apps/api`:
+
+```sh
+bun install
+bun run db:migrate
+bun run dev
+```
+
+Check readiness:
+
+```sh
+curl http://localhost:3001/health/ready
+```
+
+Run the tests:
+
+```sh
+bun run test              # unit tests, no database
+bun run test:integration  # control database tests
+bun test                  # all tests
+```
+
+The integration tests migrate the test database down and up. They do not use
+the development database.
+
+Migrations own the tables. They also create the `almonac_app` runtime role. The
+API assumes that role on every connection. Readiness fails unless the schema
+version is current and the runtime role cannot update or delete audit events.
 
 ## Sign in
 
@@ -76,8 +134,9 @@ No email is sent until product provisioning adds and activates a provider.
 docker compose down -v
 ```
 
-This deletes the database and the setup volume. The next start creates a fresh
-instance. There is no migration path for local data.
+This deletes the Zitadel database, the control database and the setup volume.
+The next start creates a fresh instance and empty control databases. There is
+no migration path for local data.
 
 ## Troubleshooting
 
@@ -88,18 +147,26 @@ instance. There is no migration path for local data.
   decrypted. Restore the old key or reset the stack.
 - **Login page 404**: the login container is not healthy. Check
   `docker compose ps` and `docker compose logs zitadel-login`.
-- **Port already in use**: change `PROXY_PORT` or the `MAILPIT_*_PORT` values
-  in `.env`.
+- **Port already in use**: change `PROXY_PORT`, `MAILPIT_UI_PORT`,
+  `MAILPIT_SMTP_PORT` or `CONTROL_POSTGRES_PORT` in `.env`.
+- **Control database connection refused**: check that `control-postgres` is
+  healthy and that `DATABASE_URL` uses port 5433.
+- **Test database does not exist**: the control volume was created before the
+  init script existed. Run `docker compose down -v` and start again.
+- **Migration fails with authentication error**: check the user and password in
+  `apps/api/.env`, then run `bun run db:migrate` again.
 - **Admin sign-in fails**: the password must meet the Zitadel policy. If setup
   already ran, a change to `.env` does not update the existing user. Reset the
   stack.
 
 ## Security notes
 
-- `.env` is ignored and must not be committed. The example file contains no
-  secret values.
-- The proxy and Mailpit bind to 127.0.0.1. Do not publish this stack on a shared
-  network.
+- `.env` and `apps/api/.env` are ignored and must not be committed. The example
+  files contain no secret values.
+- The proxy, Mailpit and control PostgreSQL bind to 127.0.0.1. Do not publish
+  this stack on a shared network.
 - The login-client PAT has a long expiry and lives in the Docker volume. The
-  admin password is local only.
+  admin password and control database password are local only.
+- The control database contains identity, authorisation and audit records, not
+  patient records. It is still sensitive. Do not copy it to staging or production.
 - Do not reuse these values in staging or production.
