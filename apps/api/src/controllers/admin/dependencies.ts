@@ -1,6 +1,7 @@
 import type { Pool } from 'pg'
 import type { AuditSink } from '../../audit/audit-writer'
 import type { Authorize, PlatformAdmin, RolePermissions } from '../../shared/authorize'
+import type { Metrics } from '../../shared/metrics'
 import type { SessionAuthenticator, UserLookup } from '../../guards/bearer'
 
 /**
@@ -16,4 +17,6 @@ export interface AdminDependencies {
   readonly audit: AuditSink
   readonly sessions: SessionAuthenticator
   readonly users: UserLookup
+  /** Optional so existing wiring compiles; provisioning lag is emitted when present. */
+  readonly metrics?: Metrics
 }
