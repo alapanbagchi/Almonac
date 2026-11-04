@@ -106,7 +106,7 @@ export function InvitationActions({ invitationId }: { invitationId: string }) {
     setPending(true);
     setError(null);
     try {
-      await adminRequest(`invitations/${invitationId}`, "DELETE");
+      await adminRequest(`invitations/${invitationId}/revoke`, "POST");
       setConfirming(false);
       router.refresh();
     } catch {

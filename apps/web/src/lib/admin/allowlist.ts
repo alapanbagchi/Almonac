@@ -18,7 +18,7 @@ const ROUTES: readonly { method: string; pattern: RegExp }[] = [
   { method: "POST", pattern: /^memberships\/[0-9a-fA-F-]{1,64}\/(?:suspend|revoke|roles)$/ },
   { method: "DELETE", pattern: /^memberships\/[0-9a-fA-F-]{1,64}\/roles\/[0-9a-fA-F-]{1,64}$/ },
   { method: "POST", pattern: /^invitations\/[0-9a-fA-F-]{1,64}\/resend$/ },
-  { method: "DELETE", pattern: /^invitations\/[0-9a-fA-F-]{1,64}$/ },
+  { method: "POST", pattern: /^invitations\/[0-9a-fA-F-]{1,64}\/revoke$/ },
   { method: "POST", pattern: /^invitations\/accept$/ },
 ];
 
