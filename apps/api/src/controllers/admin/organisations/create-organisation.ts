@@ -2,7 +2,6 @@ import { performance } from 'node:perf_hooks'
 import type { AdminDependencies } from '../dependencies'
 import type { AdminRequestContext } from '../../../guards/admin-context'
 import type { DatabaseQuery } from '../../../db/pool'
-import { withTransaction } from '../../../db/pool'
 import { recordAdminChange } from '../../../shared/change-log'
 import { forbidden } from '../../../shared/errors'
 import { NO_METRICS } from '../../../shared/metrics'
@@ -43,7 +42,7 @@ export async function createOrganisation(
   if (!(await d.isPlatformAdmin(context.actor.id))) throw forbidden()
 
   const startedAt = performance.now()
-  const result = await withTransaction(d.pool, async (db) => {
+  const result = await d.transaction(async (db) => {
     const organisations = createOrganisationRepository(db)
     await organisations.lockSlug(input.slug)
     const existing = await organisations.findBySlug(input.slug)

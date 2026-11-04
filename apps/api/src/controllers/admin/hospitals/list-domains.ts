@@ -13,7 +13,7 @@ export async function listDomains(
   hospitalId: string,
   page: PageRequest,
 ) {
-  const hospitals = createHospitalRepository(d.pool)
+  const hospitals = createHospitalRepository(d.db)
   const hospital = await hospitals.findById(hospitalId)
   if (hospital === null) throw notFound('Hospital not found.')
   await d.authorize(context.actor.id, 'hospital.manage', {

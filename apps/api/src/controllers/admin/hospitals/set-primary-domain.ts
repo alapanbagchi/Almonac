@@ -1,6 +1,5 @@
 import type { AdminDependencies } from '../dependencies'
 import type { AdminRequestContext } from '../../../guards/admin-context'
-import { withTransaction } from '../../../db/pool'
 import { createHospitalRepository } from '../../../repositories/hospital-repository'
 import { recordAdminChange } from '../../../shared/change-log'
 import { notFound } from '../../../shared/errors'
@@ -13,7 +12,7 @@ export async function setPrimaryDomain(
   hospitalId: string,
   domainId: string,
 ) {
-  const hospitals = createHospitalRepository(d.pool)
+  const hospitals = createHospitalRepository(d.db)
   const hospital = await hospitals.findById(hospitalId)
   if (hospital === null) throw notFound('Hospital not found.')
   await d.authorize(context.actor.id, 'hospital.manage', {
@@ -21,7 +20,7 @@ export async function setPrimaryDomain(
     hospitalId: hospital.id,
   })
 
-  const updated = await withTransaction(d.pool, async (db) => {
+  const updated = await d.transaction(async (db) => {
     const record = await createHospitalRepository(db).setPrimaryDomain({
       hospitalId: hospital.id,
       domainId,

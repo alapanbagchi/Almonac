@@ -64,7 +64,8 @@ function unusedPool(): Pool {
 
 function dependencies(overrides: Partial<AdminDependencies> = {}): AdminDependencies {
   return {
-    pool: unusedPool(),
+    db: unusedPool(),
+    transaction: (run) => run(unusedPool()),
     authorize: async () => undefined,
     permissions: async () => [],
     isPlatformAdmin: async () => false,

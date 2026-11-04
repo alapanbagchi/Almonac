@@ -49,6 +49,11 @@ export function createControlPool(databaseUrl: string): Pool {
   return pool
 }
 
+/** Run one unit of work on a transaction-scoped database handle. */
+export type TransactionRunner = <T>(
+  run: (db: DatabaseQuery) => Promise<T>,
+) => Promise<T>
+
 /**
  * Run repository work in one transaction. A failed rollback destroys the
  * connection instead of returning an unknown state to the pool.

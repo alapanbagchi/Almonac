@@ -6,6 +6,7 @@ import { assignRole } from '../../src/controllers/admin/memberships/assign-role'
 import { revokeMembership } from '../../src/controllers/admin/memberships/revoke-membership'
 import { revokeRole } from '../../src/controllers/admin/memberships/revoke-role'
 import { suspendMembership } from '../../src/controllers/admin/memberships/suspend-membership'
+import { withTransaction } from '../../src/db/pool'
 import type { AdminRequestContext } from '../../src/guards/admin-context'
 import type { AppUser } from '../../src/identity/app-user-repository'
 import { AppError, forbidden } from '../../src/shared/errors'
@@ -122,7 +123,8 @@ function setup(
   const pool = fakePool(handler)
   const events: AuditEvent[] = []
   const dependencies: AdminDependencies = {
-    pool: pool.pool,
+    db: pool.pool,
+    transaction: (run) => withTransaction(pool.pool, run),
     authorize: options.authorize ?? (async () => undefined),
     permissions: options.permissions ?? (async () => []),
     isPlatformAdmin: options.isPlatformAdmin ?? (async () => false),

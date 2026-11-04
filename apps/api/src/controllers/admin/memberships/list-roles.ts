@@ -12,7 +12,7 @@ export async function listRoles(
   page: PageRequest,
 ): Promise<Page<RoleResponse>> {
   await d.authorize(context.actor.id, 'membership.manage', { organisationId, hospitalId: null })
-  const roles = createRoleRepository(d.pool)
+  const roles = createRoleRepository(d.db)
   const found = await roles.list(organisationId, page)
   return pageResponse(found, roleResponse)
 }

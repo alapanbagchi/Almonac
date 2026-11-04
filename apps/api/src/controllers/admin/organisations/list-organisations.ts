@@ -11,7 +11,7 @@ export async function listOrganisations(
   query: { readonly limit?: string; readonly offset?: string },
 ) {
   const request = pageRequest(query)
-  const organisations = createOrganisationRepository(d.pool)
+  const organisations = createOrganisationRepository(d.db)
   const rows = (await d.isPlatformAdmin(context.actor.id))
     ? await organisations.listAll(request)
     : await organisations.listForUser(context.actor.id, request)

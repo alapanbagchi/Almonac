@@ -1,4 +1,3 @@
-import { withTransaction } from '../../../db/pool'
 import type { AdminRequestContext } from '../../../guards/admin-context'
 import { createMembershipRepository } from '../../../repositories/membership-repository'
 import { createRoleRepository } from '../../../repositories/role-repository'
@@ -15,8 +14,8 @@ export async function suspendMembership(
   reason: string,
 ): Promise<OkResponse> {
   const stores = {
-    memberships: createMembershipRepository(d.pool),
-    roles: createRoleRepository(d.pool),
+    memberships: createMembershipRepository(d.db),
+    roles: createRoleRepository(d.db),
   }
   const membership = await requireMembership(d, stores, context, membershipId)
   refuseSelf(membership, context.actor.id, 'suspend')
@@ -28,7 +27,7 @@ export async function suspendMembership(
     hospitalId: membership.hospitalId,
   }
 
-  await withTransaction(d.pool, async (db) => {
+  await d.transaction(async (db) => {
     const suspended = await createMembershipRepository(db).suspend(membership.id, new Date())
     if (!suspended) throw conflict('Membership is not active.')
     await recordAdminChange(d.audit, context, change, 'membership.suspended', db, {

@@ -46,7 +46,8 @@ const session: WebSession = {
 }
 
 const dependencies: AdminDependencies = {
-  pool: { query: async () => ({ rows: [] }) } as never,
+  db: { query: async () => ({ rows: [] }) },
+  transaction: (run) => run({ query: async () => ({ rows: [] }) }),
   authorize: async () => undefined,
   permissions: async () => [],
   isPlatformAdmin: async () => false,

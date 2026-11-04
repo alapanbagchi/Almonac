@@ -1,4 +1,3 @@
-import { withTransaction } from '../../../db/pool'
 import type { AdminRequestContext } from '../../../guards/admin-context'
 import { createMembershipRepository } from '../../../repositories/membership-repository'
 import { createRoleRepository } from '../../../repositories/role-repository'
@@ -15,8 +14,8 @@ export async function revokeMembership(
   reason: string,
 ): Promise<OkResponse> {
   const stores = {
-    memberships: createMembershipRepository(d.pool),
-    roles: createRoleRepository(d.pool),
+    memberships: createMembershipRepository(d.db),
+    roles: createRoleRepository(d.db),
   }
   const membership = await requireMembership(d, stores, context, membershipId)
   refuseSelf(membership, context.actor.id, 'revoke')
@@ -29,7 +28,7 @@ export async function revokeMembership(
     hospitalId: membership.hospitalId,
   }
 
-  await withTransaction(d.pool, async (db) => {
+  await d.transaction(async (db) => {
     const revoked = await createMembershipRepository(db).revoke({
       id: membership.id,
       at: new Date(),

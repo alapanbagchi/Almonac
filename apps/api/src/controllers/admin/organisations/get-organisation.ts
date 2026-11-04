@@ -10,7 +10,7 @@ export async function getOrganisation(
   organisationId: string,
 ) {
   await d.authorize(context.actor.id, 'organisation.manage', { organisationId })
-  const organisation = await createOrganisationRepository(d.pool).findById(organisationId)
+  const organisation = await createOrganisationRepository(d.db).findById(organisationId)
   if (organisation === null) throw notFound('Organisation not found.')
   return organisationResponse(organisation)
 }

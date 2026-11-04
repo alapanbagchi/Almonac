@@ -1,6 +1,5 @@
 import type { AdminDependencies } from '../dependencies'
 import type { AdminRequestContext } from '../../../guards/admin-context'
-import { withTransaction } from '../../../db/pool'
 import { createHospitalRepository } from '../../../repositories/hospital-repository'
 import { recordAdminChange } from '../../../shared/change-log'
 import { notFound } from '../../../shared/errors'
@@ -14,7 +13,7 @@ export async function addDomain(
   hospitalId: string,
   domain: string,
 ) {
-  const hospitals = createHospitalRepository(d.pool)
+  const hospitals = createHospitalRepository(d.db)
   const hospital = await hospitals.findById(hospitalId)
   if (hospital === null) throw notFound('Hospital not found.')
   await d.authorize(context.actor.id, 'hospital.manage', {
@@ -23,7 +22,7 @@ export async function addDomain(
   })
 
   const minted = mintToken()
-  const created = await withTransaction(d.pool, async (db) => {
+  const created = await d.transaction(async (db) => {
     const record = await createHospitalRepository(db).addDomain({
       hospitalId: hospital.id,
       domain,

@@ -13,7 +13,7 @@ export async function listHospitals(
   page: PageRequest,
 ) {
   await d.authorize(context.actor.id, 'hospital.manage', { organisationId })
-  const hospitals = await createHospitalRepository(d.pool).listByOrganisation(
+  const hospitals = await createHospitalRepository(d.db).listByOrganisation(
     organisationId,
     page,
   )

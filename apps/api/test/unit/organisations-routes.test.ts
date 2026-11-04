@@ -4,7 +4,7 @@ import { Pool } from 'pg'
 import type { AuditEvent, AuditSink } from '../../src/audit/audit-writer'
 import type { AdminDependencies } from '../../src/controllers/admin/dependencies'
 import type { OrganisationIdentity } from '../../src/controllers/admin/organisations/create-organisation'
-import type { DatabaseQuery } from '../../src/db/pool'
+import { withTransaction, type DatabaseQuery } from '../../src/db/pool'
 import type { AppUser } from '../../src/identity/app-user-repository'
 import type { WebSession } from '../../src/identity/session-repository'
 import { errors } from '../../src/plugins/errors'
@@ -198,7 +198,8 @@ function setup(database: FakeDatabase, overrides: Partial<AdminDependencies> = {
     pool,
     audit,
     dependencies: {
-      pool: pool.pool,
+      db: pool.pool,
+      transaction: (run) => withTransaction(pool.pool, run),
       authorize: async () => {},
       permissions: async () => [],
       isPlatformAdmin: async () => true,

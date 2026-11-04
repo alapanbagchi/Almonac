@@ -9,6 +9,7 @@ import { listDomains } from '../../src/controllers/admin/hospitals/list-domains'
 import { listHospitals } from '../../src/controllers/admin/hospitals/list-hospitals'
 import { setPrimaryDomain } from '../../src/controllers/admin/hospitals/set-primary-domain'
 import { verifyDomain } from '../../src/controllers/admin/hospitals/verify-domain'
+import { withTransaction } from '../../src/db/pool'
 import type { AdminRequestContext } from '../../src/guards/admin-context'
 import type { AppUser } from '../../src/identity/app-user-repository'
 import type { WebSession } from '../../src/identity/session-repository'
@@ -131,8 +132,10 @@ function dependencies(options: {
   readonly authorize?: AdminDependencies['authorize']
   readonly audit?: AuditSink
 } = {}): AdminDependencies {
+  const pool = options.pool ?? fakePool().pool
   return {
-    pool: options.pool ?? fakePool().pool,
+    db: pool,
+    transaction: (run) => withTransaction(pool, run),
     authorize: options.authorize ?? (async () => {}),
     permissions: async () => [],
     isPlatformAdmin: async () => false,

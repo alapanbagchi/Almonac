@@ -13,7 +13,7 @@ export async function listMemberships(
   page: PageRequest,
 ): Promise<Page<MembershipResponse>> {
   await d.authorize(context.actor.id, 'membership.manage', { organisationId, hospitalId })
-  const memberships = createMembershipRepository(d.pool)
+  const memberships = createMembershipRepository(d.db)
   const found = await memberships.list({ organisationId, hospitalId }, page)
   return pageResponse(found, membershipResponse)
 }

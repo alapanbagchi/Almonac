@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import type { AuditSink } from '../../audit/audit-writer'
-import type { DatabaseQuery } from '../../db/pool'
+import type { DatabaseQuery, TransactionRunner } from '../../db/pool'
 import { AppError } from '../../shared/errors'
 import { NO_METRICS, type Metrics } from '../../shared/metrics'
 import type { SealingKey } from '../../shared/sealed'
@@ -21,11 +21,6 @@ export interface VerifiedIdentityCreator {
 export interface VerificationMailer {
   send(input: { to: string; token: string; expiresAt: Date }): Promise<void>
 }
-
-/** Run one unit of work on a transaction-scoped database handle. */
-export type TransactionRunner = <T>(
-  run: (db: DatabaseQuery) => Promise<T>,
-) => Promise<T>
 
 /** What every request context carries: nobody trusted, nothing cached. */
 export interface LoginRequestContext {
