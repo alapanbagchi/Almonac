@@ -4,7 +4,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 
 import { adminRequest } from "@/lib/admin/client";
-import { Button } from "@/components/ui/button";
+import { SubmitButton } from "@/components/form/submit-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
@@ -57,9 +57,9 @@ export function CreateOrganisationForm() {
           autoComplete="off"
         />
       </div>
-      <Button type="submit" disabled={pending}>
+      <SubmitButton disabled={pending}>
         {pending ? "Creating..." : "Create"}
-      </Button>
+      </SubmitButton>
       {error === null ? null : (
         <p role="alert" className="text-sm text-destructive sm:col-span-3">
           {error}

@@ -4,7 +4,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 
 import { adminRequest } from "@/lib/admin/client";
-import { Button } from "@/components/ui/button";
+import { SubmitButton } from "@/components/form/submit-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { Hospital, Role } from "@/lib/admin/model";
@@ -110,9 +110,9 @@ export function InviteForm({
         </select>
       </div>
       <div className="sm:col-span-2">
-        <Button type="submit" disabled={pending || roleId === ""}>
+        <SubmitButton disabled={pending || roleId === ""}>
           {pending ? "Sending..." : "Send invitation"}
-        </Button>
+        </SubmitButton>
       </div>
       {error === null ? null : (
         <p role="alert" className="text-sm text-destructive sm:col-span-2">

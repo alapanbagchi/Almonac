@@ -4,6 +4,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 
 import { adminRequest } from "@/lib/admin/client";
+import { SubmitButton } from "@/components/form/submit-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -118,9 +119,9 @@ export function DomainManager({
                     maxLength={128}
                     className="h-7 w-44 text-xs"
                   />
-                  <Button type="submit" size="xs" variant="outline" disabled={pending}>
+                  <SubmitButton size="xs" variant="outline" disabled={pending}>
                     Verify
-                  </Button>
+                  </SubmitButton>
                 </form>
               ) : null}
             </li>
@@ -142,9 +143,9 @@ export function DomainManager({
               className="h-8 w-64 text-sm"
             />
           </div>
-          <Button type="submit" size="sm" variant="outline" disabled={pending}>
+          <SubmitButton size="sm" variant="outline" disabled={pending}>
             Add
-          </Button>
+          </SubmitButton>
         </form>
       ) : null}
 
