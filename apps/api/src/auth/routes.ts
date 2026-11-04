@@ -14,7 +14,8 @@ import type {
 } from './login-service'
 import type { LogoutContext, LogoutResult } from './logout-service'
 import type { AuthRateLimit } from './rate-limiter'
-import { clientIp, requestContext, type RequestServer } from './request-context'
+import { clientIp, requestContext } from './request-context'
+import type { MembershipAccess } from '../identity/access-repository'
 import { requestIdOf } from '../shared/request'
 
 export interface LoginFlow {
@@ -69,7 +70,7 @@ const callbackResponse = t.Object({
   returnTo: t.String(),
 })
 
-const membershipResponse = t.Object({
+const membershipSchema = t.Object({
   id: t.String(),
   organisationId: t.String(),
   organisationName: t.String(),
@@ -86,12 +87,17 @@ const sessionResponse = t.Object({
     email: t.String(),
     displayName: t.String(),
   }),
-  memberships: t.Array(membershipResponse),
+  memberships: t.Array(membershipSchema),
   permissions: t.Array(t.String()),
 })
 
 const logoutResponse = t.Object({
   endSessionUrl: t.Union([t.String(), t.Null()]),
+})
+
+const startResponse = (start: LoginStart) => ({
+  authorizationUrl: start.authorizationUrl,
+  expiresAt: start.expiresAt.toISOString(),
 })
 
 const routeDetail = (summary: string, authenticated = false) => ({
@@ -106,23 +112,6 @@ const routeDetail = (summary: string, authenticated = false) => ({
  * never a cookie.
  */
 export function createAuth(dependencies: AuthDependencies) {
-  const current = async (
-    authorization: string | undefined,
-    request: Request,
-    server: RequestServer | null | undefined,
-    requestId: string,
-  ) => {
-    const authenticated = await authenticateBearer(
-      authorization,
-      dependencies.sessions,
-      dependencies.users,
-    )
-    return {
-      ...authenticated,
-      context: requestContext(request, server, requestId),
-    }
-  }
-
   return new Elysia({
     name: 'auth.routes',
     prefix: '/v1/auth',
@@ -143,10 +132,7 @@ export function createAuth(dependencies: AuthDependencies) {
           requestContext(request, server, requestIdOf(context)),
         )
         set.status = 201
-        return {
-          authorizationUrl: start.authorizationUrl,
-          expiresAt: start.expiresAt.toISOString(),
-        }
+        return startResponse(start)
       },
     )
     .post(
@@ -159,22 +145,18 @@ export function createAuth(dependencies: AuthDependencies) {
       async (context) => {
         const { body, headers, request, server, set } = context
         await dependencies.rateLimit?.check('step_up', clientIp(request, server))
-        const authenticated = await current(
+        const authenticated = await authenticateBearer(
           headers.authorization,
-          request,
-          server,
-          requestIdOf(context),
+          dependencies.sessions,
+          dependencies.users,
         )
         const start = await dependencies.login.startStepUp(
           authenticated.session.userId,
           body.returnTo,
-          authenticated.context,
+          requestContext(request, server, requestIdOf(context)),
         )
         set.status = 201
-        return {
-          authorizationUrl: start.authorizationUrl,
-          expiresAt: start.expiresAt.toISOString(),
-        }
+        return startResponse(start)
       },
     )
     .post(
@@ -207,12 +189,11 @@ export function createAuth(dependencies: AuthDependencies) {
         detail: routeDetail('Read the current session', true),
       },
       async (context) => {
-        const { headers, request, server } = context
-        const { user } = await current(
+        const { headers } = context
+        const { user } = await authenticateBearer(
           headers.authorization,
-          request,
-          server,
-          requestIdOf(context),
+          dependencies.sessions,
+          dependencies.users,
         )
         const access = await dependencies.access.listForUser(user.id, new Date())
         return {
@@ -221,16 +202,7 @@ export function createAuth(dependencies: AuthDependencies) {
             email: user.email,
             displayName: user.displayName,
           },
-          memberships: access.memberships.map((membership) => ({
-            id: membership.id,
-            organisationId: membership.organisationId,
-            organisationName: membership.organisationName,
-            hospitalId: membership.hospitalId,
-            hospitalName: membership.hospitalName,
-            startsAt: membership.startsAt.toISOString(),
-            endsAt: membership.endsAt?.toISOString() ?? null,
-            roles: [...membership.roles],
-          })),
+          memberships: access.memberships.map(membershipBody),
           permissions: [...access.permissions],
         }
       },
@@ -257,4 +229,16 @@ export function createAuth(dependencies: AuthDependencies) {
         )
       },
     )
+}
+function membershipBody(membership: MembershipAccess) {
+  return {
+    id: membership.id,
+    organisationId: membership.organisationId,
+    organisationName: membership.organisationName,
+    hospitalId: membership.hospitalId,
+    hospitalName: membership.hospitalName,
+    startsAt: membership.startsAt.toISOString(),
+    endsAt: membership.endsAt?.toISOString() ?? null,
+    roles: [...membership.roles],
+  }
 }

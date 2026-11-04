@@ -1,0 +1,7 @@
+refactor(api): give the auth routes one request context each
+
+Each auth handler built the login request context by calling requestContext()
+with requestIdOf() again, and the session and step-up handlers went through
+a local current() helper that only added that. startResponse() and
+membershipBody() now own the two response mappings; the step-up and session
+handlers call authenticateBearer directly and build one request context.
