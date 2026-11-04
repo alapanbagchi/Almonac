@@ -2,6 +2,7 @@ import { cn } from "@/lib/utils";
 
 const TONES: Record<string, string> = {
   active: "border-moss/50 bg-moss/15 text-foreground",
+  approved: "border-moss/40 bg-moss/10 text-foreground",
   pending: "border-bark bg-bark-raised/40 text-moss-bright",
   suspended: "border-clay/50 bg-clay/15 text-foreground",
   revoked: "border-clay/70 bg-clay/20 text-foreground",

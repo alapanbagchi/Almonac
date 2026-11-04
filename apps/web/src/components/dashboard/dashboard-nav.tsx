@@ -13,6 +13,7 @@ import { ArrowDown01 } from "@/components/animate-ui/icons/hugeicons/arrow-down-
 import { Clock01 } from "@/components/animate-ui/icons/hugeicons/clock-01";
 import { Globe02 } from "@/components/animate-ui/icons/hugeicons/globe-02";
 import { Home03 } from "@/components/animate-ui/icons/hugeicons/home-03";
+import { Key01 } from "@/components/animate-ui/icons/hugeicons/key-01";
 import { Location01 } from "@/components/animate-ui/icons/hugeicons/location-01";
 import { Settings02 } from "@/components/animate-ui/icons/hugeicons/settings-02";
 import { UserRound } from "@/components/animate-ui/icons/hugeicons/user-round";
@@ -51,6 +52,7 @@ const GROUPS: NavGroup[] = [
     label: "System",
     items: [
       { href: "/dashboard/audit-log", label: "Audit Log", icon: Clock01 },
+      { href: "/dashboard/break-glass", label: "Break Glass", icon: Key01 },
       { href: "/dashboard/settings", label: "Settings", icon: Settings02 },
     ],
   },

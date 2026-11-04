@@ -18,6 +18,10 @@ export const STEP_UP_FAILURES = ["denied", "failed", "invalid", "session", "unav
 
 export type StepUpFailure = (typeof STEP_UP_FAILURES)[number];
 
+export function isStepUpFailure(value: unknown): value is StepUpFailure {
+  return typeof value === "string" && (STEP_UP_FAILURES as readonly string[]).includes(value);
+}
+
 /** Returns to the page that asked for a fresh check, with a bounded reason. */
 export function stepUpFailureUrl(
   origin: string,
