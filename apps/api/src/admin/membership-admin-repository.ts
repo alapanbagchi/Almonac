@@ -106,14 +106,13 @@ export class MembershipAdminRepository {
         [input.userId, input.organisationId, input.hospitalId],
       )
       const membershipId = stringField(rowRecord(result.rows[0]), 'id')
-      for (const roleId of input.roleIds) {
-        await db.query(
-          `insert into control.membership_role
-             (membership_id, role_id, assigned_by, assigned_at, validity)
-           values ($1, $2, $3, now(), tstzrange(now(), null, '[)'))`,
-          [membershipId, roleId, input.assignedBy],
-        )
-      }
+      await db.query(
+        `insert into control.membership_role
+           (membership_id, role_id, assigned_by, assigned_at, validity)
+         select $1, role_id, $3, now(), tstzrange(now(), null, '[)')
+           from unnest($2::uuid[]) as role_id`,
+        [membershipId, input.roleIds, input.assignedBy],
+      )
       return membershipId
     } catch (error) {
       if (isExclusionViolation(error)) throw new MembershipConflictError()
