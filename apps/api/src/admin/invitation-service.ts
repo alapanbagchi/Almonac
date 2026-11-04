@@ -1,5 +1,5 @@
 import { requireAdminPermission } from './admin-authorization'
-import { asAdminError, forbidden } from './admin-errors'
+import { forbidden } from '../shared/errors'
 import {
   INVITATION_TTL_MS,
   type InvitationDelivery,
@@ -83,15 +83,10 @@ export class InvitationService {
       throw ruleViolation('The organisation is not provisioned yet.')
     }
     const displayName = input.displayName?.trim() || email.split('@')[0] || email
-    let subject: string
-    try {
-      subject = await this.dependencies.zitadel.createHumanUser(organisation.zitadelOrgId, {
-        email,
-        displayName,
-      })
-    } catch (error) {
-      throw asAdminError(error)
-    }
+    const subject = await this.dependencies.zitadel.createHumanUser(organisation.zitadelOrgId, {
+      email,
+      displayName,
+    })
     try {
       return await this.issueAndDeliver(
         context,
@@ -157,20 +152,16 @@ export class InvitationService {
       }
       await this.requireNoMembership(user.id, invitation)
 
-      try {
-        await this.dependencies.memberships.createFromInvitation(
-          {
-            userId: user.id,
-            organisationId: invitation.organisationId,
-            hospitalId: invitation.hospitalId,
-            roleIds: invitation.roleIds,
-            assignedBy: invitation.invitedBy,
-          },
-          db,
-        )
-      } catch (error) {
-        throw asAdminError(error)
-      }
+      await this.dependencies.memberships.createFromInvitation(
+        {
+          userId: user.id,
+          organisationId: invitation.organisationId,
+          hospitalId: invitation.hospitalId,
+          roleIds: invitation.roleIds,
+          assignedBy: invitation.invitedBy,
+        },
+        db,
+      )
       const accepted = await this.dependencies.invitations.markAcceptedWith(db, {
         id: invitation.id,
         acceptedByUserId: user.id,
@@ -289,14 +280,10 @@ export class InvitationService {
     if (invitation.kind === 'new_user' && invitation.zitadelSub !== null) {
       const organisation = await this.dependencies.organisations.findById(invitation.organisationId)
       if (organisation?.zitadelOrgId != null) {
-        try {
-          await this.dependencies.zitadel.resendInitialization(
-            organisation.zitadelOrgId,
-            invitation.zitadelSub,
-          )
-        } catch (error) {
-          throw asAdminError(error)
-        }
+        await this.dependencies.zitadel.resendInitialization(
+          organisation.zitadelOrgId,
+          invitation.zitadelSub,
+        )
       }
     }
     const issued = await withTransaction(this.dependencies.pool, async (db) => {

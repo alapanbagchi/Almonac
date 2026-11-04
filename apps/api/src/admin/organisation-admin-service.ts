@@ -1,5 +1,5 @@
 import type { AuthorizationRepository } from '../access/authorization-repository'
-import { forbidden, notFound } from './admin-errors'
+import { forbidden, notFound } from '../shared/errors'
 import { isPlatformAdmin, requireAdminPermission } from './admin-authorization'
 import type { AdminRequestContext } from './admin-context'
 import type { Page, PageRequest } from '../shared/pagination'

@@ -6,7 +6,7 @@ import type { AuthorizationRepository } from '../access/authorization-repository
 import type { AdminRequestContext } from './admin-context'
 import type { Hospital, HospitalDomain, HospitalRepository } from './hospital-repository'
 import type { Page, PageRequest } from '../shared/pagination'
-import { asAdminError, notFound, ruleViolation } from './admin-errors'
+import { notFound, ruleViolation } from '../shared/errors'
 import { requireAdminPermission } from './admin-authorization'
 import { recordAdminChange } from './admin-audit'
 
@@ -34,12 +34,7 @@ export class HospitalAdminService {
   ): Promise<Hospital> {
     await this.requireManage(context, { organisationId })
     return withTransaction(this.pool, async (db) => {
-      let hospital: Hospital
-      try {
-        hospital = await this.hospitals.create({ organisationId, ...input }, db)
-      } catch (error) {
-        throw asAdminError(error)
-      }
+      const hospital = await this.hospitals.create({ organisationId, ...input }, db)
       await recordAdminChange(
         this.audit,
         context,
@@ -68,15 +63,10 @@ export class HospitalAdminService {
     const hospital = await this.requireHospitalManage(context, hospitalId)
     const minted = mintToken()
     const record = await withTransaction(this.pool, async (db) => {
-      let record: HospitalDomain
-      try {
-        record = await this.hospitals.addDomain(
-          { hospitalId: hospital.id, domain, tokenHash: minted.tokenHash },
-          db,
-        )
-      } catch (error) {
-        throw asAdminError(error)
-      }
+      const record = await this.hospitals.addDomain(
+        { hospitalId: hospital.id, domain, tokenHash: minted.tokenHash },
+        db,
+      )
       await this.recordDomain(context, db, hospital, record.id, 'hospital.domain_added')
       return record
     })
@@ -108,12 +98,10 @@ export class HospitalAdminService {
   ): Promise<Hospital> {
     const hospital = await this.requireHospitalManage(context, hospitalId)
     return withTransaction(this.pool, async (db) => {
-      let updated: Hospital | null
-      try {
-        updated = await this.hospitals.setPrimaryDomain({ hospitalId, domainId, at: new Date() }, db)
-      } catch (error) {
-        throw asAdminError(error)
-      }
+      const updated = await this.hospitals.setPrimaryDomain(
+        { hospitalId, domainId, at: new Date() },
+        db,
+      )
       if (updated === null) throw notFound('Hospital not found.')
       await recordAdminChange(
         this.audit,

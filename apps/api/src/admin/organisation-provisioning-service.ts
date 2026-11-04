@@ -2,7 +2,6 @@ import type { Pool, PoolClient } from 'pg'
 import type { AuditSink } from '../audit/audit-writer'
 import { AuditWriter } from '../audit/audit-writer'
 import { NO_METRICS, type Metrics } from '../shared/metrics'
-import { asAdminError } from './admin-errors'
 import { OrganisationRepository, type Organisation } from './organisation-repository'
 /** The one identity-provider call provisioning makes. */
 export interface OrganisationIdentity {
@@ -94,7 +93,7 @@ export class OrganisationProvisioningService {
         } catch {
           // The provider failure is the outcome that matters; do not mask it.
         }
-        throw asAdminError(error)
+        throw error
       }
     } finally {
       await releaseLock(client, input.slug)

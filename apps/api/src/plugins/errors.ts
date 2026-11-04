@@ -1,6 +1,11 @@
 import { Elysia } from 'elysia'
 import type { ErrorEnvelope } from '../shared/errors'
-import { AppError } from '../shared/errors'
+import { AppError, ConflictError, RuleViolation } from '../shared/errors'
+import {
+  ZitadelConflictError,
+  ZitadelRejectedError,
+  ZitadelUnavailableError,
+} from '../admin/zitadel-management-client'
 import { safeName } from '../shared/log'
 import { requestIdOf } from '../shared/request'
 
@@ -46,6 +51,35 @@ function failureOf(error: unknown, requestId: string): Failure {
       status: error.status,
       headers: error.headers,
       body: envelope(error.code, error.message, requestId),
+    }
+  }
+
+  // A constraint the database refused is a conflict; a rule the domain
+  // refused is unsatisfiable input. Both arrive as thrown types, so this is
+  // the only place that turns them into status codes.
+  if (error instanceof ConflictError) {
+    return { status: 409, body: envelope('CONFLICT', error.message, requestId) }
+  }
+
+  if (error instanceof RuleViolation) {
+    return { status: 422, body: envelope('RULE_VIOLATION', error.message, requestId) }
+  }
+
+  if (error instanceof ZitadelConflictError) {
+    return {
+      status: 409,
+      body: envelope('CONFLICT', 'The identity provider already holds this record.', requestId),
+    }
+  }
+
+  if (error instanceof ZitadelUnavailableError || error instanceof ZitadelRejectedError) {
+    return {
+      status: 503,
+      body: envelope(
+        'UNAVAILABLE',
+        'The identity provider is temporarily unavailable.',
+        requestId,
+      ),
     }
   }
 

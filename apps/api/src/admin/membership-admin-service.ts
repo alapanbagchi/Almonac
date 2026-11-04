@@ -1,6 +1,5 @@
 import type { Pool } from 'pg'
 import { conflict, forbidden, notFound, ruleViolation } from '../shared/errors'
-import { asAdminError } from './admin-errors'
 import type { Page, PageRequest } from '../shared/pagination'
 import { withTransaction, type DatabaseQuery } from '../db/pool'
 import { isPlatformAdmin, requireAdminPermission } from './admin-authorization'
@@ -85,14 +84,10 @@ export class MembershipAdminService {
     const role = await this.assignableRole(membership, roleId)
     await this.preventEscalation(context, membership, role)
     await withTransaction(this.pool, async (db) => {
-      try {
-        await this.memberships.assignRole(
-          { membershipId, roleId, assignedBy: context.actor.id, at: new Date() },
-          db,
-        )
-      } catch (error) {
-        throw asAdminError(error)
-      }
+      await this.memberships.assignRole(
+        { membershipId, roleId, assignedBy: context.actor.id, at: new Date() },
+        db,
+      )
       await this.changeRole(context, db, membership, role.id, 'role.assigned')
     })
   }

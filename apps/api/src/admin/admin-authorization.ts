@@ -1,5 +1,5 @@
 import type { AccessTarget, AuthorizationRepository } from '../access/authorization-repository'
-import { forbidden } from './admin-errors'
+import { forbidden } from '../shared/errors'
 
 /**
  * The administration plane is entered either as a platform administrator or as
