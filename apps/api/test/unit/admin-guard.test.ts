@@ -2,8 +2,8 @@ import { describe, expect, it } from 'bun:test'
 import { Elysia } from 'elysia'
 import type { AdminDependencies } from '../../src/controllers/admin/dependencies'
 import { adminContextOf, adminGuard } from '../../src/guards/admin-context'
-import type { AppUser } from '../../src/identity/app-user-repository'
-import type { WebSession } from '../../src/identity/session-repository'
+import type { AppUser } from '../../src/repositories/app-user-repository'
+import type { WebSession } from '../../src/repositories/session-repository'
 
 const token = 'a'.repeat(43)
 const at = new Date('2026-01-01T00:00:00Z')

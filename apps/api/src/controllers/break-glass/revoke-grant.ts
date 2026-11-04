@@ -1,4 +1,3 @@
-import { withTransaction } from '../../db/pool'
 import { conflict, forbidden, notFound } from '../../shared/errors'
 import { createBreakGlassRepository } from '../../repositories/break-glass-repository'
 import { grantResponse, type GrantResponse } from './responses'
@@ -16,21 +15,21 @@ import {
 export async function revokeGrant(
   dependencies: Pick<
     BreakGlassDependencies,
-    'pool' | 'audit' | 'hasAnyPlatformPermission' | 'clock'
+    'db' | 'transaction' | 'audit' | 'hasAnyPlatformPermission' | 'clock'
   >,
   context: BreakGlassContext,
   grantId: string,
   reason: string,
 ): Promise<GrantResponse> {
   const now = nowOf(dependencies)
-  const grant = await createBreakGlassRepository(dependencies.pool).findById(grantId)
+  const grant = await createBreakGlassRepository(dependencies.db).findById(grantId)
   if (grant === null) throw notFound('Break-glass grant not found.')
   if (grant.userId !== context.actor.id && !(await isApprover(dependencies, context.actor.id))) {
     throw forbidden()
   }
   const revokeReason = normaliseReason(reason)
 
-  return withTransaction(dependencies.pool, async (db) => {
+  return dependencies.transaction( async (db) => {
     const revoked = await createBreakGlassRepository(db).revoke(grant.id, now)
     if (revoked === null) throw conflict('The grant is already closed.')
     await writeGrantAudit(dependencies.audit, context, db, revoked, {

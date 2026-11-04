@@ -1,5 +1,4 @@
-import { requireAssurance } from '../../auth/assurance'
-import { withTransaction } from '../../db/pool'
+import { requireAssurance } from '../../guards/assurance'
 import { conflict, notFound, ruleViolation } from '../../shared/errors'
 import {
   createBreakGlassRepository,
@@ -62,7 +61,7 @@ export async function requestGrant(
     await acceptRequester(dependencies, subject.id, hospital, now)
 
     const reason = normaliseReason(input.reason)
-    return withTransaction(dependencies.pool, async (db) => {
+    return dependencies.transaction( async (db) => {
       const grants = createBreakGlassRepository(db)
       const grant = await createGrant(grants, {
         organisationId: hospital.organisationId,
@@ -92,7 +91,7 @@ export async function requestGrant(
   requireAssurance(context, BREAK_GLASS_ASSURANCE, now)
   await acceptRequester(dependencies, context.actor.id, hospital, now)
 
-  return withTransaction(dependencies.pool, async (db) => {
+  return dependencies.transaction( async (db) => {
     const grants = createBreakGlassRepository(db)
     const grant = await createGrant(grants, {
       organisationId: hospital.organisationId,
@@ -117,7 +116,7 @@ async function requireHospital(
   dependencies: BreakGlassDependencies,
   hospitalId: string,
 ): Promise<BreakGlassHospital> {
-  const hospital = await createBreakGlassRepository(dependencies.pool).findHospital(hospitalId)
+  const hospital = await createBreakGlassRepository(dependencies.db).findHospital(hospitalId)
   if (hospital === null || hospital.status !== 'active') throw notFound('Hospital not found.')
   return hospital
 }
@@ -128,7 +127,7 @@ async function acceptRequester(
   hospital: BreakGlassHospital,
   now: Date,
 ): Promise<void> {
-  const grants = createBreakGlassRepository(dependencies.pool)
+  const grants = createBreakGlassRepository(dependencies.db)
   await requireActiveMembership(grants, userId, hospital, now)
   const open = await grants.findOpenForUserAtHospital(userId, hospital.id, now)
   if (open !== null) {

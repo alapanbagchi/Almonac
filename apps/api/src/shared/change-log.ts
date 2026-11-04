@@ -1,4 +1,4 @@
-import type { AuditSink } from '../audit/audit-writer'
+import type { AuditSink } from './audit-writer'
 import type { DatabaseQuery } from '../db/pool'
 import type { AdminRequestContext } from '../guards/admin-context'
 

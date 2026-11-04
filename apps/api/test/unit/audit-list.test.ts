@@ -5,7 +5,7 @@ import { parseAuditCursor } from '../../src/controllers/admin/audit/cursor'
 import { auditResponse, listAudit } from '../../src/controllers/admin/audit/list-audit'
 import type { AdminRequestContext } from '../../src/guards/admin-context'
 import { withTransaction } from '../../src/db/pool'
-import type { AppUser } from '../../src/identity/app-user-repository'
+import type { AppUser } from '../../src/repositories/app-user-repository'
 import type { AuditEntry } from '../../src/repositories/audit-repository'
 import { AppError, forbidden } from '../../src/shared/errors'
 

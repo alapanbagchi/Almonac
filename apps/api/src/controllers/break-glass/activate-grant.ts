@@ -1,5 +1,4 @@
-import { requireAssurance } from '../../auth/assurance'
-import { withTransaction } from '../../db/pool'
+import { requireAssurance } from '../../guards/assurance'
 import { conflict, forbidden, notFound } from '../../shared/errors'
 import { createBreakGlassRepository } from '../../repositories/break-glass-repository'
 import { grantResponse, type GrantResponse } from './responses'
@@ -14,12 +13,12 @@ import {
 
 /** The pre-approved person turns their own grant live while it still fits. */
 export async function activateGrant(
-  dependencies: Pick<BreakGlassDependencies, 'pool' | 'audit' | 'clock'>,
+  dependencies: Pick<BreakGlassDependencies, 'db' | 'transaction' | 'audit' | 'clock'>,
   context: BreakGlassContext,
   grantId: string,
 ): Promise<GrantResponse> {
   const now = nowOf(dependencies)
-  const grants = createBreakGlassRepository(dependencies.pool)
+  const grants = createBreakGlassRepository(dependencies.db)
   const grant = await grants.findById(grantId)
   if (grant === null) throw notFound('Break-glass grant not found.')
   if (grant.userId !== context.actor.id) throw forbidden()
@@ -33,7 +32,7 @@ export async function activateGrant(
     now,
   )
 
-  return withTransaction(dependencies.pool, async (db) => {
+  return dependencies.transaction( async (db) => {
     const activated = await createBreakGlassRepository(db).activate(
       grant.id,
       context.actor.id,

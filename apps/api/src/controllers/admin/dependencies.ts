@@ -1,4 +1,4 @@
-import type { AuditSink } from '../../audit/audit-writer'
+import type { AuditSink } from '../../shared/audit-writer'
 import type { DatabaseQuery, TransactionRunner } from '../../db/pool'
 import type { Authorize, PlatformAdmin, RolePermissions } from '../../shared/authorize'
 import type { Metrics } from '../../shared/metrics'

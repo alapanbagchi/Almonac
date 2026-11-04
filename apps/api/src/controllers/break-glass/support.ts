@@ -1,8 +1,7 @@
-import type { Pool } from 'pg'
-import type { AuditSink } from '../../audit/audit-writer'
-import type { AssurancePolicy } from '../../auth/assurance'
-import type { DatabaseQuery } from '../../db/pool'
-import type { AppUser } from '../../identity/app-user-repository'
+import type { AuditSink } from '../../shared/audit-writer'
+import type { AssurancePolicy } from '../../guards/assurance'
+import type { DatabaseQuery, TransactionRunner } from '../../db/pool'
+import type { AppUser } from '../../repositories/app-user-repository'
 import type { Authorize } from '../../shared/authorize'
 import { AppError, forbidden, ruleViolation } from '../../shared/errors'
 import type { UserLookup } from '../../guards/bearer'
@@ -32,7 +31,8 @@ export interface BreakGlassContext {
 }
 
 export interface BreakGlassDependencies {
-  readonly pool: Pool
+  readonly db: DatabaseQuery
+  readonly transaction: TransactionRunner
   readonly authorize: Authorize
   /** Approval is platform scope, so it is read without a hospital target. */
   readonly hasAnyPlatformPermission: (

@@ -1,12 +1,12 @@
 import { describe, expect, test } from 'bun:test'
 import { Elysia } from 'elysia'
 import { Pool } from 'pg'
-import type { AuditEvent, AuditSink } from '../../src/audit/audit-writer'
+import type { AuditEvent, AuditSink } from '../../src/shared/audit-writer'
 import type { AdminDependencies } from '../../src/controllers/admin/dependencies'
 import type { OrganisationIdentity } from '../../src/controllers/admin/dependencies'
 import { withTransaction, type DatabaseQuery } from '../../src/db/pool'
-import type { AppUser } from '../../src/identity/app-user-repository'
-import type { WebSession } from '../../src/identity/session-repository'
+import type { AppUser } from '../../src/repositories/app-user-repository'
+import type { WebSession } from '../../src/repositories/session-repository'
 import { errors } from '../../src/plugins/errors'
 import { organisationsRouter } from '../../src/routes/organisations.router'
 import { ZitadelUnavailableError } from '../../src/adapters/zitadel/client'
@@ -18,6 +18,7 @@ const PROVISIONED_AT = new Date('2026-01-01T10:01:00.000Z')
 const TOKEN = 'v'.repeat(43)
 const ORGANISATION_ID = '11111111-1111-4111-8111-111111111111'
 const USER_ID = 'user-1'
+const ROLE_ID = '99999999-9999-4999-8999-999999999999'
 
 const user: AppUser = {
   id: USER_ID,
@@ -134,7 +135,7 @@ function provisioningDatabase(
         }
         return [pendingRow]
       }
-      if (statement.includes('instantiate_role_template')) return []
+      if (statement.includes('instantiate_role_template')) return [{ role_id: ROLE_ID }]
       if (statement.includes('update control.organisation')) return [activeRow]
       throw new Error(`unexpected SQL: ${statement}`)
     }),

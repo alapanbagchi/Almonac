@@ -31,7 +31,13 @@ export interface OrganisationRepository {
   markProvisioned(id: string, zitadelOrgId: string, at: Date): Promise<Organisation>
   /** Serialise provisioning of one slug for the rest of the transaction. */
   lockSlug(slug: string): Promise<void>
-  instantiateRoleTemplates(organisationId: string, templates: readonly string[]): Promise<void>
+  /** Serialise the onboarding claim of one slug, separately from provisioning. */
+  lockClaim(slug: string): Promise<void>
+  /** Create the missing template roles; return template key to role id. */
+  instantiateRoleTemplates(
+    organisationId: string,
+    templates: readonly string[],
+  ): Promise<ReadonlyMap<string, string>>
 }
 
 const COLUMNS = 'id, zitadel_org_id, name, slug, status, provisioned_at, created_at'
@@ -111,13 +117,20 @@ export function createOrganisationRepository(db: DatabaseQuery): OrganisationRep
       await db.query('select pg_advisory_xact_lock(hashtext($1))', [slug])
     },
 
+    async lockClaim(slug) {
+      await db.query('select pg_advisory_xact_lock(hashtext($1))', ['onboarding:' + slug])
+    },
+
     async instantiateRoleTemplates(organisationId, templates) {
+      const ids = new Map<string, string>()
       for (const template of templates) {
-        await db.query('select control.instantiate_role_template($1, $2)', [
-          organisationId,
-          template,
-        ])
+        const result = await db.query(
+          'select control.instantiate_role_template($1, $2) as role_id',
+          [organisationId, template],
+        )
+        ids.set(template, stringField(rowRecord(result.rows[0]), 'role_id'))
       }
+      return ids
     },
   }
 }

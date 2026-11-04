@@ -1,7 +1,6 @@
 import { Elysia, t } from 'elysia'
-import { authenticateBearer, type SessionAuthenticator, type UserLookup } from '../guards/bearer'
-import { adminContext, type AdminRequestContext } from '../guards/admin-context'
-import { requestIdOf, type RequestServer } from '../shared/request'
+import { adminContextOf, adminGuard } from '../guards/admin-context'
+import type { SessionAuthenticator, UserLookup } from '../guards/bearer'
 import {
   createOnboarding,
   type OnboardingDependencies,
@@ -35,18 +34,7 @@ export function onboardingRouter(dependencies: OnboardingRouterDependencies) {
     prefix: '/v1/onboarding',
     tags: ['Onboarding'],
   })
-    .derive(async (context) => ({
-      onboardingContext: adminContext(
-        await authenticateBearer(
-          context.headers.authorization,
-          dependencies.sessions,
-          dependencies.users,
-        ),
-        context.request,
-        context.server as RequestServer | null,
-        requestIdOf(context),
-      ),
-    }))
+    .use(adminGuard(dependencies))
     .post(
       '/organisation',
       {
@@ -60,18 +48,11 @@ export function onboardingRouter(dependencies: OnboardingRouterDependencies) {
       async (context) => {
         const created = await createOnboarding(
           dependencies,
-          onboardingContextOf(context),
+          adminContextOf(context),
           context.body,
         )
         context.set.status = 201
         return created
       },
     )
-}
-
-function onboardingContextOf(context: {
-  onboardingContext?: AdminRequestContext
-}): AdminRequestContext {
-  if (context.onboardingContext === undefined) throw new Error('onboarding context is not resolved')
-  return context.onboardingContext
 }

@@ -5,7 +5,7 @@ import {
 import {
   InvalidAuthRequestError,
   MfaRequiredError,
-} from '../../auth/zitadel-session-client'
+} from '../../adapters/zitadel/login-client'
 import { AppError } from '../../shared/errors'
 import { normaliseEmail } from '../../shared/email'
 import { isSessionToken } from '../../shared/tokens'

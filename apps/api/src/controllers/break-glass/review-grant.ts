@@ -1,4 +1,3 @@
-import { withTransaction } from '../../db/pool'
 import { conflict, forbidden, notFound, ruleViolation } from '../../shared/errors'
 import { createBreakGlassRepository, type BreakGlassDecision } from '../../repositories/break-glass-repository'
 import { reviewResponse, type ReviewResponse } from './responses'
@@ -14,7 +13,7 @@ import {
 export async function reviewGrant(
   dependencies: Pick<
     BreakGlassDependencies,
-    'pool' | 'audit' | 'hasAnyPlatformPermission' | 'clock'
+    'db' | 'transaction' | 'audit' | 'hasAnyPlatformPermission' | 'clock'
   >,
   context: BreakGlassContext,
   grantId: string,
@@ -23,7 +22,7 @@ export async function reviewGrant(
 ): Promise<ReviewResponse> {
   const now = nowOf(dependencies)
   await requireApprover(dependencies, context.actor.id)
-  const grant = await createBreakGlassRepository(dependencies.pool).findById(grantId)
+  const grant = await createBreakGlassRepository(dependencies.db).findById(grantId)
   if (grant === null) throw notFound('Break-glass grant not found.')
   if (grant.userId === context.actor.id || grant.approvedBy === context.actor.id) {
     throw forbidden()
@@ -34,7 +33,7 @@ export async function reviewGrant(
     throw ruleViolation('Review notes are too long.')
   }
 
-  return withTransaction(dependencies.pool, async (db) => {
+  return dependencies.transaction( async (db) => {
     const review = await createBreakGlassRepository(db).createReview({
       grantId: grant.id,
       reviewerId: context.actor.id,

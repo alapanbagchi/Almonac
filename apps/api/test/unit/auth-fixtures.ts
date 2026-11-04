@@ -1,12 +1,12 @@
 import type { DatabaseQuery, DatabaseResult } from '../../src/db/pool'
-import type { AuditEvent, AuditSink } from '../../src/audit/audit-writer'
+import type { AuditEvent, AuditSink } from '../../src/shared/audit-writer'
 import type {
   AuthDependencies,
   LoginRequestContext,
 } from '../../src/controllers/auth/dependencies'
 import type { OidcProvider } from '../../src/adapters/oidc/provider'
-import type { LoginClient, SessionCredentials } from '../../src/auth/zitadel-session-client'
-import type { PasswordHasher } from '../../src/auth/password-hash'
+import type { LoginClient, SessionCredentials } from '../../src/adapters/zitadel/login-client'
+import type { PasswordHasher } from '../../src/shared/password-hash'
 import type { MembershipAccess, SessionAccess } from '../../src/repositories/access-repository'
 import { sealingKey, type SealingKey } from '../../src/shared/sealed'
 

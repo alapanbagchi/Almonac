@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import type { OrganisationRole } from '../../src/admin/membership-admin-repository'
-import type { AppUser } from '../../src/identity/app-user-repository'
+import type { OrganisationRole } from '../../src/repositories/role-repository'
+import type { AppUser } from '../../src/repositories/app-user-repository'
 import {
   assertInvitationAcceptable,
   draftOf,

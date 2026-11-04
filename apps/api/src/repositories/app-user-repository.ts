@@ -52,6 +52,8 @@ export interface AppUserRepository {
   findBySubject(identityIssuer: string, zitadelSubject: string): Promise<AppUser | null>
   markLogin(id: string, at: Date): Promise<AppUser | null>
   setStatus(id: string, status: AppUserStatus): Promise<AppUser | null>
+  /** Record the first organisation a user belongs to; later claims keep the first. */
+  claimHomeOrganisation(id: string, organisationId: string): Promise<void>
 }
 
 const COLUMNS = `
@@ -147,6 +149,15 @@ export function createAppUserRepository(db: DatabaseQuery): AppUserRepository {
         [id, status],
       )
       return mapOptionalRow(result.rows[0])
+    },
+
+    async claimHomeOrganisation(id, organisationId) {
+      await db.query(
+        `update identity.app_user
+            set home_organisation_id = $2
+          where id = $1 and home_organisation_id is null`,
+        [id, organisationId],
+      )
     },
   }
 }

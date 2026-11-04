@@ -15,7 +15,7 @@ import {
 } from '../shared/validation'
 
 const organisationSchema = t.Object({
-  id: t.String(),
+  id: uuid,
   zitadelOrgId: nullable(t.String()),
   name,
   slug,

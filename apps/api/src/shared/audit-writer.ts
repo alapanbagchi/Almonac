@@ -31,33 +31,33 @@ export interface AuditSink {
  * types, missing reasons and metadata keys outside the allowlist. There is no
  * catch: a sensitive action must fail when its audit record cannot be written.
  */
-export class AuditWriter implements AuditSink {
-  constructor(private readonly db: DatabaseQuery) {}
-
-  async write(event: AuditEvent, db: DatabaseQuery = this.db): Promise<void> {
-    await db.query(
-      `insert into audit.event
-         (actor_user_id, actor_type, session_id, organisation_id, hospital_id,
-          event_type, outcome, target_type, target_id, request_id, reason,
-          reason_code, ip, user_agent_hash, metadata)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
-      [
-        event.actorUserId,
-        event.actorType,
-        event.sessionId,
-        event.organisationId,
-        event.hospitalId,
-        event.eventType,
-        event.outcome,
-        event.targetType ?? null,
-        event.targetId ?? null,
-        event.requestId ?? null,
-        event.reason ?? null,
-        event.reasonCode ?? null,
-        event.ip ?? null,
-        event.userAgentHash ?? null,
-        JSON.stringify(event.metadata ?? {}),
-      ],
-    )
+export function createAuditWriter(db: DatabaseQuery): AuditSink {
+  return {
+    async write(event, transaction = db) {
+      await transaction.query(
+        `insert into audit.event
+           (actor_user_id, actor_type, session_id, organisation_id, hospital_id,
+            event_type, outcome, target_type, target_id, request_id, reason,
+            reason_code, ip, user_agent_hash, metadata)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+        [
+          event.actorUserId,
+          event.actorType,
+          event.sessionId,
+          event.organisationId,
+          event.hospitalId,
+          event.eventType,
+          event.outcome,
+          event.targetType ?? null,
+          event.targetId ?? null,
+          event.requestId ?? null,
+          event.reason ?? null,
+          event.reasonCode ?? null,
+          event.ip ?? null,
+          event.userAgentHash ?? null,
+          JSON.stringify(event.metadata ?? {}),
+        ],
+      )
+    },
   }
 }

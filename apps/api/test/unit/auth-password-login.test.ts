@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { MfaRequiredError } from '../../src/auth/zitadel-session-client'
+import { MfaRequiredError } from '../../src/adapters/zitadel/login-client'
 import {
   ZitadelRejectedError,
   ZitadelUnavailableError,

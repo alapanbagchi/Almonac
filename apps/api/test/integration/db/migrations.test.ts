@@ -11,41 +11,52 @@ import { migrateDatabase } from '../../../src/db/migrate'
 import { CONTROL_RUNTIME_ROLE } from '../../../src/db/pool'
 import {
   AppUserEmailConflictError,
-  AppUserRepository,
-} from '../../../src/identity/app-user-repository'
-import { AuditWriter, type AuditSink } from '../../../src/audit/audit-writer'
-import { RateLimitRepository } from '../../../src/auth/rate-limit-repository'
-import { PendingRegistrationRepository } from '../../../src/identity/pending-registration-repository'
-import { hashToken } from '../../../src/shared/tokens'
-import { SessionRepository } from '../../../src/identity/session-repository'
-import { AccessRepository } from '../../../src/identity/access-repository'
-import { PostgresLoginStore } from '../../../src/auth/postgres-login-store'
-import { LoginRejectedError } from '../../../src/auth/login-service'
-import { AuthorizationRepository } from '../../../src/access/authorization-repository'
-import { InvitationRepository } from '../../../src/admin/invitation-repository'
-import { InvitationService } from '../../../src/admin/invitation-service'
-import { MembershipAdminRepository } from '../../../src/admin/membership-admin-repository'
-import { OrganisationRepository } from '../../../src/admin/organisation-repository'
-import { HospitalRepository } from '../../../src/admin/hospital-repository'
-import { ZitadelManagementClient } from '../../../src/adapters/zitadel/client'
+  createAppUserRepository,
+} from '../../../src/repositories/app-user-repository'
+import { createAuditWriter, type AuditSink } from '../../../src/shared/audit-writer'
+import { createRateLimitRepository } from '../../../src/repositories/rate-limit-repository'
+import { createPendingRegistrationRepository } from '../../../src/repositories/pending-registration-repository'
+import { hashToken, mintToken } from '../../../src/shared/tokens'
+import { createSessionRepository } from '../../../src/repositories/session-repository'
+import { createAccessRepository } from '../../../src/repositories/access-repository'
+import { createAuthorizationRepository } from '../../../src/repositories/authorization-repository'
+import { createAuditRepository } from '../../../src/repositories/audit-repository'
 import { AppError } from '../../../src/shared/errors'
-import { OnboardingService } from '../../../src/onboarding/onboarding-service'
-import { Elysia } from 'elysia'
-import { createAdmin } from '../../../src/admin/routes'
-import { errors } from '../../../src/plugins/errors'
-import { OrganisationAdminService } from '../../../src/admin/organisation-admin-service'
-import { OrganisationProvisioningService } from '../../../src/admin/organisation-provisioning-service'
-import { HospitalAdminService } from '../../../src/admin/hospital-admin-service'
-import { MembershipAdminService } from '../../../src/admin/membership-admin-service'
-import { createAuditAdmin } from '../../../src/admin/audit/service'
-import { createAuditStore } from '../../../src/admin/audit/store'
-import { parseAuditCursor } from '../../../src/admin/audit/validators/cursor'
-import { requireAdminPermission } from '../../../src/admin/admin-authorization'
-import { SessionService } from '../../../src/identity/session-service'
-import { BreakGlassService, type BreakGlassContext } from '../../../src/break-glass/break-glass-service'
-import { createBreakGlass } from '../../../src/break-glass/break-glass-routes'
-import type { LoginAttempt } from '../../../src/auth/login-attempt-repository'
-import type { VerifiedIdentity } from '../../../src/auth/id-token-verifier'
+import { createApp } from '../../../src/app'
+import {
+  createAuthorize,
+  createIsPlatformAdmin,
+  createRolePermissions,
+} from '../../../src/shared/authorize'
+import type { AdminDependencies } from '../../../src/controllers/admin/dependencies'
+import type { AdminRequestContext } from '../../../src/guards/admin-context'
+import type { InvitationDependencies } from '../../../src/controllers/admin/invitations/issue'
+import { createInvitation as createInvitationController } from '../../../src/controllers/admin/invitations/create-invitation'
+import { acceptInvitation } from '../../../src/controllers/admin/invitations/accept-invitation'
+import { createHospital as createHospitalController } from '../../../src/controllers/admin/hospitals/create-hospital'
+import { suspendMembership } from '../../../src/controllers/admin/memberships/suspend-membership'
+import { createOnboarding } from '../../../src/controllers/onboarding/create-onboarding'
+import { provisionOrganisation } from '../../../src/controllers/admin/organisations/provision'
+import { parseAuditCursor } from '../../../src/controllers/admin/audit/cursor'
+import { createSessionService } from '../../../src/controllers/auth/session'
+import { completeCallback } from '../../../src/controllers/auth/complete-callback'
+import { LOGIN_ATTEMPT_AAD } from '../../../src/controllers/auth/start-login'
+import type { AuthDependencies } from '../../../src/controllers/auth/dependencies'
+import { sealingKey, seal } from '../../../src/shared/sealed'
+import type { OidcProvider } from '../../../src/adapters/oidc/provider'
+import type { VerifiedIdentity } from '../../../src/adapters/oidc/verifier'
+import { requestGrant } from '../../../src/controllers/break-glass/request-grant'
+import { activateGrant } from '../../../src/controllers/break-glass/activate-grant'
+import { revokeGrant } from '../../../src/controllers/break-glass/revoke-grant'
+import { reviewGrant } from '../../../src/controllers/break-glass/review-grant'
+import type {
+  BreakGlassContext,
+  BreakGlassDependencies,
+} from '../../../src/controllers/break-glass/support'
+import {
+  withTransaction as withDatabaseTransaction,
+  type TransactionRunner,
+} from '../../../src/db/pool'
 
 const databaseUrl = process.env.TEST_DATABASE_URL
 
@@ -865,7 +876,7 @@ describe('access model', () => {
         [coordinatorMembership, organisationRole],
       )
 
-      const authorization = new AuthorizationRepository(client)
+      const authorization = createAuthorizationRepository(client)
       const target = { organisationId: organisation, hospitalId: hospital }
       const at = new Date(Date.now() + 1_000)
 
@@ -978,23 +989,32 @@ describe('access model', () => {
   test('instantiates the role catalogue when an organisation is provisioned', async () => {
     const suffix = randomBytes(4).toString('hex')
     const slug = `provision-${suffix}`
-    const provisioning = new OrganisationProvisioningService(
-      ownerPool,
-      { createOrganisation: async () => `zitadel-${slug}` },
-      { write: async () => {} },
-    )
-
-    const created = await provisioning.provision({
+    const admin = await createUser(ownerPool, `provision-admin-${suffix}`, `provision-${suffix}@example.test`)
+    const actor = await createAppUserRepository(ownerPool).findById(admin)
+    if (actor === null) throw new Error('missing test user')
+    const context: AdminRequestContext = {
+      actor,
+      sessionId: randomUUID(),
+      requestId: `provision-${suffix}`,
+      ip: null,
+      userAgentHash: null,
+    }
+    const provisioning = {
+      transaction: runTransaction,
+      audit: { write: async () => {} },
+      organisationIdentity: { create: async () => `zitadel-${slug}` },
+    }
+    const input = {
       name: `Provision ${suffix}`,
       slug,
-    })
+      roleTemplates: ['org_admin', 'hospital_admin', 'clinician', 'auditor'],
+    }
+
+    const created = (await provisionOrganisation(provisioning, context, input)).organisation
     expect(created.status).toBe('active')
 
     // A retry against the active organisation must not duplicate the catalogue.
-    const retried = await provisioning.provision({
-      name: `Provision ${suffix}`,
-      slug,
-    })
+    const retried = (await provisionOrganisation(provisioning, context, input)).organisation
     expect(retried.id).toBe(created.id)
 
     const roles = await ownerPool.query<{ key: string }>(
@@ -1941,7 +1961,7 @@ describe('access model', () => {
 
 describe('app user repository', () => {
   test('upserts a user by subject and never reactivates a deactivated user', async () => {
-    const users = new AppUserRepository(appPool)
+    const users = createAppUserRepository(appPool)
     const first = await users.upsertFromIdentity({
       identityIssuer: 'http://localhost:8080',
       zitadelSubject: 'repository-user-1',
@@ -1993,7 +2013,7 @@ describe('app user repository', () => {
   })
 
   test('rejects a second identity that claims the same email', async () => {
-    const users = new AppUserRepository(appPool)
+    const users = createAppUserRepository(appPool)
     await users.upsertFromIdentity({
       identityIssuer: 'http://localhost:8080',
       zitadelSubject: 'repository-user-2',
@@ -2019,7 +2039,7 @@ describe('app user repository', () => {
 describe('session repository', () => {
   test('stores sessions by hash and revokes them conditionally', async () => {
     const userId = await createUser(ownerPool, 'repository-session-user', 'session@example.test')
-    const sessions = new SessionRepository(appPool)
+    const sessions = createSessionRepository(appPool)
     const now = new Date()
     const created = await sessions.create({
       userId,
@@ -2055,7 +2075,7 @@ describe('session repository', () => {
 
   test('revokes every live session for one user', async () => {
     const userId = await createUser(ownerPool, 'repository-revoke-all', 'revoke-all@example.test')
-    const sessions = new SessionRepository(appPool)
+    const sessions = createSessionRepository(appPool)
     const now = new Date()
 
     for (let index = 0; index < 2; index += 1) {
@@ -2087,7 +2107,7 @@ describe('session repository', () => {
 describe('audit writer', () => {
   test('appends catalogued events with allowed metadata', async () => {
     const actorId = await createUser(ownerPool, 'audit-writer-user', 'audit.writer@example.test')
-    const events = new AuditWriter(appPool)
+    const events = createAuditWriter(appPool)
 
     await events.write({
       actorUserId: actorId,
@@ -2131,25 +2151,25 @@ describe('audit writer', () => {
               (date_trunc('second', now()) + interval '0.123999 seconds', 'system', 'auth.login', 'success', $1)`,
       [organisationId],
     )
-    const store = createAuditStore(appPool)
+    const store = createAuditRepository(appPool)
     const first = await store.list({ organisationId, limit: 1 })
 
-    expect(first).toHaveLength(1)
-    expect(first[0]!.cursor).toMatch(/\.123999Z:\d+$/)
+    expect(first.entries).toHaveLength(1)
+    expect(first.nextCursor).toMatch(/\.123999Z:\d+$/)
 
     const next = await store.list({
       organisationId,
       limit: 1,
-      cursor: parseAuditCursor(first[0]!.cursor),
+      cursor: parseAuditCursor(first.nextCursor ?? undefined),
     })
 
-    expect(next).toHaveLength(1)
-    expect(next[0]!.cursor).toMatch(/\.123456Z:\d+$/)
+    expect(next.entries).toHaveLength(1)
+    expect(next.entries[0]!.id).not.toBe(first.entries[0]!.id)
   })
 
   test('fails closed on an unknown event, missing reason and forbidden metadata', async () => {
     const actorId = await createUser(ownerPool, 'audit-writer-denied', 'audit.denied@example.test')
-    const events = new AuditWriter(appPool)
+    const events = createAuditWriter(appPool)
 
     await expect(
       events.write({
@@ -2193,29 +2213,33 @@ describe('audit writer', () => {
 })
 
 
-function loginAttempt(now: Date): LoginAttempt {
-  return {
-    id: 'attempt-1',
-    userId: null,
-    stateHash: randomBytes(32),
-    nonceHash: randomBytes(32),
-    pkceVerifierCiphertext: Buffer.from('sealed-verifier'),
-    keyVersion: 1,
-    returnTo: '/dashboard',
-    purpose: 'login',
-    ip: null,
-    userAgentHash: null,
-    createdAt: now,
-    expiresAt: new Date(now.getTime() + 600_000),
-    consumedAt: now,
-  }
+const sealing = sealingKey(1, randomBytes(32))
+
+const runTransaction: TransactionRunner = (run) => withDatabaseTransaction(appPool, run)
+
+async function recordLoginAttempt(
+  token: string,
+  overrides: { userId?: string | null; purpose?: 'login' | 'step_up'; returnTo?: string } = {},
+): Promise<void> {
+  const sealedVerifier = seal('pkce-verifier', sealing, LOGIN_ATTEMPT_AAD)
+  await ownerPool.query(
+    `insert into identity.login_attempt
+       (user_id, state_hash, nonce_hash, pkce_verifier_ciphertext, key_version,
+        return_to, purpose, ip, user_agent_hash, expires_at)
+     values ($1, $2, $3, $4, $5, $6, $7, null, null, now() + interval '10 minutes')`,
+    [
+      overrides.userId ?? null,
+      hashToken(token),
+      randomBytes(32),
+      sealedVerifier.ciphertext,
+      sealedVerifier.keyVersion,
+      overrides.returnTo ?? '/dashboard',
+      overrides.purpose ?? 'login',
+    ],
+  )
 }
 
-function identityFor(
-  email: string,
-  subject: string,
-  now: Date,
-): VerifiedIdentity {
+function identityFor(email: string, subject: string, now: Date): VerifiedIdentity {
   return {
     issuer: 'http://localhost:8080',
     subject,
@@ -2228,6 +2252,55 @@ function identityFor(
     sid: 'zitadel-session-1',
     acr: null,
     idToken: 'signed.id.token',
+  }
+}
+
+function authDependencies(
+  identity: VerifiedIdentity,
+  audit: AuditSink = createAuditWriter(appPool),
+): AuthDependencies {
+  const oidc: OidcProvider = {
+    async authorizationUrl() {
+      return 'http://localhost:8080/authorize'
+    },
+    async exchangeCode() {
+      return identity.idToken
+    },
+    async verifyIdToken() {
+      return identity
+    },
+    async endSessionUrl() {
+      return null
+    },
+  }
+  return {
+    db: appPool,
+    transaction: runTransaction,
+    oidc,
+    sealingKey: sealing,
+    audit,
+    mailer: { async send() {} },
+    identities: {
+      async createVerifiedHumanUser() {
+        return 'unused-identity'
+      },
+    },
+    loginClient: {
+      async start() {
+        return 'auth-request'
+      },
+      async signIn() {
+        throw new Error('not used by the callback')
+      },
+      async complete() {
+        throw new Error('not used by the callback')
+      },
+    },
+    passwords: {
+      async hash(password) {
+        return `hashed:${password}`
+      },
+    },
   }
 }
 
@@ -2253,16 +2326,13 @@ describe('login completion store', () => {
     )
 
     const now = new Date(Date.now() + 1_000)
-    const result = await new PostgresLoginStore(appPool).complete({
-      attempt: loginAttempt(now),
-      identity: identityFor('invitee.login@example.test', 'login-invitee', now),
-      idTokenHintCiphertext: Buffer.from('sealed-hint'),
-      keyVersion: 1,
-      now,
-      ip: '127.0.0.1',
-      userAgentHash: null,
-      requestId: 'login-request-1',
-    })
+    const state = mintToken().token
+    await recordLoginAttempt(state)
+    const result = await completeCallback(
+      authDependencies(identityFor('invitee.login@example.test', 'login-invitee', now)),
+      { ip: '127.0.0.1', userAgentHash: null, requestId: 'login-request-1' },
+      { code: 'authorization-code', state, sessionToken: null },
+    )
 
     expect(result.token).toHaveLength(43)
     expect(result.returnTo).toBe('/dashboard')
@@ -2300,7 +2370,7 @@ describe('login completion store', () => {
     )
     expect(audit.rows[0]!.count).toBe(2)
 
-    const access = await new AccessRepository(appPool).listForUser(
+    const access = await createAccessRepository(appPool).listForUser(
       userId,
       new Date(now.getTime() + 1_000),
     )
@@ -2313,8 +2383,8 @@ describe('login completion store', () => {
   test('rotates the session and records a step-up', async () => {
     const user = await createUser(ownerPool, 'step-up-user', 'step-up@example.test')
     const now = new Date(Date.now() + 1_000)
-    const sessions = new SessionService({
-      store: new SessionRepository(appPool),
+    const sessions = createSessionService({
+      store: createSessionRepository(appPool),
       clock: () => now,
     })
     const issued = await sessions.mint({
@@ -2332,34 +2402,25 @@ describe('login completion store', () => {
       userAgentHash: null,
     })
 
-    const result = await new PostgresLoginStore(appPool).completeStepUp({
-      attempt: {
-        ...loginAttempt(now),
-        id: 'step-up-attempt',
-        userId: user,
-        purpose: 'step_up',
-        returnTo: '/settings',
-      },
-      identity: {
-        ...identityFor('step-up@example.test', 'step-up-user', now),
-        amr: ['pwd', 'hwk'],
-        aal: 3,
-        authTime: new Date(now.getTime() - 1_000),
-      },
-      idTokenHintCiphertext: Buffer.from('sealed-hint-after'),
-      keyVersion: 1,
-      now,
-      ip: '127.0.0.1',
-      userAgentHash: null,
-      requestId: 'step-up-request',
-      sessionToken: issued.token,
-    })
+    const state = mintToken().token
+    await recordLoginAttempt(state, { userId: user, purpose: 'step_up', returnTo: '/settings' })
+    const identity: VerifiedIdentity = {
+      ...identityFor('step-up@example.test', 'step-up-user', now),
+      amr: ['pwd', 'hwk'],
+      aal: 3,
+      authTime: new Date(now.getTime() - 1_000),
+    }
+    const result = await completeCallback(
+      authDependencies(identity),
+      { ip: '127.0.0.1', userAgentHash: null, requestId: 'step-up-request' },
+      { code: 'authorization-code', state, sessionToken: issued.token },
+    )
 
     expect(result.token).not.toBe(issued.token)
     expect(result.returnTo).toBe('/settings')
 
     const previous = await sessions.findByToken(issued.token)
-    expect(previous?.revokedAt).toEqual(now)
+    expect(previous?.revokedAt).toBeInstanceOf(Date)
     expect(previous?.revokeReason).toBe('rotated')
 
     const next = await sessions.findByToken(result.token)
@@ -2379,8 +2440,8 @@ describe('login completion store', () => {
     const owner = await createUser(ownerPool, 'step-up-owner', 'step-up-owner@example.test')
     const other = await createUser(ownerPool, 'step-up-other', 'step-up-other@example.test')
     const now = new Date(Date.now() + 1_000)
-    const sessions = new SessionService({
-      store: new SessionRepository(appPool),
+    const sessions = createSessionService({
+      store: createSessionRepository(appPool),
       clock: () => now,
     })
     const issued = await sessions.mint({
@@ -2398,24 +2459,15 @@ describe('login completion store', () => {
       userAgentHash: null,
     })
 
+    const state = mintToken().token
+    await recordLoginAttempt(state, { userId: other, purpose: 'step_up' })
     await expect(
-      new PostgresLoginStore(appPool).completeStepUp({
-        attempt: {
-          ...loginAttempt(now),
-          id: 'step-up-other-attempt',
-          userId: other,
-          purpose: 'step_up',
-        },
-        identity: identityFor('step-up-other@example.test', 'step-up-other', now),
-        idTokenHintCiphertext: Buffer.from('sealed-hint-after'),
-        keyVersion: 1,
-        now,
-        ip: null,
-        userAgentHash: null,
-        requestId: null,
-        sessionToken: issued.token,
-      }),
-    ).rejects.toBeInstanceOf(LoginRejectedError)
+      completeCallback(
+        authDependencies(identityFor('step-up-other@example.test', 'step-up-other', now)),
+        { ip: null, userAgentHash: null, requestId: 'callback-request' },
+        { code: 'authorization-code', state, sessionToken: issued.token },
+      ),
+    ).rejects.toMatchObject({ code: 'UNAUTHENTICATED', status: 401 })
 
     const stillActive = await sessions.findByToken(issued.token)
     expect(stillActive?.revokedAt).toBeNull()
@@ -2425,19 +2477,16 @@ describe('login completion store', () => {
     const user = await createUser(ownerPool, 'login-suspended', 'suspended.login@example.test')
     await ownerPool.query("update identity.app_user set status = 'suspended' where id = $1", [user])
     const now = new Date(Date.now() + 1_000)
+    const state = mintToken().token
+    await recordLoginAttempt(state)
 
     await expect(
-      new PostgresLoginStore(appPool).complete({
-        attempt: loginAttempt(now),
-        identity: identityFor('suspended.login@example.test', 'login-suspended', now),
-        idTokenHintCiphertext: Buffer.from('sealed-hint'),
-        keyVersion: 1,
-        now,
-        ip: null,
-        userAgentHash: null,
-        requestId: null,
-      }),
-    ).rejects.toBeInstanceOf(LoginRejectedError)
+      completeCallback(
+        authDependencies(identityFor('suspended.login@example.test', 'login-suspended', now)),
+        { ip: null, userAgentHash: null, requestId: 'callback-request' },
+        { code: 'authorization-code', state, sessionToken: null },
+      ),
+    ).rejects.toMatchObject({ code: 'UNAUTHENTICATED', status: 401 })
 
     const sessions = await ownerPool.query<{ count: number }>(
       'select count(*)::int as count from identity.web_session where user_id = $1',
@@ -2459,23 +2508,25 @@ describe('login completion store', () => {
       -60,
     )
     const now = new Date(Date.now() + 1_000)
+    const state = mintToken().token
+    await recordLoginAttempt(state)
 
-    const result = await new PostgresLoginStore(appPool).complete({
-      attempt: loginAttempt(now),
-      identity: identityFor('expired.invitee@example.test', 'login-expired-invitee', now),
-      idTokenHintCiphertext: Buffer.from('sealed-hint'),
-      keyVersion: 1,
-      now,
-      ip: null,
-      userAgentHash: null,
-      requestId: null,
-    })
+    const result = await completeCallback(
+      authDependencies(identityFor('expired.invitee@example.test', 'login-expired-invitee', now)),
+      { ip: null, userAgentHash: null, requestId: 'callback-request' },
+      { code: 'authorization-code', state, sessionToken: null },
+    )
 
+    const user = await ownerPool.query<{ id: string }>(
+      'select id from identity.app_user where zitadel_sub = $1',
+      ['login-expired-invitee'],
+    )
     const membership = await ownerPool.query<{ count: number }>(
       'select count(*)::int as count from control.membership where user_id = $1',
-      [result.userId],
+      [user.rows[0]!.id],
     )
     expect(membership.rows[0]!.count).toBe(0)
+    expect(result.token).toHaveLength(43)
   })
 
   test('does not auto-accept an invitation for an existing user', async () => {
@@ -2494,56 +2545,65 @@ describe('login completion store', () => {
       'login-existing-invitee',
     )
     const now = new Date(Date.now() + 1_000)
+    const state = mintToken().token
+    await recordLoginAttempt(state)
 
-    const result = await new PostgresLoginStore(appPool).complete({
-      attempt: loginAttempt(now),
-      identity: identityFor('existing.invitee@example.test', 'login-existing-invitee', now),
-      idTokenHintCiphertext: Buffer.from('sealed-hint'),
-      keyVersion: 1,
-      now,
-      ip: null,
-      userAgentHash: null,
-      requestId: null,
-    })
+    await completeCallback(
+      authDependencies(identityFor('existing.invitee@example.test', 'login-existing-invitee', now)),
+      { ip: null, userAgentHash: null, requestId: 'callback-request' },
+      { code: 'authorization-code', state, sessionToken: null },
+    )
 
     const pending = await ownerPool.query<{ status: string }>(
       'select status from identity.invitation where id = $1',
       [invitation],
     )
     expect(pending.rows[0]!.status).toBe('pending')
+    const user = await ownerPool.query<{ id: string }>(
+      'select id from identity.app_user where zitadel_sub = $1',
+      ['login-existing-invitee'],
+    )
     const membership = await ownerPool.query<{ count: number }>(
       'select count(*)::int as count from control.membership where user_id = $1',
-      [result.userId],
+      [user.rows[0]!.id],
     )
     expect(membership.rows[0]!.count).toBe(0)
   })
 })
 
 describe('invitation service', () => {
-  function invitationService(
+  function invitationDependencies(
     sent: { token: string | null },
-    audit: AuditSink = new AuditWriter(appPool),
-  ): InvitationService {
-    const zitadel = new ZitadelManagementClient(
-      'http://localhost:8080',
-      { token: async () => 'service-token' },
-    )
-    return new InvitationService({
-      pool: appPool,
-      invitations: new InvitationRepository(appPool),
-      organisations: new OrganisationRepository(appPool),
-      hospitals: new HospitalRepository(appPool),
-      memberships: new MembershipAdminRepository(appPool),
-      users: new AppUserRepository(appPool),
-      authorization: new AuthorizationRepository(appPool),
-      zitadel,
+    audit: AuditSink = createAuditWriter(appPool),
+  ): InvitationDependencies {
+    const authorization = createAuthorizationRepository(appPool)
+    return {
+      db: appPool,
+      transaction: runTransaction,
+      authorize: createAuthorize(authorization),
+      permissions: createRolePermissions(authorization),
+      isPlatformAdmin: createIsPlatformAdmin(authorization),
       audit,
+      sessions: createSessionService({ store: createSessionRepository(appPool) }),
+      users: createAppUserRepository(appPool),
+      organisationIdentity: {
+        async create(name) {
+          return `zitadel-${name}-${randomUUID()}`
+        },
+      },
       mailer: {
         async send(input) {
           sent.token = input.token
         },
       },
-    })
+      identity: {
+        async createHumanUser() {
+          return `zitadel-user-${randomUUID()}`
+        },
+        async resendInitialization() {},
+        async deactivateUser() {},
+      },
+    }
   }
 
   test('accepts an existing-user invitation once and rejects a different session', async () => {
@@ -2555,26 +2615,20 @@ describe('invitation service', () => {
       "insert into control.role_permission (role_id, permission_key) values ($1, 'membership.manage')",
       [role],
     )
-    const inviterMembership = await createMembership(
-      ownerPool,
-      inviterId,
-      organisation,
-      null,
-      -5,
-      60,
-    )
+    const inviterMembership = await createMembership(ownerPool, inviterId, organisation, null, -5, 60)
     await ownerPool.query(
       "insert into control.membership_role (membership_id, role_id, validity) values ($1, $2, tstzrange(now(), now() + interval '30 minutes'))",
       [inviterMembership, role],
     )
-    const inviter = await new AppUserRepository(ownerPool).findById(inviterId)
-    const invitee = await new AppUserRepository(ownerPool).findById(inviteeId)
+    const inviter = await createAppUserRepository(ownerPool).findById(inviterId)
+    const invitee = await createAppUserRepository(ownerPool).findById(inviteeId)
     expect(inviter).not.toBeNull()
     expect(invitee).not.toBeNull()
 
     const sent: { token: string | null } = { token: null }
-    const service = invitationService(sent)
-    const invitation = await service.create(
+    const dependencies = invitationDependencies(sent)
+    const invitation = await createInvitationController(
+      dependencies,
       {
         actor: inviter!,
         sessionId: randomUUID(),
@@ -2585,13 +2639,15 @@ describe('invitation service', () => {
       {
         email: 'target@example.test',
         organisationId: organisation,
+        hospitalId: null,
         roleIds: [role],
       },
     )
     expect(invitation.kind).toBe('existing_user')
     expect(sent.token).not.toBeNull()
 
-    const wrongActor = await service.accept(
+    const wrongActor = await acceptInvitation(
+      dependencies,
       {
         actor: inviter!,
         sessionId: randomUUID(),
@@ -2599,7 +2655,7 @@ describe('invitation service', () => {
         ip: null,
         userAgentHash: null,
       },
-      sent.token!,
+      { token: sent.token! },
     ).catch((error: unknown) => error)
     expect(wrongActor).toBeInstanceOf(AppError)
     expect((wrongActor as AppError).status).toBe(403)
@@ -2611,7 +2667,7 @@ describe('invitation service', () => {
       ip: '203.0.113.9',
       userAgentHash: Buffer.alloc(32, 7),
     }
-    const accepted = await service.accept(acceptContext, sent.token!)
+    const accepted = await acceptInvitation(dependencies, acceptContext, { token: sent.token! })
     expect(accepted.status).toBe('accepted')
     expect(accepted.acceptedByUserId).toBe(inviteeId)
     expect(accepted.roleIds).toEqual([role])
@@ -2640,7 +2696,8 @@ describe('invitation service', () => {
     )
     expect(membership.rows[0]!.count).toBe(1)
 
-    const replay = await service.accept(
+    const replay = await acceptInvitation(
+      dependencies,
       {
         actor: invitee!,
         sessionId: randomUUID(),
@@ -2648,7 +2705,7 @@ describe('invitation service', () => {
         ip: null,
         userAgentHash: null,
       },
-      sent.token!,
+      { token: sent.token! },
     ).catch((error: unknown) => error)
     expect(replay).toBeInstanceOf(AppError)
     expect((replay as AppError).status).toBe(409)
@@ -2668,15 +2725,16 @@ describe('invitation service', () => {
       "insert into control.membership_role (membership_id, role_id, validity) values ($1, $2, tstzrange(now(), now() + interval '30 minutes'))",
       [membership, role],
     )
-    const inviter = await new AppUserRepository(ownerPool).findById(inviterId)
+    const inviter = await createAppUserRepository(ownerPool).findById(inviterId)
     const sent: { token: string | null } = { token: null }
-    const service = invitationService(sent, {
+    const dependencies = invitationDependencies(sent, {
       async write() {
         throw new Error('audit unavailable')
       },
     })
 
-    const error = await service.create(
+    const error = await createInvitationController(
+      dependencies,
       {
         actor: inviter!,
         sessionId: randomUUID(),
@@ -2687,6 +2745,7 @@ describe('invitation service', () => {
       {
         email: 'audit-target@example.test',
         organisationId: organisation,
+        hospitalId: null,
         roleIds: [role],
       },
     ).catch((caught: unknown) => caught)
@@ -2702,50 +2761,62 @@ describe('invitation service', () => {
 })
 
 describe('admin routes', () => {
+  function adminDependencies(audit: AuditSink = createAuditWriter(appPool)): AdminDependencies {
+    const authorization = createAuthorizationRepository(appPool)
+    return {
+      db: appPool,
+      transaction: runTransaction,
+      authorize: createAuthorize(authorization),
+      permissions: createRolePermissions(authorization),
+      isPlatformAdmin: createIsPlatformAdmin(authorization),
+      audit,
+      sessions: createSessionService({ store: createSessionRepository(appPool) }),
+      users: createAppUserRepository(appPool),
+      organisationIdentity: {
+        async create(name) {
+          return `zitadel-${name}-${randomUUID()}`
+        },
+      },
+    }
+  }
+
+  function invitationDependencies(admin: AdminDependencies): InvitationDependencies {
+    return {
+      ...admin,
+      mailer: { async send() {} },
+      identity: {
+        async createHumanUser() {
+          return `zitadel-user-${randomUUID()}`
+        },
+        async resendInitialization() {},
+        async deactivateUser() {},
+      },
+    }
+  }
+
   function application() {
-    const audit = new AuditWriter(appPool)
-    const authorization = new AuthorizationRepository(appPool)
-    const users = new AppUserRepository(appPool)
-    const organisations = new OrganisationRepository(appPool)
-    const hospitals = new HospitalRepository(appPool)
-    const memberships = new MembershipAdminRepository(appPool)
-    const invitations = new InvitationRepository(appPool)
-    const sessions = new SessionService({ store: new SessionRepository(appPool) })
-    const zitadel = new ZitadelManagementClient(
-      'http://localhost:8080',
-      { token: async () => 'service-token' },
-    )
-    const app = new Elysia().use(errors).use(
-      createAdmin({
-        organisations: new OrganisationAdminService(
-          organisations,
-          authorization,
-          new OrganisationProvisioningService(appPool, zitadel, audit),
-        ),
-        hospitals: new HospitalAdminService(appPool, hospitals, authorization, audit),
-        memberships: new MembershipAdminService(appPool, memberships, authorization, audit),
-        invitations: new InvitationService({
-          pool: appPool,
-          invitations,
-          organisations,
-          hospitals,
-          memberships,
-          users,
-          authorization,
-          zitadel,
-          audit,
-          mailer: { async send() {} },
-        }),
-        audit: createAuditAdmin({
-          store: createAuditStore(appPool),
-          authorize: (actorId, permission, target) =>
-            requireAdminPermission(authorization, actorId, permission, target),
-        }),
-        sessions,
-        users,
-      }),
-    )
+    const sessions = createSessionService({
+      store: createSessionRepository(appPool),
+    })
+    const admin: AdminDependencies = { ...adminDependencies(), sessions }
+    const app = createApp({
+      checkDatabase: async () => {},
+      admin,
+      invitations: invitationDependencies(admin),
+    })
     return { app, sessions }
+  }
+
+  async function adminContext(userId: string): Promise<AdminRequestContext> {
+    const actor = await createAppUserRepository(appPool).findById(userId)
+    if (actor === null) throw new Error('missing test user')
+    return {
+      actor,
+      sessionId: randomUUID(),
+      requestId: `admin-${randomUUID()}`,
+      ip: null,
+      userAgentHash: null,
+    }
   }
 
   test('rejects a missing session before any administration code runs', async () => {
@@ -3014,17 +3085,15 @@ describe('admin routes', () => {
     )
 
     try {
-      const actor = await new AppUserRepository(appPool).findById(admin)
-      if (actor === null) throw new Error('missing test user')
-      const service = new HospitalAdminService(
-        appPool,
-        new HospitalRepository(appPool),
-        new AuthorizationRepository(appPool),
-        { async write() { throw new Error('audit unavailable') } },
-      )
+      const dependencies = adminDependencies({
+        async write() {
+          throw new Error('audit unavailable')
+        },
+      })
 
-      await expect(service.create(
-        { actor, sessionId: randomUUID(), requestId: 'request-audit', ip: null, userAgentHash: null },
+      await expect(createHospitalController(
+        dependencies,
+        await adminContext(admin),
         organisation,
         { name: 'Rollback Hospital', slug: 'rollback-hospital', timezone: 'UTC' },
       )).rejects.toThrow('audit unavailable')
@@ -3051,17 +3120,15 @@ describe('admin routes', () => {
     )
 
     try {
-      const actor = await new AppUserRepository(appPool).findById(admin)
-      if (actor === null) throw new Error('missing test user')
-      const service = new MembershipAdminService(
-        appPool,
-        new MembershipAdminRepository(appPool),
-        new AuthorizationRepository(appPool),
-        { async write() { throw new Error('audit unavailable') } },
-      )
+      const dependencies = adminDependencies({
+        async write() {
+          throw new Error('audit unavailable')
+        },
+      })
 
-      await expect(service.suspend(
-        { actor, sessionId: randomUUID(), requestId: 'request-audit', ip: null, userAgentHash: null },
+      await expect(suspendMembership(
+        dependencies,
+        await adminContext(admin),
         membership,
         'audit test',
       )).rejects.toThrow('audit unavailable')
@@ -3083,9 +3150,8 @@ describe('break-glass service', () => {
     aal = 2,
     authTime = new Date(),
   ): Promise<BreakGlassContext> {
-    const actor = await new AppUserRepository(appPool).findById(userId)
+    const actor = await createAppUserRepository(appPool).findById(userId)
     if (actor === null) throw new Error('missing test user')
-
     return {
       actor,
       sessionId: randomUUID(),
@@ -3098,12 +3164,17 @@ describe('break-glass service', () => {
     }
   }
 
-  function service(): BreakGlassService {
-    return new BreakGlassService({
-      pool: appPool,
-      authorization: new AuthorizationRepository(appPool),
-      users: new AppUserRepository(appPool),
-    })
+  function dependencies(): BreakGlassDependencies {
+    const authorization = createAuthorizationRepository(appPool)
+    return {
+      db: appPool,
+      transaction: runTransaction,
+      authorize: createAuthorize(authorization),
+      hasAnyPlatformPermission: (actorId, permissions) =>
+        authorization.hasAnyPlatformPermission(actorId, permissions),
+      users: createAppUserRepository(appPool),
+      audit: createAuditWriter(appPool),
+    }
   }
 
   async function grantHospitalPermission(
@@ -3142,16 +3213,21 @@ describe('break-glass service', () => {
     const user = await createUser(ownerPool, 'bg-emergency-user', 'bg.emergency@example.test')
     await grantHospitalPermission(user, organisation, hospital)
 
-    const grant = await service().requestEmergency(await contextFor(user), {
+    const grant = await requestGrant(dependencies(), await contextFor(user), {
       hospitalId: hospital,
+      mode: 'emergency',
       reason: 'Covering an unstaffed ward',
     })
 
     expect(grant.status).toBe('active')
     expect(grant.approvalMode).toBe('emergency')
     expect(grant.approvedBy).toBeNull()
-    expect(grant.activatedBy).toBe(user)
-    expect(grant.endsAt.getTime()).toBeGreaterThan(grant.startsAt.getTime())
+    const activated = await ownerPool.query<{ activated_by: string | null }>(
+      'select activated_by from control.break_glass_grant where id = $1',
+      [grant.id],
+    )
+    expect(activated.rows[0]!.activated_by).toBe(user)
+    expect(new Date(grant.endsAt).getTime()).toBeGreaterThan(new Date(grant.startsAt).getTime())
 
     const audit = await ownerPool.query<{ count: number }>(
       "select count(*)::int as count from audit.event where target_id = $1 and event_type = 'break_glass.activate'",
@@ -3167,8 +3243,9 @@ describe('break-glass service', () => {
     await createMembership(ownerPool, user, organisation, hospital)
 
     await expect(
-      service().requestEmergency(await contextFor(user), {
+      requestGrant(dependencies(), await contextFor(user), {
         hospitalId: hospital,
+        mode: 'emergency',
         reason: 'No permission',
       }),
     ).rejects.toMatchObject({ code: 'FORBIDDEN' })
@@ -3187,8 +3264,9 @@ describe('break-glass service', () => {
     await grantHospitalPermission(user, organisation, hospital)
 
     await expect(
-      service().requestEmergency(await contextFor(user, 1), {
+      requestGrant(dependencies(), await contextFor(user, 1), {
         hospitalId: hospital,
+        mode: 'emergency',
         reason: 'Password only',
       }),
     ).rejects.toMatchObject({ code: 'STEP_UP_REQUIRED' })
@@ -3201,8 +3279,9 @@ describe('break-glass service', () => {
     await makeApprover(approver)
 
     await expect(
-      service().createPreApproved(await contextFor(approver), {
+      requestGrant(dependencies(), await contextFor(approver), {
         hospitalId: hospital,
+        mode: 'pre_approved',
         userId: approver,
         reason: 'Approving myself',
       }),
@@ -3219,24 +3298,34 @@ describe('break-glass service', () => {
     await createMembership(ownerPool, subject, organisation, hospital)
     await createMembership(ownerPool, bystander, organisation, hospital)
 
-    const reserved = await service().createPreApproved(await contextFor(approver), {
+    const reserved = await requestGrant(dependencies(), await contextFor(approver), {
       hospitalId: hospital,
+      mode: 'pre_approved',
       userId: subject,
       reason: 'Planned overnight cover',
     })
     expect(reserved.status).toBe('approved')
     expect(reserved.approvedBy).toBe(approver)
-    expect(reserved.activatedBy).toBeNull()
+    const reservedRow = await ownerPool.query<{ activated_by: string | null }>(
+      'select activated_by from control.break_glass_grant where id = $1',
+      [reserved.id],
+    )
+    expect(reservedRow.rows[0]!.activated_by).toBeNull()
 
     await expect(
-      service().activate(await contextFor(bystander), reserved.id),
+      activateGrant(dependencies(), await contextFor(bystander), reserved.id),
     ).rejects.toMatchObject({ code: 'FORBIDDEN' })
 
-    const active = await service().activate(await contextFor(subject), reserved.id)
+    const active = await activateGrant(dependencies(), await contextFor(subject), reserved.id)
     expect(active.status).toBe('active')
-    expect(active.activatedBy).toBe(subject)
+    const activeRow = await ownerPool.query<{ activated_by: string | null }>(
+      'select activated_by from control.break_glass_grant where id = $1',
+      [active.id],
+    )
+    expect(activeRow.rows[0]!.activated_by).toBe(subject)
 
-    const revoked = await service().revoke(
+    const revoked = await revokeGrant(
+      dependencies(),
       await contextFor(subject),
       reserved.id,
       'Cover no longer needed',
@@ -3245,7 +3334,7 @@ describe('break-glass service', () => {
     expect(revoked.revokedAt).not.toBeNull()
 
     await expect(
-      service().revoke(await contextFor(subject), reserved.id, 'Again'),
+      revokeGrant(dependencies(), await contextFor(subject), reserved.id, 'Again'),
     ).rejects.toMatchObject({ code: 'CONFLICT' })
   })
 
@@ -3268,7 +3357,7 @@ describe('break-glass service', () => {
       [organisation, hospital, subject, approver],
     )
     await expect(
-      service().review(await contextFor(reviewer), open.rows[0]!.id, 'upheld', null),
+      reviewGrant(dependencies(), await contextFor(reviewer), open.rows[0]!.id, 'upheld', null),
     ).rejects.toMatchObject({ code: 'CONFLICT' })
 
     const closed = await ownerPool.query<{ id: string }>(
@@ -3281,7 +3370,8 @@ describe('break-glass service', () => {
        returning id`,
       [organisation, hospital, subject, approver],
     )
-    const review = await service().review(
+    const review = await reviewGrant(
+      dependencies(),
       await contextFor(reviewer),
       closed.rows[0]!.id,
       'upheld',
@@ -3291,18 +3381,17 @@ describe('break-glass service', () => {
     expect(review.reviewerId).toBe(reviewer)
 
     await expect(
-      service().review(await contextFor(reviewer), closed.rows[0]!.id, 'upheld', null),
+      reviewGrant(dependencies(), await contextFor(reviewer), closed.rows[0]!.id, 'upheld', null),
     ).rejects.toMatchObject({ code: 'CONFLICT' })
   })
-
 
   test('rejects a subject on an emergency request', async () => {
     const organisation = await createOrganisation(ownerPool, 'bg-route')
     const hospital = await createHospital(ownerPool, organisation, 'bg-route-hospital', true)
     const user = await createUser(ownerPool, 'bg-route-user', 'bg.route@example.test')
     await grantHospitalPermission(user, organisation, hospital)
-    const sessions = new SessionService({
-      store: new SessionRepository(appPool),
+    const sessions = createSessionService({
+      store: createSessionRepository(appPool),
       clock: () => new Date(),
     })
     const issued = await sessions.mint({
@@ -3319,15 +3408,10 @@ describe('break-glass service', () => {
       ip: null,
       userAgentHash: null,
     })
-    const app = new Elysia()
-      .use(errors)
-      .use(
-        createBreakGlass({
-          grants: service(),
-          sessions,
-          users: new AppUserRepository(appPool),
-        }),
-      )
+    const app = createApp({
+      checkDatabase: async () => {},
+      breakGlass: { ...dependencies(), sessions },
+    })
 
     const response = await app.handle(
       new Request('http://localhost/v1/break-glass/grants', {
@@ -3357,8 +3441,9 @@ describe('break-glass service', () => {
     await makeApprover(approver)
     const membership = await createMembership(ownerPool, subject, organisation, hospital)
 
-    const reserved = await service().createPreApproved(await contextFor(approver), {
+    const reserved = await requestGrant(dependencies(), await contextFor(approver), {
       hospitalId: hospital,
+      mode: 'pre_approved',
       userId: subject,
       reason: 'Planned cover',
     })
@@ -3368,7 +3453,7 @@ describe('break-glass service', () => {
     )
 
     await expect(
-      service().activate(await contextFor(subject), reserved.id),
+      activateGrant(dependencies(), await contextFor(subject), reserved.id),
     ).rejects.toMatchObject({ code: 'RULE_VIOLATION' })
   })
 
@@ -3411,7 +3496,7 @@ describe('session access repository', () => {
     )
     await createMembership(ownerPool, user, organisation, hospital, 60, 120)
 
-    const access = await new AccessRepository(appPool).listForUser(user, new Date())
+    const access = await createAccessRepository(appPool).listForUser(user, new Date())
     expect(access.memberships).toHaveLength(1)
     expect(access.memberships[0]!.hospitalId).toBe(hospital)
     expect(access.memberships[0]!.roles).toEqual(['access_clinician'])
@@ -3426,7 +3511,7 @@ describe('session access repository', () => {
       [user, role],
     )
 
-    const access = await new AccessRepository(appPool).listForUser(user, new Date())
+    const access = await createAccessRepository(appPool).listForUser(user, new Date())
     expect(access.memberships).toEqual([])
     expect(access.permissions).toEqual(['platform.manage'])
 
@@ -3435,7 +3520,7 @@ describe('session access repository', () => {
 })
 describe('rate limit repository', () => {
   test('counts hits and resets in the next window', async () => {
-    const counters = new RateLimitRepository(appPool)
+    const counters = createRateLimitRepository(appPool)
     const key = randomBytes(32)
     const at = new Date('2026-01-01T10:00:30.000Z')
 
@@ -3449,7 +3534,7 @@ describe('rate limit repository', () => {
   })
 
   test('counts concurrent requests without losing an increment', async () => {
-    const counters = new RateLimitRepository(appPool)
+    const counters = createRateLimitRepository(appPool)
     const key = randomBytes(32)
     const at = new Date()
 
@@ -3468,27 +3553,29 @@ describe('rate limit repository', () => {
 })
 
 describe('onboarding service', () => {
-  function provisioner() {
+  function dependencies(
+    createIdentity: (name: string) => Promise<string> = async (name) =>
+      `zitadel-${name}-${randomUUID()}`,
+    audit: AuditSink = createAuditWriter(appPool),
+  ) {
     return {
-      async provision(input: { name: string; slug: string }) {
-        const existing = await ownerPool.query<{ id: string }>(
-          'select id from control.organisation where slug = $1',
-          [input.slug],
-        )
-        const id = existing.rows[0]?.id ?? (await createOrganisation(ownerPool, input.slug))
-        const organisation = await new OrganisationRepository(ownerPool).findById(id)
-        if (organisation === null) throw new Error('missing organisation')
-        return organisation
-      },
+      db: appPool,
+      transaction: runTransaction,
+      audit,
+      organisationIdentity: { create: createIdentity },
     }
   }
 
-  function service() {
-    return new OnboardingService(
-      appPool,
-      provisioner(),
-      new MembershipAdminRepository(appPool),
-    )
+  async function contextFor(userId: string): Promise<AdminRequestContext> {
+    const actor = await createAppUserRepository(appPool).findById(userId)
+    if (actor === null) throw new Error('missing test user')
+    return {
+      actor,
+      sessionId: randomUUID(),
+      requestId: 'onboarding-request',
+      ip: null,
+      userAgentHash: null,
+    }
   }
 
   const slugs = [
@@ -3522,18 +3609,10 @@ describe('onboarding service', () => {
     )
   })
 
-  const context = (userId: string) => ({
-    userId,
-    sessionId: null,
-    requestId: 'onboarding-request',
-    ip: null,
-    userAgentHash: null,
-  })
-
   test('creates the first organisation with an active administrator', async () => {
     const user = await createUser(ownerPool, 'onboard-one', 'onboard.one@example.test')
 
-    const organisation = await service().create(context(user), {
+    const organisation = await createOnboarding(await dependencies(), await contextFor(user), {
       name: 'North Clinic',
       slug: 'north-clinic',
     })
@@ -3565,31 +3644,37 @@ describe('onboarding service', () => {
 
   test('refuses a second organisation for the same account', async () => {
     const user = await createUser(ownerPool, 'onboard-twice', 'onboard.twice@example.test')
-    await service().create(context(user), { name: 'First', slug: 'onboard-first' })
+    await createOnboarding(await dependencies(), await contextFor(user), {
+      name: 'First',
+      slug: 'onboard-first',
+    })
 
     await expect(
-      service().create(context(user), { name: 'Second', slug: 'onboard-second' }),
+      createOnboarding(await dependencies(), await contextFor(user), {
+        name: 'Second',
+        slug: 'onboard-second',
+      }),
     ).rejects.toMatchObject({ code: 'CONFLICT', status: 409 })
   })
 
   test('checks access before provisioning an organisation', async () => {
     const user = await createUser(ownerPool, 'onboard-precheck', 'onboard.precheck@example.test')
-    await service().create(context(user), { name: 'First', slug: 'onboard-precheck' })
+    await createOnboarding(await dependencies(), await contextFor(user), {
+      name: 'First',
+      slug: 'onboard-precheck',
+    })
 
     let provisions = 0
-    const guarded = new OnboardingService(
-      appPool,
-      {
-        async provision() {
-          provisions += 1
-          throw new Error('must not provision')
-        },
-      },
-      new MembershipAdminRepository(appPool),
-    )
+    const guarded = dependencies(async () => {
+      provisions += 1
+      throw new Error('must not provision')
+    })
 
     await expect(
-      guarded.create(context(user), { name: 'Second', slug: 'onboard-precheck-two' }),
+      createOnboarding(guarded, await contextFor(user), {
+        name: 'Second',
+        slug: 'onboard-precheck-two',
+      }),
     ).rejects.toMatchObject({ code: 'CONFLICT', status: 409 })
     expect(provisions).toBe(0)
   })
@@ -3597,10 +3682,16 @@ describe('onboarding service', () => {
   test('refuses an organisation that already has a member', async () => {
     const first = await createUser(ownerPool, 'onboard-owner', 'onboard.owner@example.test')
     const second = await createUser(ownerPool, 'onboard-claim', 'onboard.claim@example.test')
-    await service().create(context(first), { name: 'Shared', slug: 'onboard-shared' })
+    await createOnboarding(await dependencies(), await contextFor(first), {
+      name: 'Shared',
+      slug: 'onboard-shared',
+    })
 
     await expect(
-      service().create(context(second), { name: 'Shared', slug: 'onboard-shared' }),
+      createOnboarding(await dependencies(), await contextFor(second), {
+        name: 'Shared',
+        slug: 'onboard-shared',
+      }),
     ).rejects.toMatchObject({ code: 'CONFLICT', status: 409 })
   })
 
@@ -3608,10 +3699,16 @@ describe('onboarding service', () => {
     const user = await createUser(ownerPool, 'onboard-slug', 'onboard.slug@example.test')
 
     await expect(
-      service().create(context(user), { name: 'Admin', slug: 'admin' }),
+      createOnboarding(await dependencies(), await contextFor(user), {
+        name: 'Admin',
+        slug: 'admin',
+      }),
     ).rejects.toMatchObject({ code: 'RULE_VIOLATION', status: 422 })
     await expect(
-      service().create(context(user), { name: 'Bad', slug: 'not valid' }),
+      createOnboarding(await dependencies(), await contextFor(user), {
+        name: 'Bad',
+        slug: 'not valid',
+      }),
     ).rejects.toMatchObject({ code: 'RULE_VIOLATION', status: 422 })
   })
 })
@@ -3634,24 +3731,25 @@ describe('unverified registration', () => {
     )
 
     const now = new Date(Date.now() + 1_000)
-    const result = await new PostgresLoginStore(appPool).complete({
-      attempt: loginAttempt(now),
-      identity: {
+    const state = mintToken().token
+    await recordLoginAttempt(state)
+    const result = await completeCallback(
+      authDependencies({
         ...identityFor('unverified.invitee@example.test', 'unverified-invitee', now),
         emailVerifiedAt: null,
-      },
-      idTokenHintCiphertext: Buffer.from('sealed-hint'),
-      keyVersion: 1,
-      now,
-      ip: null,
-      userAgentHash: null,
-      requestId: 'unverified-request',
-    })
+      }),
+      { ip: null, userAgentHash: null, requestId: 'unverified-request' },
+      { code: 'authorization-code', state, sessionToken: null },
+    )
 
     expect(result.token).toHaveLength(43)
+    const user = await ownerPool.query<{ id: string }>(
+      'select id from identity.app_user where zitadel_sub = $1',
+      ['unverified-invitee'],
+    )
     const membership = await ownerPool.query<{ count: number }>(
       'select count(*)::int as count from control.membership where user_id = $1',
-      [result.userId],
+      [user.rows[0]!.id],
     )
     expect(membership.rows[0]!.count).toBe(0)
     const pending = await ownerPool.query<{ status: string }>(
@@ -3659,16 +3757,16 @@ describe('unverified registration', () => {
       [invitation],
     )
     expect(pending.rows[0]!.status).toBe('pending')
-    const user = await ownerPool.query<{ verified: Date | null }>(
+    const stored = await ownerPool.query<{ verified: Date | null }>(
       'select email_verified_at as verified from identity.app_user where id = $1',
-      [result.userId],
+      [user.rows[0]!.id],
     )
-    expect(user.rows[0]!.verified).toBeNull()
+    expect(stored.rows[0]!.verified).toBeNull()
   })
 })
 
 describe('pending registration repository', () => {
-  const pending = () => new PendingRegistrationRepository(appPool)
+  const pending = () => createPendingRegistrationRepository(appPool)
 
   function record(email: string, token: string, expiresAt: Date) {
     return {
@@ -3687,7 +3785,7 @@ describe('pending registration repository', () => {
     const token = randomBytes(32).toString('base64url')
     await pending().replace(record(email, token, new Date(Date.now() + 60_000)))
 
-    const found = await pending().claim(appPool, hashToken(token), 300)
+    const found = await pending().claim(hashToken(token), 300)
 
     expect(found).toMatchObject({ email, displayName: 'Ada Lovelace' })
     expect(found?.claimedAt).toBeInstanceOf(Date)
@@ -3710,8 +3808,8 @@ describe('pending registration repository', () => {
       [email],
     )
     expect(open.rows[0]!.count).toBe(1)
-    expect(await pending().claim(appPool, hashToken(first), 300)).toBeNull()
-    const found = await pending().claim(appPool, hashToken(second), 300)
+    expect(await pending().claim(hashToken(first), 300)).toBeNull()
+    const found = await pending().claim(hashToken(second), 300)
     expect(found).toMatchObject({ email, displayName: 'Ada King' })
   })
 
@@ -3719,12 +3817,12 @@ describe('pending registration repository', () => {
     const email = `pending.consume.${randomUUID()}@example.test`
     const token = randomBytes(32).toString('base64url')
     await pending().replace(record(email, token, new Date(Date.now() + 60_000)))
-    const stored = await pending().claim(appPool, hashToken(token), 300)
+    const stored = await pending().claim(hashToken(token), 300)
     expect(stored).not.toBeNull()
 
-    expect(await pending().finish(appPool, stored!.id, stored!.claimId)).toBe(true)
-    expect(await pending().finish(appPool, stored!.id, stored!.claimId)).toBe(false)
-    expect(await pending().claim(appPool, hashToken(token), 300)).toBeNull()
+    expect(await pending().finish(stored!.id, stored!.claimId)).toBe(true)
+    expect(await pending().finish(stored!.id, stored!.claimId)).toBe(false)
+    expect(await pending().claim(hashToken(token), 300)).toBeNull()
 
     await expect(
       ownerPool.query(
@@ -3738,20 +3836,20 @@ describe('pending registration repository', () => {
     const email = `pending.stale.${randomUUID()}@example.test`
     const token = randomBytes(32).toString('base64url')
     await pending().replace(record(email, token, new Date(Date.now() + 60_000)))
-    const firstClaim = await pending().claim(appPool, hashToken(token), 300)
+    const firstClaim = await pending().claim(hashToken(token), 300)
     expect(firstClaim).not.toBeNull()
-    expect(await pending().claim(appPool, hashToken(token), 300)).toBeNull()
+    expect(await pending().claim(hashToken(token), 300)).toBeNull()
 
     await ownerPool.query(
       "update identity.pending_registration set created_at = now() - interval '1 hour', claimed_at = now() - interval '10 minutes' where id = $1",
       [firstClaim!.id],
     )
-    const takeover = await pending().claim(appPool, hashToken(token), 300)
+    const takeover = await pending().claim(hashToken(token), 300)
     expect(typeof takeover?.claimId).toBe('string')
 
-    expect(await pending().release(appPool, firstClaim!.id, firstClaim!.claimId)).toBe(false)
-    expect(await pending().release(appPool, firstClaim!.id, takeover!.claimId)).toBe(true)
-    const retried = await pending().claim(appPool, hashToken(token), 300)
+    expect(await pending().release(firstClaim!.id, firstClaim!.claimId)).toBe(false)
+    expect(await pending().release(firstClaim!.id, takeover!.claimId)).toBe(true)
+    const retried = await pending().claim(hashToken(token), 300)
     expect(retried?.claimedAt).toBeInstanceOf(Date)
   })
 
@@ -3764,7 +3862,7 @@ describe('pending registration repository', () => {
       [email],
     )
 
-    expect(await pending().claim(appPool, hashToken(token), 300)).toBeNull()
+    expect(await pending().claim(hashToken(token), 300)).toBeNull()
   })
 
   test('does not let the runtime delete a sign-up', async () => {

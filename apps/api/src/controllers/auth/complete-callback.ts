@@ -1,4 +1,4 @@
-import type { AuditEvent } from '../../audit/audit-writer'
+import type { AuditEvent } from '../../shared/audit-writer'
 import type { DatabaseQuery } from '../../db/pool'
 import { hasSqlState, rowRecord, stringField } from '../../db/rows'
 import { AppError } from '../../shared/errors'
@@ -155,13 +155,19 @@ export async function completeCallback(
     throw await rejection(dependencies, error, context)
   }
 
-  const completed =
-    stepUpToken === null
-      ? await completeLogin(dependencies, completionInput)
-      : await completeStepUp(dependencies, {
-          ...completionInput,
-          sessionToken: stepUpToken,
-        })
+  let completed: LoginCompletion
+  try {
+    completed =
+      stepUpToken === null
+        ? await completeLogin(dependencies, completionInput)
+        : await completeStepUp(dependencies, {
+            ...completionInput,
+            sessionToken: stepUpToken,
+          })
+  } catch (error) {
+    // Refusals after the token exchange are still authentication failures.
+    throw await rejection(dependencies, error, context)
+  }
   metricsOf(dependencies).count('auth.login_succeeded', {
     purpose: stepUpToken === null ? 'login' : 'step_up',
   })

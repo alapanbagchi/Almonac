@@ -1,8 +1,9 @@
 import { describe, expect, test } from 'bun:test'
 import { Pool } from 'pg'
-import type { AuditEvent, AuditSink } from '../../src/audit/audit-writer'
+import type { AuditEvent, AuditSink } from '../../src/shared/audit-writer'
 import { AppError } from '../../src/shared/errors'
-import type { AppUser } from '../../src/identity/app-user-repository'
+import type { AppUser } from '../../src/repositories/app-user-repository'
+import { withTransaction } from '../../src/db/pool'
 import { activateGrant } from '../../src/controllers/break-glass/activate-grant'
 import { requestGrant } from '../../src/controllers/break-glass/request-grant'
 import {
@@ -109,7 +110,8 @@ function dependencies(
   overrides: Partial<BreakGlassDependencies> = {},
 ): BreakGlassDependencies {
   return {
-    pool,
+    db: pool,
+    transaction: (run) => withTransaction(pool, run),
     authorize: async () => {},
     hasAnyPlatformPermission: async () => false,
     users: { findById: async () => null },

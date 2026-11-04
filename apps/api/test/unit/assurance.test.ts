@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { requireAssurance } from '../../src/auth/assurance'
+import { requireAssurance } from '../../src/guards/assurance'
 
 const NOW = new Date('2026-01-01T10:00:00.000Z')
 

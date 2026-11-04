@@ -1,13 +1,14 @@
 import { describe, expect, test } from 'bun:test'
 import { Pool } from 'pg'
-import type { AuditEvent, AuditSink } from '../../src/audit/audit-writer'
-import type { AppUser } from '../../src/identity/app-user-repository'
+import type { AuditEvent, AuditSink } from '../../src/shared/audit-writer'
+import type { AppUser } from '../../src/repositories/app-user-repository'
 import type { AdminRequestContext } from '../../src/guards/admin-context'
+import type { OrganisationIdentity } from '../../src/controllers/admin/dependencies'
 import {
   createOnboarding,
   type OnboardingDependencies,
-  type OnboardingProvisioner,
 } from '../../src/controllers/onboarding/create-onboarding'
+import { withTransaction } from '../../src/db/pool'
 
 const USER_ID = '44444444-4444-4444-8444-444444444444'
 const ORG_ID = '22222222-2222-4222-8222-222222222222'
@@ -58,83 +59,86 @@ function fakePool(respond: (text: string) => readonly unknown[]) {
   return { pool, calls }
 }
 
+function organisationRow(status: 'pending' | 'active') {
+  return {
+    id: ORG_ID,
+    zitadel_org_id: status === 'active' ? 'zitadel-org-1' : null,
+    name: 'Clinic One',
+    slug: 'clinic-one',
+    status,
+    provisioned_at: status === 'active' ? NOW : null,
+    created_at: NOW,
+  }
+}
+
 function harness(respond: (text: string) => readonly unknown[]) {
   const { pool, calls } = fakePool(respond)
-  const provisionCalls: { name: string; slug: string }[] = []
-  const membershipCalls: {
-    userId: string
-    organisationId: string
-    hospitalId: string | null
-    roleIds: readonly string[]
-    assignedBy: string
-  }[] = []
+  const identityCalls: string[] = []
   const auditWrites: AuditEvent[] = []
   const audit: AuditSink = {
     async write(event) {
       auditWrites.push(event)
     },
   }
-  const provisioning: OnboardingProvisioner = {
-    async provision(input) {
-      provisionCalls.push(input)
-      return {
-        id: ORG_ID,
-        zitadelOrgId: null,
-        name: input.name,
-        slug: input.slug,
-        status: 'active',
-        provisionedAt: null,
-        createdAt: NOW,
-      }
+  const organisationIdentity: OrganisationIdentity = {
+    async create(name) {
+      identityCalls.push(name)
+      return 'zitadel-org-1'
     },
   }
   const dependencies: OnboardingDependencies = {
-    pool,
-    provisioning,
-    memberships: {
-      async createFromInvitation(input) {
-        membershipCalls.push({
-          userId: input.userId,
-          organisationId: input.organisationId,
-          hospitalId: input.hospitalId,
-          roleIds: input.roleIds,
-          assignedBy: input.assignedBy,
-        })
-        return MEMBERSHIP_ID
-      },
-    },
+    db: pool,
+    transaction: (run) => withTransaction(pool, run),
     audit,
+    organisationIdentity,
   }
-  return { dependencies, calls, provisionCalls, membershipCalls, auditWrites }
+  return { dependencies, calls, identityCalls, auditWrites }
+}
+
+function standardResponses(text: string): readonly unknown[] {
+  if (text.includes('pg_advisory_xact_lock')) return []
+  if (text.includes('from control.organisation') && text.includes('where slug =')) return []
+  if (text.includes('insert into control.organisation')) return [organisationRow('pending')]
+  if (text.includes('instantiate_role_template')) return [{ role_id: ROLE_ID }]
+  if (text.includes('update control.organisation')) return [organisationRow('active')]
+  if (text.includes('select 1 from control.membership')) return []
+  if (text.includes('count(*)')) return [{ count: 0 }]
+  if (text.includes('insert into control.membership') && text.includes('returning id')) {
+    return [{ id: MEMBERSHIP_ID }]
+  }
+  if (text.includes('insert into control.membership_role')) return []
+  if (text.includes('update identity.app_user')) return []
+  if (text.includes('insert into audit.event')) return []
+  throw new Error('unexpected query: ' + text)
 }
 
 describe('create onboarding', () => {
   test('rejects a blank organisation name before touching the database', async () => {
-    const { dependencies, calls, provisionCalls, auditWrites } = harness(() => [])
+    const { dependencies, calls, identityCalls, auditWrites } = harness(() => [])
 
     await expect(
       createOnboarding(dependencies, context, { name: '   ', slug: 'clinic-one' }),
     ).rejects.toMatchObject({ code: 'RULE_VIOLATION', status: 422 })
 
-    expect(provisionCalls).toHaveLength(0)
+    expect(identityCalls).toHaveLength(0)
     expect(calls).toHaveLength(0)
     expect(auditWrites).toHaveLength(0)
   })
 
   test('rejects a reserved organisation address', async () => {
-    const { dependencies, calls, provisionCalls } = harness(() => [])
+    const { dependencies, calls, identityCalls } = harness(() => [])
 
     await expect(
       createOnboarding(dependencies, context, { name: 'Admin', slug: 'admin' }),
     ).rejects.toMatchObject({ code: 'RULE_VIOLATION', status: 422 })
 
-    expect(provisionCalls).toHaveLength(0)
+    expect(identityCalls).toHaveLength(0)
     expect(calls).toHaveLength(0)
   })
 
   test('an account that already has access is refused before provisioning', async () => {
-    const { dependencies, calls, provisionCalls, auditWrites } = harness((text) => {
-      if (text.includes('from control.membership')) return [{ present: 1 }]
+    const { dependencies, calls, identityCalls, auditWrites } = harness((text) => {
+      if (text.includes('select 1 from control.membership')) return [{ present: 1 }]
       throw new Error('unexpected query: ' + text)
     })
 
@@ -142,23 +146,13 @@ describe('create onboarding', () => {
       createOnboarding(dependencies, context, { name: 'Clinic One', slug: 'clinic-one' }),
     ).rejects.toMatchObject({ code: 'CONFLICT', status: 409 })
 
-    expect(provisionCalls).toHaveLength(0)
+    expect(identityCalls).toHaveLength(0)
     expect(calls.map((call) => call.text).some((text) => text === 'begin')).toBe(false)
     expect(auditWrites).toHaveLength(0)
   })
 
-  test('claims the organisation and records the membership in one transaction', async () => {
-    const { dependencies, calls, provisionCalls, membershipCalls, auditWrites } = harness(
-      (text) => {
-        if (text.includes('select 1 from control.membership')) return []
-        if (text.includes('pg_advisory_xact_lock')) return []
-        if (text.includes('count(*)')) return [{ count: 0 }]
-        if (text.includes('instantiate_role_template')) return [{ role_id: ROLE_ID }]
-        if (text.includes('update identity.app_user')) return []
-        if (text.includes('insert into audit.event')) return []
-        throw new Error('unexpected query: ' + text)
-      },
-    )
+  test('provisions the organisation and records the membership in one transaction', async () => {
+    const { dependencies, calls, identityCalls, auditWrites } = harness(standardResponses)
 
     const result = await createOnboarding(dependencies, context, {
       name: '  Clinic   One ',
@@ -171,27 +165,20 @@ describe('create onboarding', () => {
       slug: 'clinic-one',
       status: 'active',
     })
-    expect(provisionCalls).toEqual([{ name: 'Clinic One', slug: 'clinic-one' }])
-    expect(membershipCalls).toEqual([
-      {
-        userId: USER_ID,
-        organisationId: ORG_ID,
-        hospitalId: null,
-        roleIds: [ROLE_ID],
-        assignedBy: USER_ID,
-      },
-    ])
+    expect(identityCalls).toEqual(['Clinic One'])
+
     const statements = calls.map((call) => call.text)
     expect(statements).toContain('begin')
     expect(statements).toContain('commit')
     expect(statements.indexOf('begin')).toBeLessThan(
       statements.findIndex((text) => text.includes('instantiate_role_template')),
     )
-    expect(auditWrites).toHaveLength(1)
-    expect(auditWrites[0]).toMatchObject({
+    expect(statements.filter((text) => text === 'begin')).toHaveLength(2)
+
+    const membership = auditWrites.find((event) => event.reasonCode === 'membership.onboard')
+    expect(membership).toMatchObject({
       actorUserId: USER_ID,
       eventType: 'membership.change',
-      reasonCode: 'membership.onboard',
       reason: 'first organisation',
       targetType: 'membership',
       targetId: MEMBERSHIP_ID,

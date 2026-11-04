@@ -1,12 +1,12 @@
 import { createHash } from 'node:crypto'
-import type { AuditSink } from '../../audit/audit-writer'
+import type { AuditSink } from '../../shared/audit-writer'
 import type { DatabaseQuery, TransactionRunner } from '../../db/pool'
 import { AppError } from '../../shared/errors'
 import { NO_METRICS, type Metrics } from '../../shared/metrics'
 import type { SealingKey } from '../../shared/sealed'
 import type { OidcProvider } from '../../adapters/oidc/provider'
-import type { LoginClient } from '../../auth/zitadel-session-client'
-import type { PasswordHasher } from '../../auth/password-hash'
+import type { LoginClient } from '../../adapters/zitadel/login-client'
+import type { PasswordHasher } from '../../shared/password-hash'
 import type { RateLimitRepository } from '../../repositories/rate-limit-repository'
 
 /** The provider-side account creator, satisfied by the Zitadel management client. */

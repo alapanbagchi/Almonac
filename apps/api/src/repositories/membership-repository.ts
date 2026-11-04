@@ -56,6 +56,10 @@ export interface MembershipRepository {
     hospitalId?: string | null
   }): Promise<MembershipSummary | null>
   list(input: MembershipListInput, page: PageRequest): Promise<Page<MembershipSummary>>
+  /** Any live membership at all — the onboarding gate before provisioning. */
+  hasActiveForUser(userId: string): Promise<boolean>
+  /** How many people already belong to the organisation, live or not. */
+  countInOrganisation(organisationId: string): Promise<number>
   createFromInvitation(input: NewMembership): Promise<string>
   suspend(id: string, at: Date): Promise<boolean>
   revoke(input: RevokeMembershipInput): Promise<boolean>
@@ -126,6 +130,24 @@ export function createMembershipRepository(db: DatabaseQuery): MembershipReposit
         [input.organisationId, input.hospitalId ?? null, page.limit + 1, page.offset],
       )
       return pageOf(result.rows.map(mapMembership), page)
+    },
+
+    async hasActiveForUser(userId) {
+      const result = await db.query(
+        `select 1 from control.membership
+          where user_id = $1 and status = 'active' and validity @> now()
+          limit 1`,
+        [userId],
+      )
+      return result.rows.length > 0
+    },
+
+    async countInOrganisation(organisationId) {
+      const result = await db.query(
+        'select count(*)::int as count from control.membership where organisation_id = $1',
+        [organisationId],
+      )
+      return integerField(rowRecord(result.rows[0]), 'count')
     },
 
     async createFromInvitation(input) {

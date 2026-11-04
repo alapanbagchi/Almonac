@@ -1,22 +1,20 @@
-import type { Pool } from 'pg'
-import type { AuditSink } from '../../audit/audit-writer'
-import { withTransaction, type DatabaseQuery } from '../../db/pool'
-import { rowRecord, stringField } from '../../db/rows'
-import type { MembershipAdminRepository } from '../../admin/membership-admin-repository'
-import type { Organisation, OrganisationStatus } from '../../admin/organisation-repository'
+import type { AuditSink } from '../../shared/audit-writer'
+import type { DatabaseQuery, TransactionRunner } from '../../db/pool'
 import type { AdminRequestContext } from '../../guards/admin-context'
-import { AppError, conflict, ruleViolation } from '../../shared/errors'
+import { AppError, ConflictError, conflict, ruleViolation } from '../../shared/errors'
 import { recordAdminChange } from '../../shared/change-log'
-
-export interface OnboardingProvisioner {
-  provision(input: { name: string; slug: string }): Promise<Organisation>
-}
+import { createMembershipRepository } from '../../repositories/membership-repository'
+import { createAppUserRepository } from '../../repositories/app-user-repository'
+import { createOrganisationRepository } from '../../repositories/organisation-repository'
+import type { OrganisationIdentity } from '../admin/dependencies'
+import { provisionOrganisation } from '../admin/organisations/provision'
+import type { OrganisationStatus } from '../../repositories/organisation-repository'
 
 export interface OnboardingDependencies {
-  readonly pool: Pool
-  readonly provisioning: OnboardingProvisioner
-  readonly memberships: Pick<MembershipAdminRepository, 'createFromInvitation'>
+  readonly db: DatabaseQuery
+  readonly transaction: TransactionRunner
   readonly audit: AuditSink
+  readonly organisationIdentity: OrganisationIdentity
 }
 
 export interface OnboardingInput {
@@ -68,69 +66,49 @@ export async function createOnboarding(
   // Reject an account that already has access before calling the identity
   // provider. The transaction rechecks under its lock, but this keeps a
   // repeated request from provisioning an organisation first.
-  if (await hasActiveMembership(dependencies.pool, userId)) throw onboardingComplete()
+  if (await createMembershipRepository(dependencies.db).hasActiveForUser(userId)) {
+    throw onboardingComplete()
+  }
 
-  const claimed = await dependencies.provisioning.provision({ name, slug })
+  const { organisation, roles } = await provisionOrganisation(dependencies, context, {
+    name,
+    slug,
+    roleTemplates: ['org_admin'],
+  })
+  const roleId = roles.get('org_admin')
+  if (roleId === undefined) throw new Error('organisation role template did not return a role')
 
-  return withTransaction(dependencies.pool, async (db) => {
-    await db.query('select pg_advisory_xact_lock(hashtext($1))', ['onboarding:' + slug])
+  return dependencies.transaction(async (db) => {
+    const memberships = createMembershipRepository(db)
+    await createOrganisationRepository(db).lockClaim(slug)
 
-    if (await hasActiveMembership(db, userId)) throw onboardingComplete()
-
-    const members = await db.query(
-      'select count(*)::int as count from control.membership where organisation_id = $1',
-      [claimed.id],
-    )
-    if (readCount(members.rows[0]) > 0) {
+    if (await memberships.hasActiveForUser(userId)) throw onboardingComplete()
+    if ((await memberships.countInOrganisation(organisation.id)) > 0) {
       throw conflict('Organisation address is already in use.')
     }
-    if (claimed.status !== 'active') {
-      throw new AppError(
-        'ONBOARDING_UNAVAILABLE',
-        503,
-        'Organisation provisioning is not available.',
-      )
-    }
-
-    const role = await db.query(
-      "select control.instantiate_role_template($1, 'org_admin') as role_id",
-      [claimed.id],
-    )
-    const roleId = stringField(rowRecord(role.rows[0]), 'role_id')
 
     let membershipId: string
     try {
-      membershipId = await dependencies.memberships.createFromInvitation(
-        {
-          userId,
-          organisationId: claimed.id,
-          hospitalId: null,
-          roleIds: [roleId],
-          assignedBy: userId,
-        },
-        db,
-      )
+      membershipId = await memberships.createFromInvitation({
+        userId,
+        organisationId: organisation.id,
+        hospitalId: null,
+        roleIds: [roleId],
+        assignedBy: userId,
+      })
     } catch (error) {
-      if (error instanceof Error && error.name === 'MembershipConflictError') {
-        throw onboardingComplete()
-      }
+      if (error instanceof ConflictError) throw onboardingComplete()
       throw error
     }
 
-    await db.query(
-      `update identity.app_user
-          set home_organisation_id = $2
-        where id = $1 and home_organisation_id is null`,
-      [userId, claimed.id],
-    )
-
+    await createAppUserRepository(db).claimHomeOrganisation(userId, organisation.id)
     await recordAdminChange(
       dependencies.audit,
       context,
       {
         targetType: 'membership',
         targetId: membershipId,
-        organisationId: claimed.id,
+        organisationId: organisation.id,
         hospitalId: null,
       },
       'membership.onboard',
@@ -147,30 +125,14 @@ export async function createOnboarding(
     )
 
     return {
-      id: claimed.id,
-      name: claimed.name,
-      slug: claimed.slug,
-      status: claimed.status,
+      id: organisation.id,
+      name: organisation.name,
+      slug: organisation.slug,
+      status: organisation.status,
     }
   })
 }
 
-async function hasActiveMembership(db: DatabaseQuery, userId: string): Promise<boolean> {
-  const active = await db.query(
-    `select 1 from control.membership
-      where user_id = $1 and status = 'active' and validity @> now()
-      limit 1`,
-    [userId],
-  )
-  return active.rows.length > 0
-}
-
 function onboardingComplete(): AppError {
   return new AppError('CONFLICT', 409, 'Your account already has access.')
-}
-
-function readCount(value: unknown): number {
-  if (value === undefined) return 0
-  const count = rowRecord(value).count
-  return typeof count === 'number' ? count : 0
 }

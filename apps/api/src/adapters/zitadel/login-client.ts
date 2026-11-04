@@ -1,8 +1,5 @@
-import type { AccessTokenProvider } from '../adapters/zitadel/client'
-import {
-  ZitadelRejectedError,
-  ZitadelUnavailableError,
-} from '../adapters/zitadel/client'
+import type { AccessTokenProvider } from './client'
+import { ZitadelRejectedError, ZitadelUnavailableError } from './client'
 
 const AUTH_REQUEST_PATTERN = /^V2_[A-Za-z0-9_-]{1,64}$/
 const MAX_RESPONSE_BYTES = 32 * 1024

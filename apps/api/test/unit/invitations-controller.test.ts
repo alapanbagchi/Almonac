@@ -9,9 +9,9 @@ import {
 } from '../../src/controllers/admin/invitations/issue'
 import { listInvitations } from '../../src/controllers/admin/invitations/list-invitations'
 import type { AdminRequestContext } from '../../src/guards/admin-context'
-import type { AppUser } from '../../src/identity/app-user-repository'
+import type { AppUser } from '../../src/repositories/app-user-repository'
 import type { Invitation } from '../../src/repositories/invitation-repository'
-import type { AuditEvent } from '../../src/audit/audit-writer'
+import type { AuditEvent } from '../../src/shared/audit-writer'
 import { withTransaction, type DatabaseQuery } from '../../src/db/pool'
 import { AppError, forbidden } from '../../src/shared/errors'
 

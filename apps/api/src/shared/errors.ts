@@ -65,15 +65,3 @@ export class RuleViolation extends Error {
     this.name = 'RuleViolation'
   }
 }
-
-/** True when the service threw a database constraint it already classified. */
-export function isConflict(error: unknown): error is ConflictError {
-  return error instanceof ConflictError
-}
-
-/** The public answer for a database constraint: its own message, otherwise rethrow. */
-export function asAppError(error: unknown): unknown {
-  if (error instanceof ConflictError) return conflict(error.message)
-  if (error instanceof RuleViolation) return ruleViolation(error.message)
-  return error
-}

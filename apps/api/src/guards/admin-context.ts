@@ -1,5 +1,5 @@
 import { Elysia } from 'elysia'
-import type { AppUser } from '../identity/app-user-repository'
+import type { AppUser } from '../repositories/app-user-repository'
 import type { AdminDependencies } from '../controllers/admin/dependencies'
 import { authenticateBearer, type AuthenticatedRequest, type SessionAuthenticator, type UserLookup } from './bearer'
 import { requestContext, requestIdOf, type RequestServer } from '../shared/request'
@@ -43,7 +43,7 @@ export function adminContext(
  * consuming router registers after .use(adminGuard(d)), leaving them
  * unauthenticated while still type-checking.
  */
-export function adminGuard(d: AdminDependencies) {
+export function adminGuard(d: Pick<AdminDependencies, 'sessions' | 'users'>) {
   return new Elysia({ name: 'guards.admin' }).derive('plugin', async (context) => ({
     adminContext: adminContext(
       await authenticateBearer(context.headers.authorization, d.sessions, d.users),

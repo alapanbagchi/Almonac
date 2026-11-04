@@ -20,7 +20,7 @@ import { conflict, forbidden, notFound, ruleViolation } from '../../../shared/er
 import { mintToken } from '../../../shared/tokens'
 
 /** How long an invitation and its sign-in link stay valid. */
-export const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000
+const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000
 
 /** What the invitation mail needs to make sense to the recipient. */
 export interface InvitationDelivery {

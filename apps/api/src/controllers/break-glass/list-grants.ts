@@ -18,7 +18,7 @@ export interface ListGrantsQuery {
  * else sees only their own.
  */
 export async function listGrants(
-  dependencies: Pick<BreakGlassDependencies, 'pool' | 'hasAnyPlatformPermission'>,
+  dependencies: Pick<BreakGlassDependencies, 'db' | 'transaction' | 'hasAnyPlatformPermission'>,
   context: BreakGlassContext,
   query: ListGrantsQuery,
 ): Promise<{ items: GrantResponse[]; nextOffset: number | null }> {
@@ -26,7 +26,7 @@ export async function listGrants(
     context.actor.id,
     BREAK_GLASS_APPROVER_PERMISSIONS,
   )
-  const page = await createBreakGlassRepository(dependencies.pool).list(
+  const page = await createBreakGlassRepository(dependencies.db).list(
     approver ? null : context.actor.id,
     query.hospitalId ?? null,
     pageRequest(query),
