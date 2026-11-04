@@ -458,4 +458,3 @@ export class InvitationService {
     return selected
   }
 }
-

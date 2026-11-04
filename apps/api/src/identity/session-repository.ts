@@ -187,4 +187,3 @@ function mapRow(value: unknown): WebSession {
     userAgentHash: nullableBufferField(row, 'user_agent_hash'),
   }
 }
-
