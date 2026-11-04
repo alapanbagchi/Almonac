@@ -231,7 +231,7 @@ export class BreakGlassService {
         eventType: 'admin.change',
         reason: revokeReason,
         reasonCode: 'break_glass.revoked',
-        metadata: { resource_type: 'break_glass_grant', resource_id: revoked.id },
+        metadata: changeMetadata(revoked.id),
       })
       return revoked
     })
