@@ -3,6 +3,7 @@ import type { AppUser } from '../identity/app-user-repository'
 import type { WebSession } from '../identity/session-repository'
 import { authenticateBearer, type SessionAuthenticator, type UserLookup } from '../auth/bearer'
 import { requestContext, type RequestServer } from '../auth/request-context'
+import { pageRequest, pageSchema } from '../shared/pagination'
 import { requestIdOf } from '../shared/request'
 import type { BreakGlassGrant, BreakGlassReview } from './break-glass-repository'
 import type { BreakGlassContext, BreakGlassService } from './break-glass-service'
@@ -10,6 +11,7 @@ import {
   breakGlassGrantBody,
   breakGlassGrantSchema,
   breakGlassReviewSchema,
+  grantListQuery,
   revokeBody,
   reviewBody,
   routeDetail,
@@ -77,13 +79,17 @@ export function createBreakGlass(dependencies: BreakGlassDependencies) {
     .get(
       '/grants',
       {
-        query: t.Object({ hospitalId: t.Optional(uuid) }),
-        response: { 200: t.Array(breakGlassGrantSchema) },
+        query: grantListQuery,
+        response: { 200: pageSchema(breakGlassGrantSchema) },
         detail: routeDetail('List emergency access grants'),
       },
       async (context) => {
-        const grants = await dependencies.grants.list(await contextOf(context), context.query.hospitalId ?? null)
-        return grants.map(grantResponse)
+        const grants = await dependencies.grants.list(
+          await contextOf(context),
+          context.query.hospitalId ?? null,
+          pageRequest(context.query),
+        )
+        return { items: grants.items.map(grantResponse), nextOffset: grants.nextOffset }
       },
     )
     .post(

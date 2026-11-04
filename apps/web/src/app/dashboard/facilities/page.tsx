@@ -41,9 +41,12 @@ export default async function FacilitiesPage({
   const domains = new Map<string, Domain[]>();
   if (canManage && context !== null && selected !== undefined) {
     const loaded = await readOrForbidden(async () => {
-      const list = await context.api.listHospitals(context.token, selected.id);
+      const list = (await context.api.listHospitals(context.token, selected.id)).items;
       const domainLists = await Promise.all(
-        list.map((hospital) => context.api.listDomains(context.token, hospital.id)),
+        list.map(async (hospital) => {
+          const page = await context.api.listDomains(context.token, hospital.id);
+          return page.items;
+        }),
       );
       return { list, domainLists };
     });

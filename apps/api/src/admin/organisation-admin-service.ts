@@ -1,6 +1,7 @@
 import type { AuthorizationRepository } from '../access/authorization-repository'
 import { forbidden, notFound } from './admin-errors'
 import type { AdminRequestContext } from './admin-context'
+import type { Page, PageRequest } from '../shared/pagination'
 import type { Organisation, OrganisationRepository } from './organisation-repository'
 import type { OrganisationProvisioningService } from './organisation-provisioning-service'
 
@@ -18,11 +19,11 @@ export class OrganisationAdminService {
     return this.provisioning.provision(input)
   }
 
-  async list(context: AdminRequestContext): Promise<Organisation[]> {
+  async list(context: AdminRequestContext, page: PageRequest): Promise<Page<Organisation>> {
     if (await this.authorization.hasPlatformPermission(context.actor.id, 'platform.manage')) {
-      return this.organisations.listAll()
+      return this.organisations.listAll(page)
     }
-    return this.organisations.listForUser(context.actor.id)
+    return this.organisations.listForUser(context.actor.id, page)
   }
 
   async get(context: AdminRequestContext, organisationId: string): Promise<Organisation> {

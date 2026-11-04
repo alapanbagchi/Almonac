@@ -1,4 +1,5 @@
 import type { DatabaseQuery } from '../db/pool'
+import { pageOf, type Page, type PageRequest } from '../shared/pagination'
 import {
   dateField,
   nullableDateField,
@@ -90,12 +91,16 @@ export class HospitalRepository {
     return result.rows[0] === undefined ? null : mapHospital(result.rows[0])
   }
 
-  async listByOrganisation(organisationId: string): Promise<Hospital[]> {
+  async listByOrganisation(
+    organisationId: string,
+    page: PageRequest,
+  ): Promise<Page<Hospital>> {
     const result = await this.db.query(
-      `${HOSPITAL_SELECT} where organisation_id = $1 order by name, id`,
-      [organisationId],
+      `${HOSPITAL_SELECT} where organisation_id = $1 order by name, id
+       limit $2 offset $3`,
+      [organisationId, page.limit + 1, page.offset],
     )
-    return result.rows.map(mapHospital)
+    return pageOf(result.rows.map(mapHospital), page)
   }
 
   async addDomain(
@@ -118,12 +123,13 @@ export class HospitalRepository {
     }
   }
 
-  async listDomains(hospitalId: string): Promise<HospitalDomain[]> {
+  async listDomains(hospitalId: string, page: PageRequest): Promise<Page<HospitalDomain>> {
     const result = await this.db.query(
-      `${DOMAIN_SELECT} where hospital_id = $1 order by created_at, id`,
-      [hospitalId],
+      `${DOMAIN_SELECT} where hospital_id = $1 order by created_at, id
+       limit $2 offset $3`,
+      [hospitalId, page.limit + 1, page.offset],
     )
-    return result.rows.map(mapDomain)
+    return pageOf(result.rows.map(mapDomain), page)
   }
 
   async verifyDomain(

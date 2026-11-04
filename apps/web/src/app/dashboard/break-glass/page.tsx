@@ -45,7 +45,9 @@ async function BreakGlassContent({
   if (session === null || token === null) redirect("/login?returnTo=/dashboard/break-glass");
 
   const config = loadWebConfig();
-  const grants = await createBreakGlassApi({ baseUrl: config.apiUrl }).listGrants(token, null);
+  const grants = (
+    await createBreakGlassApi({ baseUrl: config.apiUrl }).listGrants(token, null)
+  ).items;
   const hospitals = session.memberships.flatMap((membership) =>
     membership.hospitalId === null
       ? []

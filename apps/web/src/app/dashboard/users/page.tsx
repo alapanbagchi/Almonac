@@ -52,7 +52,11 @@ export default async function UsersPage({
     if (lists === null) {
       forbidden = true;
     } else {
-      [memberships, invitations, roles, hospitals] = lists;
+      const [membershipPage, invitationPage, rolePage, hospitalPage] = lists;
+      memberships = membershipPage.items;
+      invitations = invitationPage.items;
+      roles = rolePage.items;
+      hospitals = hospitalPage.items;
     }
   }
   const hospitalNames = new Map(hospitals.map((hospital) => [hospital.id, hospital.name]));

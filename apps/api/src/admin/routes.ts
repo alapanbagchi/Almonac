@@ -32,9 +32,8 @@ import {
   roleResponse,
 } from './admin-responses'
 import { authenticateBearer } from '../auth/bearer'
+import { pageRequest, pageSchema, paginationFields } from '../shared/pagination'
 import { requestIdOf } from '../shared/request'
-
-
 
 /**
  * Organisation, hospital, membership, invitation and audit administration.
@@ -80,12 +79,19 @@ export function createAdmin(dependencies: AdminDependencies) {
     .get(
       '/organisations',
       {
-        response: { 200: t.Array(organisationSchema) },
+        query: t.Object({ ...paginationFields }),
+        response: { 200: pageSchema(organisationSchema) },
         detail: routeDetail('List organisations'),
       },
       async (context) => {
-        const organisations = await dependencies.organisations.list(await contextOf(context))
-        return organisations.map(organisationResponse)
+        const organisations = await dependencies.organisations.list(
+          await contextOf(context),
+          pageRequest(context.query),
+        )
+        return {
+          items: organisations.items.map(organisationResponse),
+          nextOffset: organisations.nextOffset,
+        }
       },
     )
     .get(
@@ -103,15 +109,20 @@ export function createAdmin(dependencies: AdminDependencies) {
       '/organisations/:organisationId/hospitals',
       {
         params: t.Object({ organisationId: uuid }),
-        response: { 200: t.Array(hospitalSchema) },
+        query: t.Object({ ...paginationFields }),
+        response: { 200: pageSchema(hospitalSchema) },
         detail: routeDetail('List hospitals'),
       },
       async (context) => {
         const hospitals = await dependencies.hospitals.list(
           await contextOf(context),
           context.params.organisationId,
+          pageRequest(context.query),
         )
-        return hospitals.map(hospitalResponse)
+        return {
+          items: hospitals.items.map(hospitalResponse),
+          nextOffset: hospitals.nextOffset,
+        }
       },
     )
     .post(
@@ -140,15 +151,20 @@ export function createAdmin(dependencies: AdminDependencies) {
       '/hospitals/:hospitalId/domains',
       {
         params: t.Object({ hospitalId: uuid }),
-        response: { 200: t.Array(domainSchema) },
+        query: t.Object({ ...paginationFields }),
+        response: { 200: pageSchema(domainSchema) },
         detail: routeDetail('List hospital domains'),
       },
       async (context) => {
         const domains = await dependencies.hospitals.listDomains(
           await contextOf(context),
           context.params.hospitalId,
+          pageRequest(context.query),
         )
-        return domains.map(domainResponse)
+        return {
+          items: domains.items.map(domainResponse),
+          nextOffset: domains.nextOffset,
+        }
       },
     )
     .post(
@@ -207,24 +223,32 @@ export function createAdmin(dependencies: AdminDependencies) {
       '/organisations/:organisationId/memberships',
       {
         params: t.Object({ organisationId: uuid }),
-        query: t.Object({ hospitalId: t.Optional(uuid) }),
-        response: { 200: t.Array(membershipSchema) },
+        query: t.Object({ hospitalId: t.Optional(uuid), ...paginationFields }),
+        response: { 200: pageSchema(membershipSchema) },
         detail: routeDetail('List memberships'),
       },
       async (context) => {
-        const memberships = await dependencies.memberships.list(await contextOf(context), {
-          organisationId: context.params.organisationId,
-          hospitalId: context.query.hospitalId ?? null,
-        })
-        return memberships.map(membershipResponse)
+        const memberships = await dependencies.memberships.list(
+          await contextOf(context),
+          {
+            organisationId: context.params.organisationId,
+            hospitalId: context.query.hospitalId ?? null,
+          },
+          pageRequest(context.query),
+        )
+        return {
+          items: memberships.items.map(membershipResponse),
+          nextOffset: memberships.nextOffset,
+        }
       },
     )
     .get(
       '/organisations/:organisationId/roles',
       {
         params: t.Object({ organisationId: uuid }),
+        query: t.Object({ ...paginationFields }),
         response: {
-          200: t.Array(t.Object({
+          200: pageSchema(t.Object({
             id: t.String(),
             key: t.String(),
             name: t.String(),
@@ -238,8 +262,12 @@ export function createAdmin(dependencies: AdminDependencies) {
         const roles = await dependencies.memberships.listRoles(
           await contextOf(context),
           context.params.organisationId,
+          pageRequest(context.query),
         )
-        return roles.map(roleResponse)
+        return {
+          items: roles.items.map(roleResponse),
+          nextOffset: roles.nextOffset,
+        }
       },
     )
     .post(
@@ -309,16 +337,23 @@ export function createAdmin(dependencies: AdminDependencies) {
       '/organisations/:organisationId/invitations',
       {
         params: t.Object({ organisationId: uuid }),
-        query: t.Object({ hospitalId: t.Optional(uuid) }),
-        response: { 200: t.Array(invitationSchema) },
+        query: t.Object({ hospitalId: t.Optional(uuid), ...paginationFields }),
+        response: { 200: pageSchema(invitationSchema) },
         detail: routeDetail('List invitations'),
       },
       async (context) => {
-        const invitations = await dependencies.invitations.list(await contextOf(context), {
-          organisationId: context.params.organisationId,
-          hospitalId: context.query.hospitalId ?? null,
-        })
-        return invitations.map(invitationResponse)
+        const invitations = await dependencies.invitations.list(
+          await contextOf(context),
+          {
+            organisationId: context.params.organisationId,
+            hospitalId: context.query.hospitalId ?? null,
+          },
+          pageRequest(context.query),
+        )
+        return {
+          items: invitations.items.map(invitationResponse),
+          nextOffset: invitations.nextOffset,
+        }
       },
     )
     .post(

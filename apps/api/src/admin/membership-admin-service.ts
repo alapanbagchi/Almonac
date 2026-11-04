@@ -1,5 +1,6 @@
 import type { Pool } from 'pg'
 import { AppError } from '../shared/errors'
+import type { Page, PageRequest } from '../shared/pagination'
 import { withTransaction, type DatabaseQuery } from '../db/pool'
 import { asAdminError, conflict, forbidden, notFound } from './admin-errors'
 import type { AuditSink } from '../audit/audit-writer'
@@ -22,17 +23,19 @@ export class MembershipAdminService {
   async list(
     context: AdminRequestContext,
     input: { organisationId: string; hospitalId?: string | null },
-  ): Promise<MembershipSummary[]> {
+    page: PageRequest,
+  ): Promise<Page<MembershipSummary>> {
     await this.requireManage(context, input.organisationId, input.hospitalId ?? null)
-    return this.memberships.list(input)
+    return this.memberships.list(input, page)
   }
 
   async listRoles(
     context: AdminRequestContext,
     organisationId: string,
-  ): Promise<OrganisationRole[]> {
+    page: PageRequest,
+  ): Promise<Page<OrganisationRole>> {
     await this.requireManage(context, organisationId, null)
-    return this.memberships.listRoles(organisationId)
+    return this.memberships.listRoles(organisationId, page)
   }
 
   async suspend(context: AdminRequestContext, membershipId: string, reason: string): Promise<void> {

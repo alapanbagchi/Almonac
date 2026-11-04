@@ -1,5 +1,6 @@
 import type { Pool } from 'pg'
 import { AppError } from '../shared/errors'
+import type { Page, PageRequest } from '../shared/pagination'
 import { hashToken, mintToken } from '../shared/tokens'
 import { AuditWriter } from '../audit/audit-writer'
 import type { AuthorizationRepository, AccessTarget } from '../access/authorization-repository'
@@ -158,12 +159,13 @@ export class InvitationService {
   async list(
     context: AdminRequestContext,
     input: { organisationId: string; hospitalId?: string | null },
-  ): Promise<Invitation[]> {
+    page: PageRequest,
+  ): Promise<Page<Invitation>> {
     await this.requireManage(context.actor.id, {
       organisationId: input.organisationId,
       hospitalId: input.hospitalId ?? null,
     })
-    return this.dependencies.invitations.list(input)
+    return this.dependencies.invitations.list(input, page)
   }
 
   async resend(context: AdminRequestContext, invitationId: string): Promise<Invitation> {
@@ -433,16 +435,25 @@ export class InvitationService {
     if (roleIds.length === 0) {
       throw new AppError('ROLE_REQUIRED', 422, 'At least one role is required.')
     }
-    const roles = await this.dependencies.memberships.listRoles(organisationId)
-    const selected = roleIds.map((id) => roles.find((role) => role.id === id))
-    if (selected.some((role) => role === undefined)) {
-      throw new AppError('ROLE_NOT_FOUND', 422, 'Role is not available in this organisation.')
+    const available = new Map(
+      (await this.dependencies.memberships.findRoles(organisationId, roleIds)).map((role) => [
+        role.id,
+        role,
+      ]),
+    )
+    const selected: OrganisationRole[] = []
+    for (const roleId of roleIds) {
+      const role = available.get(roleId)
+      if (role === undefined) {
+        throw new AppError('ROLE_NOT_FOUND', 422, 'Role is not available in this organisation.')
+      }
+      selected.push(role)
     }
     const expectedScope = hospitalId === null ? 'organisation' : 'hospital'
-    if (selected.some((role) => role!.scope !== expectedScope)) {
+    if (selected.some((role) => role.scope !== expectedScope)) {
       throw new AppError('ROLE_SCOPE_MISMATCH', 422, 'Role scope does not match the invitation.')
     }
-    return selected as OrganisationRole[]
+    return selected
   }
 }
 

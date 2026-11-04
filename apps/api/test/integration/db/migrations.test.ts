@@ -2827,6 +2827,60 @@ describe('admin routes', () => {
     expect(body.error.code).toBe('VALIDATION_FAILED')
   })
 
+  test('paginates the administration lists', async () => {
+    await createOrganisation(ownerPool, 'pagination-first')
+    await createOrganisation(ownerPool, 'pagination-second')
+    const user = await createUser(ownerPool, 'pagination-user', 'pagination@example.test')
+    const platformRole = await findSystemRole(ownerPool, 'platform_admin')
+    await ownerPool.query(
+      'insert into control.platform_assignment (user_id, role_id) values ($1, $2)',
+      [user, platformRole],
+    )
+
+    try {
+      const { app, sessions } = application()
+      const issued = await sessions.mint({
+        userId: user,
+        identityIssuer: 'http://localhost:8080',
+        zitadelSessionId: null,
+        oidcSid: null,
+        acr: null,
+        idTokenHintCiphertext: null,
+        keyVersion: null,
+        amr: ['pwd'],
+        authTime: new Date(Date.now() - 60_000),
+        aal: 1,
+        ip: null,
+        userAgentHash: null,
+      })
+      const first = await app.handle(
+        new Request('http://localhost/v1/admin/organisations?limit=1', {
+          headers: { authorization: `Bearer ${issued.token}` },
+        }),
+      )
+      expect(first.status).toBe(200)
+      const firstPage = await first.json() as {
+        items: { id: string }[]
+        nextOffset: number | null
+      }
+      expect(firstPage.items).toHaveLength(1)
+      expect(firstPage.nextOffset).toBe(1)
+
+      const second = await app.handle(
+        new Request(
+          `http://localhost/v1/admin/organisations?limit=1&offset=${firstPage.nextOffset}`,
+          { headers: { authorization: `Bearer ${issued.token}` } },
+        ),
+      )
+      expect(second.status).toBe(200)
+      const secondPage = await second.json() as { items: { id: string }[] }
+      expect(secondPage.items).toHaveLength(1)
+      expect(secondPage.items[0]!.id).not.toBe(firstPage.items[0]!.id)
+    } finally {
+      await ownerPool.query('delete from control.platform_assignment where user_id = $1', [user])
+    }
+  })
+
   test('denies organisation creation without platform permission', async () => {
     const user = await createUser(ownerPool, 'admin-route-user', 'route@example.test')
     const { app, sessions } = application()

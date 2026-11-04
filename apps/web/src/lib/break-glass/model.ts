@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { pageSchema } from "@/lib/pagination";
+
 const id = z.uuid();
 const timestamp = z.iso.datetime();
 
@@ -31,7 +33,7 @@ export const reviewSchema = z.object({
   notes: z.string().nullable(),
 });
 
-export const grantListSchema = z.array(grantSchema);
+export const grantListSchema = pageSchema(grantSchema);
 
 export type BreakGlassGrant = z.infer<typeof grantSchema>;
 export type BreakGlassReview = z.infer<typeof reviewSchema>;

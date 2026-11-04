@@ -37,7 +37,7 @@ export const getVisibleOrganisations = cache(async (): Promise<Organisation[]> =
   // every organisation, everyone else receives the organisations they belong
   // to. Do not call getOrganisation per membership, because that requires
   // organisation.manage and would lock a hospital administrator out.
-  return context.api.listOrganisations(context.token);
+  return (await context.api.listOrganisations(context.token)).items;
 });
 
 export function hasPermission(context: AdminContext, permission: string): boolean {

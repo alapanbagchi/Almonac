@@ -1,4 +1,5 @@
 import type { DatabaseQuery } from '../db/pool'
+import { pageOf, type Page, type PageRequest } from '../shared/pagination'
 import {
   dateField,
   nullableDateField,
@@ -63,22 +64,26 @@ export class OrganisationRepository {
     return result.rows[0] === undefined ? null : mapOrganisation(result.rows[0])
   }
 
-  async listAll(): Promise<Organisation[]> {
-    const result = await this.db.query(`${SELECT} order by name, id`)
-    return result.rows.map(mapOrganisation)
+  async listAll(page: PageRequest): Promise<Page<Organisation>> {
+    const result = await this.db.query(
+      `${SELECT} order by name, id limit $1 offset $2`,
+      [page.limit + 1, page.offset],
+    )
+    return pageOf(result.rows.map(mapOrganisation), page)
   }
 
-  async listForUser(userId: string): Promise<Organisation[]> {
+  async listForUser(userId: string, page: PageRequest): Promise<Page<Organisation>> {
     const result = await this.db.query(
       `${SELECT}
        where id in (
          select organisation_id from control.membership
          where user_id = $1 and status = 'active' and validity @> now()
        )
-       order by name, id`,
-      [userId],
+       order by name, id
+       limit $2 offset $3`,
+      [userId, page.limit + 1, page.offset],
     )
-    return result.rows.map(mapOrganisation)
+    return pageOf(result.rows.map(mapOrganisation), page)
   }
 
   async markProvisioned(id: string, zitadelOrgId: string, at: Date): Promise<Organisation> {

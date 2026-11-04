@@ -6,6 +6,7 @@ import type { AuditSink } from '../audit/audit-writer'
 import type { AuthorizationRepository } from '../access/authorization-repository'
 import type { AdminRequestContext } from './admin-context'
 import type { Hospital, HospitalDomain, HospitalRepository } from './hospital-repository'
+import type { Page, PageRequest } from '../shared/pagination'
 import type { OrganisationRepository } from './organisation-repository'
 import { asAdminError, forbidden, notFound } from './admin-errors'
 
@@ -18,9 +19,13 @@ export class HospitalAdminService {
     private readonly audit: AuditSink,
   ) {}
 
-  async list(context: AdminRequestContext, organisationId: string): Promise<Hospital[]> {
+  async list(
+    context: AdminRequestContext,
+    organisationId: string,
+    page: PageRequest,
+  ): Promise<Page<Hospital>> {
     await this.requireOrganisationManage(context, organisationId)
-    return this.hospitals.listByOrganisation(organisationId)
+    return this.hospitals.listByOrganisation(organisationId, page)
   }
 
   async create(
@@ -52,9 +57,10 @@ export class HospitalAdminService {
   async listDomains(
     context: AdminRequestContext,
     hospitalId: string,
-  ): Promise<HospitalDomain[]> {
+    page: PageRequest,
+  ): Promise<Page<HospitalDomain>> {
     const hospital = await this.requireHospitalManage(context, hospitalId)
-    return this.hospitals.listDomains(hospital.id)
+    return this.hospitals.listDomains(hospital.id, page)
   }
 
   async addDomain(

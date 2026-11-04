@@ -1,4 +1,5 @@
 import type { DatabaseQuery } from '../db/pool'
+import { pageOf, type Page, type PageRequest } from '../shared/pagination'
 import {
   dateField,
   nullableDateField,
@@ -169,18 +170,22 @@ export class BreakGlassRepository {
     return result.rows[0] === undefined ? null : mapGrant(result.rows[0])
   }
 
-  async list(userId: string | null, hospitalId: string | null): Promise<BreakGlassGrant[]> {
+  async list(
+    userId: string | null,
+    hospitalId: string | null,
+    page: PageRequest,
+  ): Promise<Page<BreakGlassGrant>> {
     const result = await this.db.query(
       `select ${COLUMNS}
        from control.break_glass_grant
        where ($1::uuid is null or user_id = $1::uuid)
          and ($2::uuid is null or hospital_id = $2::uuid)
        order by created_at desc, id
-       limit 100`,
-      [userId, hospitalId],
+       limit $3 offset $4`,
+      [userId, hospitalId, page.limit + 1, page.offset],
     )
 
-    return result.rows.map(mapGrant)
+    return pageOf(result.rows.map(mapGrant), page)
   }
 
   async activate(id: string, userId: string, at: Date): Promise<BreakGlassGrant | null> {

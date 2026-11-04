@@ -1,4 +1,5 @@
 import type { Pool } from 'pg'
+import { pageOf, type Page, type PageRequest } from '../shared/pagination'
 import { withTransaction, type DatabaseQuery } from '../db/pool'
 import {
   dateField,
@@ -106,19 +107,20 @@ export class InvitationRepository {
     return result.rows[0] === undefined ? null : mapRow(result.rows[0])
   }
 
-  async list(input: {
-    organisationId: string
-    hospitalId?: string | null
-  }): Promise<Invitation[]> {
+  async list(
+    input: { organisationId: string; hospitalId?: string | null },
+    page: PageRequest,
+  ): Promise<Page<Invitation>> {
     const result = await this.pool.query(
       `select ${SELECT_COLUMNS}
          from identity.invitation as invitation
         where invitation.organisation_id = $1
           and ($2::uuid is null or invitation.hospital_id = $2)
-        order by invitation.created_at desc, invitation.id`,
-      [input.organisationId, input.hospitalId ?? null],
+        order by invitation.created_at desc, invitation.id
+        limit $3 offset $4`,
+      [input.organisationId, input.hospitalId ?? null, page.limit + 1, page.offset],
     )
-    return result.rows.map(mapRow)
+    return pageOf(result.rows.map(mapRow), page)
   }
 
   async findPendingForScope(input: {

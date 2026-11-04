@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { pageSchema, type Page } from "@/lib/pagination";
+
 const id = z.uuid();
 const timestamp = z.iso.datetime();
 const zitadelId = z.string().min(1).max(255);
@@ -109,3 +111,17 @@ export type Membership = z.infer<typeof membershipSchema>;
 export type Role = z.infer<typeof roleSchema>;
 export type Invitation = z.infer<typeof invitationSchema>;
 export type AuditEntry = z.infer<typeof auditEntrySchema>;
+
+export const organisationPageSchema = pageSchema(organisationSchema);
+export const hospitalPageSchema = pageSchema(hospitalSchema);
+export const domainPageSchema = pageSchema(domainSchema);
+export const membershipPageSchema = pageSchema(membershipSchema);
+export const rolePageSchema = pageSchema(roleSchema);
+export const invitationPageSchema = pageSchema(invitationSchema);
+
+export type OrganisationPage = Page<Organisation>;
+export type HospitalPage = Page<Hospital>;
+export type DomainPage = Page<Domain>;
+export type MembershipPage = Page<Membership>;
+export type RolePage = Page<Role>;
+export type InvitationPage = Page<Invitation>;

@@ -1,4 +1,5 @@
 import type { DatabaseQuery } from '../db/pool'
+import { pageOf, type Page, type PageRequest } from '../shared/pagination'
 import {
   dateField,
   nullableDateField,
@@ -130,28 +131,40 @@ export class MembershipAdminRepository {
     return result.rows[0] === undefined ? null : mapMembership(result.rows[0])
   }
 
-  async list(input: {
-    organisationId: string
-    hospitalId?: string | null
-  }): Promise<MembershipSummary[]> {
+  async list(
+    input: { organisationId: string; hospitalId?: string | null },
+    page: PageRequest,
+  ): Promise<Page<MembershipSummary>> {
     const result = await this.db.query(
       `${MEMBERSHIP_SELECT}
        where membership.organisation_id = $1
          and ($2::uuid is null or membership.hospital_id = $2)
        group by membership.id, app_user.email, app_user.display_name
-       order by app_user.display_name, app_user.email, membership.id`,
-      [input.organisationId, input.hospitalId ?? null],
+       order by app_user.display_name, app_user.email, membership.id
+       limit $3 offset $4`,
+      [input.organisationId, input.hospitalId ?? null, page.limit + 1, page.offset],
     )
-    return result.rows.map(mapMembership)
+    return pageOf(result.rows.map(mapMembership), page)
   }
 
-  async listRoles(organisationId: string): Promise<OrganisationRole[]> {
+  async listRoles(organisationId: string, page: PageRequest): Promise<Page<OrganisationRole>> {
     const result = await this.db.query(
       `${ROLE_SELECT}
         where role.organisation_id = $1
         group by role.id, role.key, role.name, role.scope
-        order by role.scope, role.key`,
-      [organisationId],
+        order by role.scope, role.key
+        limit $2 offset $3`,
+      [organisationId, page.limit + 1, page.offset],
+    )
+    return pageOf(result.rows.map(mapRole), page)
+  }
+
+  async findRoles(organisationId: string, roleIds: readonly string[]): Promise<OrganisationRole[]> {
+    const result = await this.db.query(
+      `${ROLE_SELECT}
+        where role.organisation_id = $1 and role.id = any($2::uuid[])
+        group by role.id, role.key, role.name, role.scope`,
+      [organisationId, roleIds],
     )
     return result.rows.map(mapRole)
   }

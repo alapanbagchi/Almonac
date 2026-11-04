@@ -5,19 +5,27 @@ import { z } from "zod";
 import {
   auditSchema,
   createdDomainSchema,
+  domainPageSchema,
   domainSchema,
+  hospitalPageSchema,
   hospitalSchema,
+  invitationPageSchema,
   invitationSchema,
-  membershipSchema,
+  membershipPageSchema,
+  organisationPageSchema,
   organisationSchema,
-  roleSchema,
+  rolePageSchema,
   type AuditEntry,
   type Domain,
+  type DomainPage,
   type Hospital,
+  type HospitalPage,
   type Invitation,
-  type Membership,
+  type InvitationPage,
+  type MembershipPage,
   type Organisation,
-  type Role,
+  type OrganisationPage,
+  type RolePage,
 } from "./model";
 
 const errorEnvelope = z.object({
@@ -89,8 +97,8 @@ export function createAdminApi({
   }
 
   return {
-    listOrganisations: (token: string): Promise<Organisation[]> =>
-      call(token, "GET", "/organisations", z.array(organisationSchema)),
+    listOrganisations: (token: string): Promise<OrganisationPage> =>
+      call(token, "GET", "/organisations", organisationPageSchema),
     getOrganisation: (token: string, id: string): Promise<Organisation> =>
       call(token, "GET", `/organisations/${id}`, organisationSchema),
     createOrganisation: (
@@ -98,8 +106,8 @@ export function createAdminApi({
       input: { name: string; slug: string },
     ): Promise<Organisation> =>
       call(token, "POST", "/organisations", organisationSchema, input),
-    listHospitals: (token: string, organisationId: string): Promise<Hospital[]> =>
-      call(token, "GET", `/organisations/${organisationId}/hospitals`, z.array(hospitalSchema)),
+    listHospitals: (token: string, organisationId: string): Promise<HospitalPage> =>
+      call(token, "GET", `/organisations/${organisationId}/hospitals`, hospitalPageSchema),
     createHospital: (
       token: string,
       organisationId: string,
@@ -112,8 +120,8 @@ export function createAdminApi({
         hospitalSchema,
         input,
       ),
-    listDomains: (token: string, hospitalId: string): Promise<Domain[]> =>
-      call(token, "GET", `/hospitals/${hospitalId}/domains`, z.array(domainSchema)),
+    listDomains: (token: string, hospitalId: string): Promise<DomainPage> =>
+      call(token, "GET", `/hospitals/${hospitalId}/domains`, domainPageSchema),
     addDomain: (
       token: string,
       hospitalId: string,
@@ -144,12 +152,12 @@ export function createAdminApi({
         `/hospitals/${hospitalId}/domains/${domainId}/primary`,
         hospitalSchema,
       ),
-    listMemberships: (token: string, organisationId: string): Promise<Membership[]> =>
+    listMemberships: (token: string, organisationId: string): Promise<MembershipPage> =>
       call(
         token,
         "GET",
         `/organisations/${organisationId}/memberships`,
-        z.array(membershipSchema),
+        membershipPageSchema,
       ),
     suspendMembership: (
       token: string,
@@ -167,8 +175,8 @@ export function createAdminApi({
       call(token, "POST", `/memberships/${membershipId}/revoke`, okSchema, { reason }).then(
         () => undefined,
       ),
-    listRoles: (token: string, organisationId: string): Promise<Role[]> =>
-      call(token, "GET", `/organisations/${organisationId}/roles`, z.array(roleSchema)),
+    listRoles: (token: string, organisationId: string): Promise<RolePage> =>
+      call(token, "GET", `/organisations/${organisationId}/roles`, rolePageSchema),
     assignRole: (token: string, membershipId: string, roleId: string): Promise<void> =>
       call(token, "POST", `/memberships/${membershipId}/roles`, okSchema, { roleId }).then(
         () => undefined,
@@ -180,12 +188,12 @@ export function createAdminApi({
         `/memberships/${membershipId}/roles/${roleId}`,
         okSchema,
       ).then(() => undefined),
-    listInvitations: (token: string, organisationId: string): Promise<Invitation[]> =>
+    listInvitations: (token: string, organisationId: string): Promise<InvitationPage> =>
       call(
         token,
         "GET",
         `/organisations/${organisationId}/invitations`,
-        z.array(invitationSchema),
+        invitationPageSchema,
       ),
     createInvitation: (
       token: string,

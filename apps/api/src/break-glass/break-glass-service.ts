@@ -5,6 +5,7 @@ import type { AuthorizationRepository } from '../access/authorization-repository
 import type { UserLookup } from '../auth/bearer'
 import { requireAssurance, type AssurancePolicy } from '../auth/assurance'
 import { withTransaction } from '../db/pool'
+import type { Page, PageRequest } from '../shared/pagination'
 import type { AppUser } from '../identity/app-user-repository'
 import {
   BreakGlassConstraintError,
@@ -303,10 +304,14 @@ export class BreakGlassService {
     })
   }
 
-  async list(context: BreakGlassContext, hospitalId: string | null): Promise<BreakGlassGrant[]> {
+  async list(
+    context: BreakGlassContext,
+    hospitalId: string | null,
+    page: PageRequest,
+  ): Promise<Page<BreakGlassGrant>> {
     const approver = await this.isApprover(context)
     const userId = approver ? null : context.actor.id
-    return new BreakGlassRepository(this.dependencies.pool).list(userId, hospitalId)
+    return new BreakGlassRepository(this.dependencies.pool).list(userId, hospitalId, page)
   }
 
   private async createGrant(
