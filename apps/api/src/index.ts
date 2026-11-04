@@ -5,9 +5,10 @@ import { AppUserRepository } from './identity/app-user-repository'
 import { PendingRegistrationRepository } from './identity/pending-registration-repository'
 import { SessionRepository } from './identity/session-repository'
 import { SessionService } from './identity/session-service'
-import { AuditReadRepository } from './admin/audit-read-repository'
+import { requireAdminPermission } from './admin/admin-authorization'
+import { createAuditAdmin } from './admin/audit/service'
+import { createAuditStore } from './admin/audit/store'
 import { AuditWriter } from './audit/audit-writer'
-import { AuditAdminService } from './admin/audit-admin-service'
 import { HospitalAdminService } from './admin/hospital-admin-service'
 import { HospitalRepository } from './admin/hospital-repository'
 import { InvitationRepository } from './admin/invitation-repository'
@@ -129,6 +130,12 @@ const verification = new EmailVerificationService(
 const provisioning = new OrganisationProvisioningService(pool, zitadel, audit, metrics)
 const onboarding = new OnboardingService(pool, provisioning, memberships)
 
+const auditAdmin = createAuditAdmin({
+  store: createAuditStore(pool),
+  authorize: (actorId, permission, target) =>
+    requireAdminPermission(authorization, actorId, permission, target),
+})
+
 const app = createApp({
   checkDatabase: () => checkControlDatabase(pool),
   auth: {
@@ -165,7 +172,7 @@ const app = createApp({
       audit,
       mailer: createSmtpMailer(smtpOptions),
     }),
-    audit: new AuditAdminService(new AuditReadRepository(pool), authorization),
+    audit: auditAdmin,
     sessions,
     users,
   },

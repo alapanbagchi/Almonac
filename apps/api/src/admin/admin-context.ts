@@ -1,5 +1,5 @@
 import type { AppUser } from '../identity/app-user-repository'
-import type { AuditAdminService } from './audit-admin-service'
+import type { AuditAdmin } from './audit/service'
 import type { HospitalAdminService } from './hospital-admin-service'
 import type { InvitationService } from './invitation-service'
 import type { MembershipAdminService } from './membership-admin-service'
@@ -15,14 +15,10 @@ export interface AdminRequestContext {
   readonly userAgentHash: Buffer | null
 }
 
-/**
- * A route handler for an admin route: Elysia's own route definition supplies
- * the surrounding type, and the handler declares what it reads from the
- * request. The parent router's `.derive` adds `adminContext`.
- */
+/** What every admin handler needs from the request; the rest stays in Elysia. */
 export interface AdminHandlerContext {
   params: Record<string, string>
-  query: Record<string, string | undefined>
+  query: Record<string, unknown>
   body: unknown
   adminContext?: AdminRequestContext
   set: { status?: number | string }
@@ -34,7 +30,7 @@ export function routeGroup<T>(routes: T): T {
 }
 
 /** The bearer session resolved by the parent router. */
-export function adminContextOf(context: AdminHandlerContext) {
+export function adminContextOf(context: AdminHandlerContext): AdminRequestContext {
   if (context.adminContext === undefined) throw new Error('admin context is not resolved')
   return context.adminContext
 }
@@ -44,7 +40,7 @@ export interface AdminDependencies {
   readonly hospitals: HospitalAdminService
   readonly memberships: MembershipAdminService
   readonly invitations: InvitationService
-  readonly audit: AuditAdminService
+  readonly audit: AuditAdmin
   readonly sessions: SessionAuthenticator
   readonly users: UserLookup
 }

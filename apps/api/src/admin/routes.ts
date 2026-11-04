@@ -1,7 +1,7 @@
 import { Elysia } from 'elysia'
 import type { AdminDependencies } from './admin-context'
 import { adminContext } from './admin-context'
-import { auditRoutes } from './audit-routes'
+import { auditRoutes } from './audit/routes'
 import { hospitalRoutes } from './hospital-routes'
 import { invitationRoutes } from './invitation-routes'
 import { membershipRoutes } from './membership-routes'

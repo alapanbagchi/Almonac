@@ -1,5 +1,5 @@
 import { t } from 'elysia'
-import { paginationFields } from '../shared/pagination'
+import { pageLimit, pageOffset } from '../shared/pagination'
 
 const uuidPattern = '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
 
@@ -29,7 +29,8 @@ export const breakGlassGrantBody = t.Union([
 
 export const grantListQuery = t.Object({
   hospitalId: t.Optional(uuid),
-  ...paginationFields,
+  limit: pageLimit,
+  offset: pageOffset,
 })
 
 export const revokeBody = t.Object({ reason: t.String({ minLength: 1, maxLength: 500 }) })

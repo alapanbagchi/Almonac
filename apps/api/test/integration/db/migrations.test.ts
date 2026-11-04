@@ -37,9 +37,10 @@ import { OrganisationAdminService } from '../../../src/admin/organisation-admin-
 import { OrganisationProvisioningService } from '../../../src/admin/organisation-provisioning-service'
 import { HospitalAdminService } from '../../../src/admin/hospital-admin-service'
 import { MembershipAdminService } from '../../../src/admin/membership-admin-service'
-import { AuditAdminService } from '../../../src/admin/audit-admin-service'
-import { parseAuditCursor } from '../../../src/admin/audit-cursor'
-import { AuditReadRepository } from '../../../src/admin/audit-read-repository'
+import { createAuditAdmin } from '../../../src/admin/audit/service'
+import { createAuditStore } from '../../../src/admin/audit/store'
+import { parseAuditCursor } from '../../../src/admin/audit/validators/cursor'
+import { requireAdminPermission } from '../../../src/admin/admin-authorization'
 import { SessionService } from '../../../src/identity/session-service'
 import { BreakGlassService, type BreakGlassContext } from '../../../src/break-glass/break-glass-service'
 import { createBreakGlass } from '../../../src/break-glass/break-glass-routes'
@@ -2130,13 +2131,13 @@ describe('audit writer', () => {
               (date_trunc('second', now()) + interval '0.123999 seconds', 'system', 'auth.login', 'success', $1)`,
       [organisationId],
     )
-    const repository = new AuditReadRepository(appPool)
-    const first = await repository.list({ organisationId, limit: 1 })
+    const store = createAuditStore(appPool)
+    const first = await store.list({ organisationId, limit: 1 })
 
     expect(first).toHaveLength(1)
     expect(first[0]!.cursor).toMatch(/\.123999Z:\d+$/)
 
-    const next = await repository.list({
+    const next = await store.list({
       organisationId,
       limit: 1,
       cursor: parseAuditCursor(first[0]!.cursor),
@@ -2735,7 +2736,11 @@ describe('admin routes', () => {
           audit,
           mailer: { async send() {} },
         }),
-        audit: new AuditAdminService(new AuditReadRepository(appPool), authorization),
+        audit: createAuditAdmin({
+          store: createAuditStore(appPool),
+          authorize: (actorId, permission, target) =>
+            requireAdminPermission(authorization, actorId, permission, target),
+        }),
         sessions,
         users,
       }),

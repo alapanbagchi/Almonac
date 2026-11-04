@@ -7,11 +7,23 @@ import { t } from 'elysia'
  */
 export const DEFAULT_PAGE_LIMIT = 50
 export const MAX_PAGE_LIMIT = 100
+const MAX_OFFSET = 1_000_000
 
-export const paginationFields = {
-  limit: t.Optional(t.String({ pattern: '^[0-9]{1,3}$' })),
-  offset: t.Optional(t.String({ pattern: '^[0-9]{1,6}$' })),
+/** The list limit, shared with the cursor-paginated audit route. */
+export const pageLimit = t.Optional(t.String({ pattern: '^[0-9]{1,3}$' }))
+
+export const pageOffset = t.Optional(t.String({ pattern: '^[0-9]{1,6}$' }))
+
+const bounds = {
+  limit: pageLimit,
+  offset: pageOffset,
 }
+
+/** The list query every paginated route accepts. */
+export const pageQuery = t.Object({ ...bounds })
+
+/** The same query narrowed to one hospital of the organisation. */
+export const scopedPageQuery = t.Object({ hospitalId: t.Optional(t.String()), ...bounds })
 
 export interface PageRequest {
   readonly limit: number
@@ -23,16 +35,27 @@ export interface Page<T> {
   readonly nextOffset: number | null
 }
 
+/** The validated query of a page route, read off the handler context. */
+export function pageValues<T extends { limit?: string | null; offset?: string | null }>(
+  context: { query: T },
+): { limit?: string; offset?: string } {
+  const { limit, offset } = context.query
+  return {
+    ...(typeof limit === 'string' ? { limit } : {}),
+    ...(typeof offset === 'string' ? { offset } : {}),
+  }
+}
+
 export function pageRequest(query: { limit?: string; offset?: string }): PageRequest {
   return {
-    limit: bounded(query.limit, DEFAULT_PAGE_LIMIT, 1, MAX_PAGE_LIMIT),
-    offset: bounded(query.offset, 0, 0, 1_000_000),
+    limit: bounded(query.limit, 1, MAX_PAGE_LIMIT),
+    offset: bounded(query.offset, 0, MAX_OFFSET, 0),
   }
 }
 
 /** The audit log pages by cursor; its limit obeys the same bounds. */
 export function auditLimit(value: string | undefined): number {
-  return bounded(value, DEFAULT_PAGE_LIMIT, 1, MAX_PAGE_LIMIT)
+  return bounded(value, 1, MAX_PAGE_LIMIT)
 }
 
 export function pageOf<T>(rows: readonly T[], request: PageRequest): Page<T> {
@@ -57,8 +80,14 @@ export function pageSchema<T extends Parameters<typeof t.Array>[0]>(item: T) {
   })
 }
 
-function bounded(value: string | undefined, fallback: number, min: number, max: number): number {
-  if (value === undefined) return fallback
+function bounded(
+  value: string | undefined,
+  min: number,
+  max: number,
+  fallback = DEFAULT_PAGE_LIMIT,
+): number {
   const parsed = Number(value)
-  return Number.isInteger(parsed) && parsed >= min && parsed <= max ? parsed : fallback
+  return value !== undefined && Number.isInteger(parsed) && parsed >= min && parsed <= max
+    ? parsed
+    : fallback
 }

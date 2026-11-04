@@ -1,52 +1,36 @@
-import type { AuditEntry } from './audit-read-repository'
 import type { Hospital, HospitalDomain } from './hospital-repository'
 import type { Invitation } from './invitation-repository'
 import type { MembershipSummary, OrganisationRole } from './membership-admin-repository'
 import type { Organisation } from './organisation-repository'
+import { instant, maybeInstant } from '../shared/instant'
 
-const iso = (value: Date | null): string | null => value?.toISOString() ?? null
-
+/**
+ * Repository values are Dates and readonly arrays; the response schema says
+ * ISO strings and arrays. These mappers state exactly that difference, field by
+ * field, so every route answers with the shape its schema promises.
+ */
 export function organisationResponse(value: Organisation) {
-  return {
-    id: value.id,
-    zitadelOrgId: value.zitadelOrgId,
-    name: value.name,
-    slug: value.slug,
-    status: value.status,
-    provisionedAt: iso(value.provisionedAt),
-    createdAt: value.createdAt.toISOString(),
-  }
+  return { ...value, provisionedAt: maybeInstant(value.provisionedAt), createdAt: instant(value.createdAt) }
 }
 
 export function hospitalResponse(value: Hospital) {
-  return {
-    id: value.id,
-    organisationId: value.organisationId,
-    name: value.name,
-    slug: value.slug,
-    timezone: value.timezone,
-    status: value.status,
-    primaryDomainId: value.primaryDomainId,
-    createdAt: value.createdAt.toISOString(),
-  }
+  return { ...value, createdAt: instant(value.createdAt) }
 }
 
 export function domainResponse(value: HospitalDomain) {
   return {
-    id: value.id,
-    hospitalId: value.hospitalId,
-    domain: value.domain,
-    verifiedAt: iso(value.verifiedAt),
-    retiredAt: iso(value.retiredAt),
-    createdAt: value.createdAt.toISOString(),
+    ...value,
+    verifiedAt: maybeInstant(value.verifiedAt),
+    retiredAt: maybeInstant(value.retiredAt),
+    createdAt: instant(value.createdAt),
   }
 }
 
 export function membershipResponse(value: MembershipSummary) {
   return {
     ...value,
-    acceptedAt: value.acceptedAt.toISOString(),
-    endsAt: iso(value.endsAt),
+    acceptedAt: instant(value.acceptedAt),
+    endsAt: maybeInstant(value.endsAt),
     roles: [...value.roles],
   }
 }
@@ -58,13 +42,9 @@ export function roleResponse(value: OrganisationRole) {
 export function invitationResponse(value: Invitation) {
   return {
     ...value,
-    expiresAt: value.expiresAt.toISOString(),
-    createdAt: value.createdAt.toISOString(),
-    acceptedAt: iso(value.acceptedAt),
+    expiresAt: instant(value.expiresAt),
+    createdAt: instant(value.createdAt),
+    acceptedAt: maybeInstant(value.acceptedAt),
     roleIds: [...value.roleIds],
   }
-}
-
-export function auditResponse(value: AuditEntry) {
-  return { ...value, occurredAt: value.occurredAt.toISOString() }
 }

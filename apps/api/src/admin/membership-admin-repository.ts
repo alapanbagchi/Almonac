@@ -1,5 +1,6 @@
 import type { DatabaseQuery } from '../db/pool'
 import { pageOf, type Page, type PageRequest } from '../shared/pagination'
+import { ConflictError } from '../shared/errors'
 import {
   dateField,
   hasSqlState,
@@ -35,20 +36,6 @@ export interface OrganisationRole {
   readonly permissions: readonly string[]
 }
 
-export class RoleAssignmentConflictError extends Error {
-  constructor() {
-    super('role is already assigned to this membership')
-    this.name = 'RoleAssignmentConflictError'
-  }
-}
-
-export class MembershipConflictError extends Error {
-  constructor() {
-    super('a membership already exists for this scope')
-    this.name = 'MembershipConflictError'
-  }
-}
-
 const MEMBERSHIP_SELECT = `
   select
     membership.id,
@@ -74,6 +61,8 @@ const MEMBERSHIP_SELECT = `
   left join control.role as role on role.id = membership_role.role_id
 `
 
+const MEMBERSHIP_GROUP = ' group by membership.id, app_user.email, app_user.display_name'
+
 const ROLE_SELECT = `
   select role.id, role.key, role.name, role.scope,
          coalesce(
@@ -85,6 +74,11 @@ const ROLE_SELECT = `
     left join control.role_permission as role_permission
       on role_permission.role_id = role.id
 `
+
+const ROLE_GROUP = ' group by role.id, role.key, role.name, role.scope'
+
+/** A membership conflict the caller answers with 409; the trigger's message is not public. */
+const membershipConflict = () => new ConflictError('A membership already exists for this scope.')
 
 export class MembershipAdminRepository {
   constructor(private readonly db: DatabaseQuery) {}
@@ -118,16 +112,14 @@ export class MembershipAdminRepository {
       )
       return membershipId
     } catch (error) {
-      if (isExclusionViolation(error)) throw new MembershipConflictError()
+      if (hasSqlState(error, '23P01')) throw membershipConflict()
       throw error
     }
   }
 
   async findById(id: string): Promise<MembershipSummary | null> {
     const result = await this.db.query(
-      `${MEMBERSHIP_SELECT}
-       where membership.id = $1
-       group by membership.id, app_user.email, app_user.display_name`,
+      `${MEMBERSHIP_SELECT} where membership.id = $1${MEMBERSHIP_GROUP}`,
       [id],
     )
     return isEmpty(result) ? null : mapMembership(result.rows[0])
@@ -141,7 +133,7 @@ export class MembershipAdminRepository {
       `${MEMBERSHIP_SELECT}
        where membership.organisation_id = $1
          and ($2::uuid is null or membership.hospital_id = $2)
-       group by membership.id, app_user.email, app_user.display_name
+       ${MEMBERSHIP_GROUP}
        order by app_user.display_name, app_user.email, membership.id
        limit $3 offset $4`,
       [input.organisationId, input.hospitalId ?? null, page.limit + 1, page.offset],
@@ -153,7 +145,7 @@ export class MembershipAdminRepository {
     const result = await this.db.query(
       `${ROLE_SELECT}
         where role.organisation_id = $1
-        group by role.id, role.key, role.name, role.scope
+        ${ROLE_GROUP}
         order by role.scope, role.key
         limit $2 offset $3`,
       [organisationId, page.limit + 1, page.offset],
@@ -165,7 +157,7 @@ export class MembershipAdminRepository {
     const result = await this.db.query(
       `${ROLE_SELECT}
         where role.organisation_id = $1 and role.id = any($2::uuid[])
-        group by role.id, role.key, role.name, role.scope`,
+        ${ROLE_GROUP}`,
       [organisationId, roleIds],
     )
     return result.rows.map(mapRole)
@@ -175,7 +167,7 @@ export class MembershipAdminRepository {
     const result = await this.db.query(
       `${ROLE_SELECT}
         where role.organisation_id = $1 and role.id = $2
-        group by role.id, role.key, role.name, role.scope`,
+        ${ROLE_GROUP}`,
       [organisationId, roleId],
     )
     return isEmpty(result) ? null : mapRole(result.rows[0])
@@ -193,7 +185,9 @@ export class MembershipAdminRepository {
         [input.membershipId, input.roleId, input.assignedBy, input.at],
       )
     } catch (error) {
-      if (isExclusionViolation(error)) throw new RoleAssignmentConflictError()
+      if (hasSqlState(error, '23P01')) {
+        throw new ConflictError('This role is already assigned to the membership.')
+      }
       throw error
     }
   }
@@ -282,7 +276,7 @@ export class MembershipAdminRepository {
          and ($3::uuid is null or membership.hospital_id = $3)
          and membership.status = 'active'
          and membership.validity @> now()
-       group by membership.id, app_user.email, app_user.display_name
+       ${MEMBERSHIP_GROUP}
        limit 1`,
       [input.userId, input.organisationId, input.hospitalId ?? null],
     )
@@ -296,7 +290,7 @@ function mapRole(value: unknown): OrganisationRole {
     id: stringField(row, 'id'),
     key: stringField(row, 'key'),
     name: stringField(row, 'name'),
-    scope: stringField(row, 'scope') as 'organisation' | 'hospital',
+    scope: stringField(row, 'scope') as OrganisationRole['scope'],
     permissions: textArrayField(row, 'permissions'),
   }
 }
@@ -315,8 +309,4 @@ function mapMembership(value: unknown): MembershipSummary {
     endsAt: nullableDateField(row, 'ends_at'),
     roles: textArrayField(row, 'roles'),
   }
-}
-
-function isExclusionViolation(error: unknown): boolean {
-  return hasSqlState(error, '23P01')
 }

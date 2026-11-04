@@ -1,5 +1,4 @@
 import type { Pool } from 'pg'
-import { AppError } from '../shared/errors'
 import { hashToken, mintToken } from '../shared/tokens'
 import { withTransaction, type DatabaseQuery } from '../db/pool'
 import type { AuditSink } from '../audit/audit-writer'
@@ -7,8 +6,9 @@ import type { AuthorizationRepository } from '../access/authorization-repository
 import type { AdminRequestContext } from './admin-context'
 import type { Hospital, HospitalDomain, HospitalRepository } from './hospital-repository'
 import type { Page, PageRequest } from '../shared/pagination'
-import { asAdminError, notFound } from './admin-errors'
+import { asAdminError, notFound, ruleViolation } from './admin-errors'
 import { requireAdminPermission } from './admin-authorization'
+import { recordAdminChange } from './admin-audit'
 
 export class HospitalAdminService {
   constructor(
@@ -23,7 +23,7 @@ export class HospitalAdminService {
     organisationId: string,
     page: PageRequest,
   ): Promise<Page<Hospital>> {
-    await this.requireOrganisationManage(context, organisationId)
+    await this.requireManage(context, { organisationId })
     return this.hospitals.listByOrganisation(organisationId, page)
   }
 
@@ -32,7 +32,7 @@ export class HospitalAdminService {
     organisationId: string,
     input: { name: string; slug: string; timezone: string },
   ): Promise<Hospital> {
-    await this.requireOrganisationManage(context, organisationId)
+    await this.requireManage(context, { organisationId })
     return withTransaction(this.pool, async (db) => {
       let hospital: Hospital
       try {
@@ -40,12 +40,10 @@ export class HospitalAdminService {
       } catch (error) {
         throw asAdminError(error)
       }
-      await this.auditChange(
+      await recordAdminChange(
+        this.audit,
         context,
-        organisationId,
-        hospital.id,
-        'hospital',
-        hospital.id,
+        { targetType: 'hospital', targetId: hospital.id, organisationId, hospitalId: hospital.id },
         'hospital.created',
         db,
       )
@@ -65,33 +63,24 @@ export class HospitalAdminService {
   async addDomain(
     context: AdminRequestContext,
     hospitalId: string,
-    rawDomain: string,
+    domain: string,
   ): Promise<{ domain: HospitalDomain; token: string }> {
     const hospital = await this.requireHospitalManage(context, hospitalId)
-    const domain = normaliseDomain(rawDomain)
     const minted = mintToken()
-    const created = await withTransaction(this.pool, async (db) => {
-      let domainRecord: HospitalDomain
+    const record = await withTransaction(this.pool, async (db) => {
+      let record: HospitalDomain
       try {
-        domainRecord = await this.hospitals.addDomain(
+        record = await this.hospitals.addDomain(
           { hospitalId: hospital.id, domain, tokenHash: minted.tokenHash },
           db,
         )
       } catch (error) {
         throw asAdminError(error)
       }
-      await this.auditChange(
-        context,
-        hospital.organisationId,
-        hospital.id,
-        'hospital_domain',
-        domainRecord.id,
-        'hospital.domain_added',
-        db,
-      )
-      return domainRecord
+      await this.recordDomain(context, db, hospital, record.id, 'hospital.domain_added')
+      return record
     })
-    return { domain: created, token: minted.token }
+    return { domain: record, token: minted.token }
   }
 
   async verifyDomain(
@@ -101,26 +90,13 @@ export class HospitalAdminService {
     token: string,
   ): Promise<HospitalDomain> {
     const hospital = await this.requireHospitalManage(context, hospitalId)
-    if (token.length === 0 || token.length > 128) {
-      throw new AppError('VALIDATION_FAILED', 400, 'Verification token is not valid.')
-    }
     return withTransaction(this.pool, async (db) => {
       const verified = await this.hospitals.verifyDomain(
         { hospitalId: hospital.id, domainId, tokenHash: hashToken(token), at: new Date() },
         db,
       )
-      if (verified === null) {
-        throw new AppError('DOMAIN_VERIFICATION_FAILED', 422, 'Domain verification failed.')
-      }
-      await this.auditChange(
-        context,
-        hospital.organisationId,
-        hospital.id,
-        'hospital_domain',
-        verified.id,
-        'hospital.domain_verified',
-        db,
-      )
+      if (verified === null) throw ruleViolation('Domain verification failed.')
+      await this.recordDomain(context, db, hospital, verified.id, 'hospital.domain_verified')
       return verified
     })
   }
@@ -139,12 +115,15 @@ export class HospitalAdminService {
         throw asAdminError(error)
       }
       if (updated === null) throw notFound('Hospital not found.')
-      await this.auditChange(
+      await recordAdminChange(
+        this.audit,
         context,
-        hospital.organisationId,
-        hospital.id,
-        'hospital',
-        hospital.id,
+        {
+          targetType: 'hospital',
+          targetId: hospital.id,
+          organisationId: hospital.organisationId,
+          hospitalId: hospital.id,
+        },
         'hospital.primary_domain_set',
         db,
       )
@@ -152,72 +131,42 @@ export class HospitalAdminService {
     })
   }
 
-  private requireOrganisationManage(
+  private requireManage(
     context: AdminRequestContext,
-    organisationId: string,
+    target: { organisationId: string; hospitalId?: string },
   ): Promise<void> {
-    return requireAdminPermission(this.authorization, context.actor.id, 'hospital.manage', {
-      organisationId,
-    })
+    return requireAdminPermission(this.authorization, context.actor.id, 'hospital.manage', target)
   }
 
+  /** Hospital routes name a hospital, so resolving it and authorising it are one step. */
   private async requireHospitalManage(
     context: AdminRequestContext,
     hospitalId: string,
   ): Promise<Hospital> {
     const hospital = await this.hospitals.findById(hospitalId)
     if (hospital === null) throw notFound('Hospital not found.')
-    await requireAdminPermission(this.authorization, context.actor.id, 'hospital.manage', {
-      organisationId: hospital.organisationId,
-      hospitalId: hospital.id,
-    })
+    await this.requireManage(context, { organisationId: hospital.organisationId, hospitalId })
     return hospital
   }
 
-  private async auditChange(
+  private recordDomain(
     context: AdminRequestContext,
-    organisationId: string,
-    hospitalId: string | null,
-    resourceType: string,
-    resourceId: string,
+    db: DatabaseQuery,
+    hospital: Hospital,
+    domainId: string,
     reasonCode: string,
-    db?: DatabaseQuery,
   ): Promise<void> {
-    await this.audit.write(
+    return recordAdminChange(
+      this.audit,
+      context,
       {
-        actorUserId: context.actor.id,
-        actorType: 'user',
-        sessionId: context.sessionId,
-        organisationId,
-        hospitalId,
-        eventType: 'admin.change',
-        outcome: 'success',
-        targetType: resourceType,
-        targetId: resourceId,
-        requestId: context.requestId,
-        reason: humanReason(reasonCode),
-        reasonCode,
-        ip: context.ip,
-        userAgentHash: context.userAgentHash,
-        metadata: { resource_type: resourceType, resource_id: resourceId },
+        targetType: 'hospital_domain',
+        targetId: domainId,
+        organisationId: hospital.organisationId,
+        hospitalId: hospital.id,
       },
+      reasonCode,
       db,
     )
   }
-}
-
-function normaliseDomain(value: string): string {
-  const domain = value.trim().toLowerCase().replace(/\.$/, '')
-  if (
-    domain.length < 4 ||
-    domain.length > 253 ||
-    !/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(domain)
-  ) {
-    throw new AppError('VALIDATION_FAILED', 400, 'Domain is not valid.')
-  }
-  return domain
-}
-
-function humanReason(code: string): string {
-  return code.replace(/\./g, ' ').replace(/_/g, ' ').slice(0, 500)
 }

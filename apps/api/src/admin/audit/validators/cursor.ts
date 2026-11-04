@@ -1,5 +1,5 @@
-import { AppError } from '../shared/errors'
-import type { AuditCursor } from './audit-read-repository'
+import { AppError } from '../../../shared/errors'
+import type { AuditCursor } from '../store'
 
 // nextCursor is a UTC timestamp with microsecond precision, a colon and the
 // audit id. The timestamp is kept as text so microseconds survive the round

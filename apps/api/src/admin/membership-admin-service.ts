@@ -1,17 +1,21 @@
 import type { Pool } from 'pg'
-import { AppError } from '../shared/errors'
+import { conflict, forbidden, notFound, ruleViolation } from '../shared/errors'
+import { asAdminError } from './admin-errors'
 import type { Page, PageRequest } from '../shared/pagination'
 import { withTransaction, type DatabaseQuery } from '../db/pool'
-import { asAdminError, conflict, notFound } from './admin-errors'
 import { isPlatformAdmin, requireAdminPermission } from './admin-authorization'
 import type { AuditSink } from '../audit/audit-writer'
 import type { AuthorizationRepository } from '../access/authorization-repository'
 import type { AdminRequestContext } from './admin-context'
+import { recordAdminChange } from './admin-audit'
 import {
   MembershipAdminRepository,
   type MembershipSummary,
   type OrganisationRole,
 } from './membership-admin-repository'
+
+/** Where a membership lives: the shape the permission check needs. */
+type Scope = { organisationId: string; hospitalId: string | null }
 
 export class MembershipAdminService {
   constructor(
@@ -26,7 +30,10 @@ export class MembershipAdminService {
     input: { organisationId: string; hospitalId?: string | null },
     page: PageRequest,
   ): Promise<Page<MembershipSummary>> {
-    await this.requireManage(context, input.organisationId, input.hospitalId ?? null)
+    await this.requireManage(context, {
+      organisationId: input.organisationId,
+      hospitalId: input.hospitalId ?? null,
+    })
     return this.memberships.list(input, page)
   }
 
@@ -35,7 +42,7 @@ export class MembershipAdminService {
     organisationId: string,
     page: PageRequest,
   ): Promise<Page<OrganisationRole>> {
-    await this.requireManage(context, organisationId, null)
+    await this.requireManage(context, { organisationId, hospitalId: null })
     return this.memberships.listRoles(organisationId, page)
   }
 
@@ -43,9 +50,12 @@ export class MembershipAdminService {
     const membership = await this.requireMembership(context, membershipId)
     if (membership.userId === context.actor.id) throw conflict('You cannot suspend your own access.')
     await withTransaction(this.pool, async (db) => {
-      const changed = await this.memberships.suspend(membership.id, new Date(), db)
-      if (!changed) throw conflict('Membership is not active.')
-      await this.auditChange(context, membership, 'active', 'suspended', reason, 'membership.suspended', db)
+      const suspended = await this.memberships.suspend(membership.id, new Date(), db)
+      if (!suspended) throw conflict('Membership is not active.')
+      await this.change(context, db, membership, 'membership.suspended', reason, {
+        from_status: 'active',
+        to_status: 'suspended',
+      })
     })
   }
 
@@ -54,12 +64,15 @@ export class MembershipAdminService {
     if (membership.userId === context.actor.id) throw conflict('You cannot revoke your own access.')
     await this.protectLastOrganisationAdmin(membership)
     await withTransaction(this.pool, async (db) => {
-      const changed = await this.memberships.revoke(
+      const revoked = await this.memberships.revoke(
         { id: membership.id, at: new Date(), revokedBy: context.actor.id, reason },
         db,
       )
-      if (!changed) throw conflict('Membership cannot be revoked.')
-      await this.auditChange(context, membership, membership.status, 'revoked', reason, 'membership.revoked', db)
+      if (!revoked) throw conflict('Membership cannot be revoked.')
+      await this.change(context, db, membership, 'membership.revoked', reason, {
+        from_status: membership.status,
+        to_status: 'revoked',
+      })
     })
   }
 
@@ -80,7 +93,7 @@ export class MembershipAdminService {
       } catch (error) {
         throw asAdminError(error)
       }
-      await this.auditRole(context, membership, role.id, 'role.assigned', db)
+      await this.changeRole(context, db, membership, role.id, 'role.assigned')
     })
   }
 
@@ -106,7 +119,7 @@ export class MembershipAdminService {
         db,
       )
       if (!revoked) throw conflict('Role assignment is not active.')
-      await this.auditRole(context, membership, role.id, 'role.revoked', db)
+      await this.changeRole(context, db, membership, role.id, 'role.revoked')
     })
   }
 
@@ -116,7 +129,7 @@ export class MembershipAdminService {
   ): Promise<MembershipSummary> {
     const membership = await this.memberships.findById(membershipId)
     if (membership === null) throw notFound('Membership not found.')
-    await this.requireManage(context, membership.organisationId, membership.hospitalId)
+    await this.requireManage(context, membership)
     return membership
   }
 
@@ -126,23 +139,14 @@ export class MembershipAdminService {
     roleId: string,
   ): Promise<OrganisationRole> {
     const role = await this.memberships.findRole(membership.organisationId, roleId)
-    if (role === null) throw new AppError('RULE_VIOLATION', 422, 'Role is not available.')
-    const expectedScope = membership.hospitalId === null ? 'organisation' : 'hospital'
-    if (role.scope !== expectedScope) {
-      throw new AppError('RULE_VIOLATION', 422, 'Role scope does not match the membership.')
-    }
+    if (role === null) throw ruleViolation('Role is not available.')
+    const expected = membership.hospitalId === null ? 'organisation' : 'hospital'
+    if (role.scope !== expected) throw ruleViolation('Role scope does not match the membership.')
     return role
   }
 
-  private requireManage(
-    context: AdminRequestContext,
-    organisationId: string,
-    hospitalId: string | null,
-  ): Promise<void> {
-    return requireAdminPermission(this.authorization, context.actor.id, 'membership.manage', {
-      organisationId,
-      hospitalId,
-    })
+  private requireManage(context: AdminRequestContext, scope: Scope): Promise<void> {
+    return requireAdminPermission(this.authorization, context.actor.id, 'membership.manage', scope)
   }
 
   private async preventEscalation(
@@ -158,69 +162,58 @@ export class MembershipAdminService {
       }),
     )
     if (role.permissions.some((permission) => !held.has(permission))) {
-      throw new AppError('FORBIDDEN', 403, 'You cannot grant a role above your own rights.')
+      throw forbidden()
     }
   }
 
   private async protectLastOrganisationAdmin(membership: MembershipSummary): Promise<void> {
     if (membership.hospitalId !== null) return
     const count = await this.memberships.countActiveOrganisationAdmins(membership.organisationId)
-    if (count <= 1) {
-      throw new AppError('CONFLICT', 409, 'The last organisation administrator cannot be removed.')
-    }
+    if (count <= 1) throw conflict('The last organisation administrator cannot be removed.')
   }
 
-  /** Attribution every membership and role event carries: who, where, and from which request. */
-  private attributed(context: AdminRequestContext, membership: MembershipSummary) {
-    return {
-      actorUserId: context.actor.id,
-      actorType: 'user' as const,
-      sessionId: context.sessionId,
-      organisationId: membership.organisationId,
-      hospitalId: membership.hospitalId,
-      requestId: context.requestId,
-      ip: context.ip,
-      userAgentHash: context.userAgentHash,
-    }
-  }
-
-  private async auditChange(
+  private change(
     context: AdminRequestContext,
+    db: DatabaseQuery,
     membership: MembershipSummary,
-    fromStatus: string,
-    toStatus: string,
-    reason: string,
     reasonCode: string,
-    db?: DatabaseQuery,
+    reason: string,
+    metadata: Readonly<Record<string, string>>,
   ): Promise<void> {
-    await this.audit.write({
-      ...this.attributed(context, membership),
+    return this.record(context, db, membership, reasonCode, {
       eventType: 'membership.change',
-      outcome: 'success',
-      targetType: 'membership',
-      targetId: membership.id,
       reason,
-      reasonCode,
-      metadata: { membership_id: membership.id, from_status: fromStatus, to_status: toStatus },
-    }, db)
+      metadata: { membership_id: membership.id, ...metadata },
+    })
   }
 
-  private async auditRole(
+  private changeRole(
     context: AdminRequestContext,
+    db: DatabaseQuery,
     membership: MembershipSummary,
     roleId: string,
     reasonCode: string,
-    db?: DatabaseQuery,
   ): Promise<void> {
-    await this.audit.write({
-      ...this.attributed(context, membership),
+    return this.record(context, db, membership, reasonCode, {
       eventType: 'role.assign',
-      outcome: 'success',
-      targetType: 'membership',
-      targetId: membership.id,
-      reason: reasonCode === 'role.assigned' ? 'role assigned' : 'role revoked',
-      reasonCode,
       metadata: { membership_id: membership.id, role_id: roleId },
-    }, db)
+    })
+  }
+
+  private record(
+    context: AdminRequestContext,
+    db: DatabaseQuery,
+    membership: MembershipSummary,
+    reasonCode: string,
+    options: Parameters<typeof recordAdminChange>[5],
+  ): Promise<void> {
+    return recordAdminChange(
+      this.audit,
+      context,
+      { targetType: 'membership', targetId: membership.id, ...membership },
+      reasonCode,
+      db,
+      options,
+    )
   }
 }

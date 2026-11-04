@@ -1,4 +1,5 @@
 import type { DatabaseQuery } from '../db/pool'
+import { ConflictError, RuleViolation } from '../shared/errors'
 import { pageOf, type Page, type PageRequest } from '../shared/pagination'
 import {
   dateField,
@@ -32,28 +33,6 @@ export interface HospitalDomain {
   readonly createdAt: Date
 }
 
-export class HospitalSlugConflictError extends Error {
-  constructor() {
-    super('hospital slug already exists in this organisation')
-    this.name = 'HospitalSlugConflictError'
-  }
-}
-
-export class DomainConflictError extends Error {
-  constructor() {
-    super('domain is already registered')
-    this.name = 'DomainConflictError'
-  }
-}
-
-/** The database refused a primary domain: missing, unverified, retired or owned by another hospital. */
-export class PrimaryDomainRejectedError extends Error {
-  constructor() {
-    super('primary domain is not available to this hospital')
-    this.name = 'PrimaryDomainRejectedError'
-  }
-}
-
 const HOSPITAL_COLUMNS = `
   id, organisation_id, name, slug, timezone, status, primary_domain_id, created_at
 `
@@ -81,7 +60,7 @@ export class HospitalRepository {
       )
       return mapHospital(result.rows[0])
     } catch (error) {
-      if (hasSqlState(error, '23505')) throw new HospitalSlugConflictError()
+      if (hasSqlState(error, '23505')) throw new ConflictError('A hospital with this slug already exists.')
       throw error
     }
   }
@@ -117,7 +96,7 @@ export class HospitalRepository {
       )
       return mapDomain(result.rows[0])
     } catch (error) {
-      if (hasSqlState(error, '23505')) throw new DomainConflictError()
+      if (hasSqlState(error, '23505')) throw new ConflictError('This domain is already registered.')
       throw error
     }
   }
@@ -158,15 +137,16 @@ export class HospitalRepository {
         `update control.hospital
             set primary_domain_id = $2, status = 'active'
           where id = $1
-          returning id, organisation_id, name, slug, timezone, status,
-                    primary_domain_id, created_at`,
+          returning ${HOSPITAL_COLUMNS}`,
         [input.hospitalId, input.domainId],
       )
       return isEmpty(result) ? null : mapHospital(result.rows[0])
     } catch (error) {
       // The trigger rejects a missing, unverified, retired or foreign domain
       // with 23503 or 23514. Both mean the same thing to the caller.
-      if (hasSqlState(error, '23503', '23514')) throw new PrimaryDomainRejectedError()
+      if (hasSqlState(error, '23503', '23514')) {
+        throw new RuleViolation('The domain must be verified for this hospital before it becomes primary.')
+      }
       throw error
     }
   }

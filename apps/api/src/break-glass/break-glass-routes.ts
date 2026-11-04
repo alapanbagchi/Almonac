@@ -3,7 +3,7 @@ import type { AppUser } from '../identity/app-user-repository'
 import type { WebSession } from '../identity/session-repository'
 import { authenticateBearer, type SessionAuthenticator, type UserLookup } from '../auth/bearer'
 import { requestContext, type RequestServer } from '../auth/request-context'
-import { pageRequest, pageResponse, pageSchema } from '../shared/pagination'
+import { pageRequest, pageResponse, pageSchema, pageValues } from '../shared/pagination'
 import { requestIdOf } from '../shared/request'
 import type { BreakGlassGrant, BreakGlassReview } from './break-glass-repository'
 import type { BreakGlassContext, BreakGlassService } from './break-glass-service'
@@ -88,7 +88,7 @@ export function createBreakGlass(dependencies: BreakGlassDependencies) {
         const grants = await dependencies.grants.list(
           context.breakGlassContext,
           context.query.hospitalId ?? null,
-          pageRequest(context.query),
+          pageRequest(pageValues(context)),
         )
         return pageResponse(grants, grantResponse)
       },
