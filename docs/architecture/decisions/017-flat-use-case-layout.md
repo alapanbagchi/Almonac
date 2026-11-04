@@ -54,8 +54,11 @@ Rules that make the layout predictable:
 - `apps/api/AGENTS.md`'s four-file feature folder no longer describes the
   tree; the constitution's "business rules in services" now means "in the
   controller that owns the use case".
-- File count rises slightly (one file per use case) while line count falls:
-  duplicated mapping, guard code and the second invitation delivery path go.
+- File count rises (one file per use case) and, measured, so does line
+  count (+19 files, +631 lines, about 6%): the rewrite buys visible seams,
+  explicit dependencies and tests that run without Postgres, not a smaller
+  tree. Duplicated error mapping and the second invitation delivery path went,
+  but per-use-case files cost more than those saved.
 - A future worker that needs the same use case imports the controller, not a
   service module. If a second caller appears, the file moves rather than the
   rule changing.

@@ -10,20 +10,17 @@ The API is a modular monolith owning the Control, Hospital and Terminology domai
 
 ```text
 apps/api/src/
-├── index.ts                 process entry: config, pool, port and shutdown
+├── index.ts                 process entry: config, adapters, routers, shutdown
 ├── app.ts                   composition root (exports App for Eden)
-├── config.ts                startup configuration and mail settings
-├── plugins/                 authentication, errors, security headers, openapi
-├── shared/                  errors, request ids, pagination, HTTP body helpers
-├── db/                      pool, transactions, migrations, column readers
-├── auth/                    OIDC flow, credential entry, invitations, sessions
-├── identity/                users, sessions, access reads
-├── access/                  permission evaluation
-├── admin/                   organisations, hospitals, staff, audit reads
-├── onboarding/              first-organisation creation
-├── break-glass/             emergency read-only grants
-├── audit/                   append-only audit writer
-└── health/                  liveness and readiness
+├── config.ts                startup configuration
+├── routes/                  <area>.router.ts: paths, schemas, one controller call
+├── controllers/             use cases: (dependencies, actor, values) => DTO
+├── repositories/            factories over DatabaseQuery: SQL and row mapping
+├── guards/                  bearer auth, admin context, assurance policy
+├── adapters/                Zitadel, OIDC, SMTP
+├── shared/                  errors, audit writer, authorisation, pagination
+├── plugins/                 errors, security headers, openapi
+└── db/                      pool, transactions, migrations, column readers
 ```
 
 The control plane arrived flat, and stays flat. The `domains/<domain>/<feature>/`
@@ -34,18 +31,21 @@ nest every folder one level deeper without separating anything, and
 into `domains/` when the second domain lands, in one commit that touches only
 moves and imports.
 
-Every feature is a folder with exactly these four files unless a file would be empty:
+Three layers, named by the job they do:
 
-| File | Responsibility | Must not contain |
+| Layer | Responsibility | Must not contain |
 | --- | --- | --- |
-| `index.ts` | Elysia instance, routes, schemas, route-level hooks, submodule composition | SQL, business rules, cross-domain imports |
-| `service.ts` | Business rules, orchestration, invariants, calls to repositories or other services | `Context`, `Request`, headers, cookies, SQL |
-| `model.ts` | Elysia `t` request/response schemas, exported inferred types, reusable API models | Database models, ORM types, business rules |
-| `repository.ts` | Persistence and queries for one aggregate, tenant-scoped | HTTP behaviour, authorisation policy, unrelated business logic |
+| `routes/<area>.router.ts` | Elysia instance, paths, `t` schemas, status codes, one call into a controller | SQL, authorisation policy, business rules |
+| `controllers/<area>/<verb>-<noun>.ts` | One use case: load, authorise, apply rules, write and audit in a transaction | `Context`, `Request`, headers, cookies, SQL, status codes |
+| `repositories/<aggregate>-repository.ts` | Queries for one aggregate over an injected `DatabaseQuery`, row mapping, constraint translation | `withTransaction`, authorisation, mail, status codes |
 
-`model.ts` describes the **API contract**, not the database. A column rename must not silently change a response shape; map explicitly in the repository or service.
+A controller is a plain function, not a class. It takes the capabilities it needs (`db`, `transaction`, `authorize`, `clock`) and plain values; never a pool it opens itself. A repository factory is the only place SQL text lives, and it works inside or outside a transaction because the caller passes the query handle.
 
-Do not add Express-style controllers, a mandatory `validators/` directory, generic `BaseRepository` classes, or a use-case class per endpoint. Four files and a typed service function are the abstraction.
+Visibility is explicit: `d.authorize(actorId, permission, target)` inside the use case, after the row is loaded, because a client-supplied id selects a resource but never proves access. Errors are thrown as domain types and answered once in `plugins/errors.ts`; a controller never maps to HTTP.
+
+Schemas live in the router and describe the **API contract**, not the database. A column rename must not silently change a response shape; map explicitly in the controller's response file.
+
+Do not add classes for services, `BaseRepository` hierarchies, a `validators/` directory, or a singleton bundle of repositories. Router factories take a dependency object and mount with `.use()`.
 
 ## 2. Native Elysia conventions
 
@@ -63,27 +63,26 @@ Do not add Express-style controllers, a mandatory `validators/` directory, gener
 Minimal feature:
 
 ```ts
-// index.ts
+// routes/patients.router.ts
 import { Elysia, t } from 'elysia'
-import { listPatients } from './service'
-import { patientListQuery, patientListResponse } from './model'
+import { listPatients } from '../controllers/patients/list-patients'
+import { patientListQuery, patientSchema } from './schemas'
 
-export const patients = new Elysia({ name: 'hospital.patients', prefix: '/patients', tags: ['Patients'] })
-  .get('/', ({ tenant, query }) => listPatients(tenant, query), {
-    query: patientListQuery,
-    response: { 200: patientListResponse },
-    detail: { summary: 'List patients in the current hospital' },
-  })
+export function patientsRouter(d: PatientDependencies) {
+  return new Elysia({ name: 'hospital.patients', prefix: '/patients', tags: ['Patients'] })
+    .get('/', ({ actor, query }) => listPatients(d, actor, query), {
+      query: patientListQuery,
+      response: t.Object({ patients: t.Array(patientSchema) }),
+      detail: { summary: 'List patients in the current hospital' },
+    })
+}
 ```
 
 ```ts
-// service.ts — plain arguments, no Context
-import type { TenantContext } from '../../shared/tenant'
-import { patientRepository } from './repository'
-import type { PatientListQuery } from './model'
-
-export async function listPatients(tenant: TenantContext, query: PatientListQuery) {
-  return patientRepository.list(tenant, query) // repository applies tenant scope
+// controllers/patients/list-patients.ts — plain arguments, no Context
+export async function listPatients(d: PatientDependencies, actor: Actor, query: PatientListQuery) {
+  await d.authorize(actor.id, 'patient.read', { organisationId: actor.organisationId })
+  return { patients: await createPatientRepository(d.db).list(actor.organisationId, query) }
 }
 ```
 
@@ -94,26 +93,26 @@ export async function listPatients(tenant: TenantContext, query: PatientListQuer
 import { Elysia } from 'elysia'
 import { errors } from './plugins/errors'
 import { openapi } from './plugins/openapi'
-import { control } from './domains/control'
-import { hospital } from './domains/hospital'
-import { terminology } from './domains/terminology'
+import { patientsRouter } from './routes/patients.router'
 
 export function createApp(dependencies: AppDependencies) {
   return new Elysia({ name: 'almonac.api' })
     .use(errors)
     .use(openapi)
-    .use(control)
-    .use(hospital)
-    .use(terminology)
+    .use(patientsRouter(dependencies.patients))
 }
 
 export type App = ReturnType<typeof createApp>
 ```
 
-`index.ts` loads configuration, creates the pools, calls `createApp`, opens the
-port and closes both on shutdown. Tests call `createApp` with fakes.
+`index.ts` loads configuration, builds the adapters and repositories, calls
+`createApp`, opens the port and closes both on shutdown. Tests call `createApp`
+with fakes.
 
-Each domain `index.ts` mounts its features with their own prefixes. A feature never mounts itself; only its domain does. Prefixes are relative to the domain, so a hospital feature is not reachable under the control prefix.
+Each router mounts itself with its prefix and `.use(adminGuard(d))` when the
+area needs an actor. A router never mounts another router; `app.ts` composes
+them. Admin routers nest under one `new Elysia({ name: 'admin.routers' })` so
+the guard's derived context is shared.
 
 API versioning and the root path are **not decided** for new features (see ADR-003 and `docs/architecture/unresolved-decisions.md`, U-15). The authentication routes use `/v1/auth` because accepted ADR-012 names those paths. Do not extend `/v1` to another feature before the decision; keep feature prefixes relative so the mount point stays a one-line change.
 
