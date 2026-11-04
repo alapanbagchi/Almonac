@@ -303,6 +303,61 @@ describe('ID token verification', () => {
     await expect(verifier.verify(expired, hashToken(nonce))).rejects.toBeDefined()
   })
 
+  test('accepts a token without an authorised party or methods', async () => {
+    const { privateKey, keySet } = await keys()
+    const verifier = createIdTokenVerifier({
+      issuer: ISSUER,
+      clientId: CLIENT_ID,
+      keySet,
+      now: () => NOW,
+    })
+    const signed = await new SignJWT({
+      email: 'doctor@example.test',
+      email_verified: true,
+      auth_time: Math.floor(NOW.getTime() / 1_000),
+      nonce,
+    })
+      .setProtectedHeader({ alg: 'RS256', kid: 'key-1' })
+      .setIssuer(ISSUER)
+      .setAudience(CLIENT_ID)
+      .setSubject('subject-1')
+      .setIssuedAt(NOW)
+      .setExpirationTime('5m')
+      .sign(privateKey)
+
+    const identity = await verifier.verify(signed, hashToken(nonce))
+    expect(identity.amr).toEqual([])
+    expect(identity.aal).toBe(1)
+  })
+
+  test('rejects a token authorised for another party', async () => {
+    const { privateKey, keySet } = await keys()
+    const verifier = createIdTokenVerifier({
+      issuer: ISSUER,
+      clientId: CLIENT_ID,
+      keySet,
+      now: () => NOW,
+    })
+    await expect(
+      verifier.verify(await token(privateKey, { azp: 'someone-else' }), hashToken(nonce)),
+    ).rejects.toBeDefined()
+  })
+
+  test('rejects malformed authentication method references', async () => {
+    const { privateKey, keySet } = await keys()
+    const verifier = createIdTokenVerifier({
+      issuer: ISSUER,
+      clientId: CLIENT_ID,
+      keySet,
+      now: () => NOW,
+    })
+    for (const amr of [['pwd', 7], [''], Array.from({ length: 17 }, () => 'pwd'), 'pwd']) {
+      await expect(
+        verifier.verify(await token(privateKey, { amr }), hashToken(nonce)),
+      ).rejects.toBeDefined()
+    }
+  })
+
   test('rejects an unsigned alg none token', async () => {
     const { keySet } = await keys()
     const verifier = createIdTokenVerifier({

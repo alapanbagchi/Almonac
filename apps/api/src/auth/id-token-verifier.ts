@@ -64,10 +64,12 @@ export function createIdTokenVerifier(
         throw new InvalidIdTokenError()
       }
 
-      if (!audienceIsClient(payload.aud, options.clientId)) {
+      // jose already requires the audience to contain this client. `azp` is
+      // optional in the specification; when a token carries one it must name
+      // this client, so a token minted for another party is rejected.
+      if (payload.azp !== undefined && payload.azp !== options.clientId) {
         throw new InvalidIdTokenError()
       }
-      if (payload.azp !== options.clientId) throw new InvalidIdTokenError()
 
       const nonce = payload.nonce
       if (typeof nonce !== 'string' || !constantTimeEqual(hashToken(nonce), nonceHash)) {
@@ -107,13 +109,6 @@ export function createIdTokenVerifier(
   }
 }
 
-function audienceIsClient(aud: unknown, clientId: string): boolean {
-  if (typeof aud === 'string') return aud === clientId
-  if (!Array.isArray(aud)) return false
-  const audiences: unknown[] = aud
-  return audiences.length > 0 && audiences.includes(clientId)
-}
-
 /**
  * A passkey alone is single-factor. Count a second factor only when the
  * provider asserts multi-factor authentication, or when a password is combined
@@ -149,8 +144,13 @@ function numericDate(value: unknown): Date {
   return new Date(value * 1_000)
 }
 
+/**
+ * `amr` is optional. A token that does not report it is a password session
+ * with no second factor, never a stronger one.
+ */
 function readAmr(value: unknown): string[] {
-  if (!Array.isArray(value) || value.length === 0 || value.length > MAX_AMR_LENGTH) {
+  if (value === undefined || value === null) return []
+  if (!Array.isArray(value) || value.length > MAX_AMR_LENGTH) {
     throw new InvalidIdTokenError()
   }
 
