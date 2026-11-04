@@ -10,6 +10,11 @@ import type { OidcProvider } from '../../src/auth/oidc-provider'
 import type { VerifiedIdentity } from '../../src/auth/id-token-verifier'
 import { LOGIN_ATTEMPT_AAD, SESSION_ID_TOKEN_HINT_AAD } from '../../src/auth/aad'
 import { hashToken } from '../../src/shared/tokens'
+import type {
+  MetricAttributes,
+  MetricName,
+  Metrics,
+} from '../../src/shared/metrics'
 import { open, sealingKey } from '../../src/shared/sealed'
 
 const START = new Date('2026-01-01T10:00:00.000Z')
@@ -49,6 +54,19 @@ class FakeAttempts implements LoginAttemptStore {
     if (row === undefined || row.consumedAt !== null || row.expiresAt <= at) return null
     row.consumedAt = at
     return row
+  }
+}
+
+interface RecordedMetric {
+  readonly name: MetricName
+  readonly attributes: MetricAttributes | undefined
+}
+
+class FakeMetrics implements Metrics {
+  readonly counts: RecordedMetric[] = []
+
+  count(name: MetricName, attributes?: MetricAttributes): void {
+    this.counts.push({ name, attributes })
   }
 }
 
@@ -172,15 +190,17 @@ function service() {
   const audit = new FakeAudit()
   const oidc = new FakeOidc()
   const completion = new FakeCompletion()
+  const metrics = new FakeMetrics()
   const login = new LoginService({
     attempts,
     oidc,
     completion,
     audit,
+    metrics,
     sealingKey: KEY,
     clock: () => START,
   })
-  return { login, attempts, audit, oidc, completion }
+  return { login, attempts, audit, oidc, completion, metrics }
 }
 
 const context = { ip: '127.0.0.1', userAgentHash: null, requestId: 'request-1' }
@@ -226,6 +246,26 @@ describe('login service', () => {
       status: 401,
     })
     expect(audit.events.at(-1)?.eventType).toBe('auth.login_failed')
+  })
+
+  test('counts logins without identifiers or token material', async () => {
+    const { login, metrics } = service()
+    const start = await login.start('/dashboard', context)
+    const state = new URL(start.authorizationUrl).searchParams.get('state')!
+
+    await login.complete('code-1', state, context)
+    await expect(login.complete('code-1', state, context)).rejects.toMatchObject({
+      code: 'AUTH_FAILED',
+    })
+
+    expect(metrics.counts).toEqual([
+      { name: 'auth.login_succeeded', attributes: { purpose: 'login' } },
+      { name: 'auth.login_failed', attributes: { reason: 'invalid_attempt' } },
+    ])
+    const written = JSON.stringify(metrics.counts)
+    expect(written).not.toContain('@')
+    expect(written).not.toContain('code-1')
+    expect(written).not.toContain('subject-1')
   })
 
   test('rejects a malformed state before touching the database', async () => {

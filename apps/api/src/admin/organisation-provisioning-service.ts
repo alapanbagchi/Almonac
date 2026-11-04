@@ -1,6 +1,7 @@
 import type { Pool, PoolClient } from 'pg'
 import type { AuditSink } from '../audit/audit-writer'
 import { AuditWriter } from '../audit/audit-writer'
+import { NO_METRICS, type Metrics } from '../shared/metrics'
 import { asAdminError } from './admin-errors'
 import { OrganisationRepository, type Organisation } from './organisation-repository'
 import type { ZitadelManagementClient } from './zitadel-management-client'
@@ -10,6 +11,7 @@ export class OrganisationProvisioningService {
     private readonly pool: Pool,
     private readonly zitadel: ZitadelManagementClient,
     private readonly audit: AuditSink,
+    private readonly metrics: Metrics = NO_METRICS,
   ) {}
 
   /**
@@ -18,6 +20,7 @@ export class OrganisationProvisioningService {
    * provisioning instead of creating a second identity tenant.
    */
   async provision(input: { name: string; slug: string }): Promise<Organisation> {
+    const startedAt = performance.now()
     const client = await this.pool.connect()
     try {
       await client.query('select pg_advisory_lock(hashtext($1))', [input.slug])
@@ -54,6 +57,9 @@ export class OrganisationProvisioningService {
             resource_type: 'organisation',
             resource_id: provisioned.id,
           },
+        })
+        this.metrics.count('admin.provisioning_lag', {
+          duration_ms: Math.round(performance.now() - startedAt),
         })
         return provisioned
       } catch (error) {

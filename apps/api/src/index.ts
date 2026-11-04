@@ -38,6 +38,7 @@ import { PostgresLoginStore } from './auth/postgres-login-store'
 import { ConfigError, loadConfig } from './config'
 import { checkControlDatabase, createControlPool } from './db/pool'
 import { MAX_BODY_BYTES } from './plugins/security'
+import { createMetrics } from './shared/metrics'
 
 const config = loadConfigOrExit(loadConfig, ConfigError, 'config')
 const authConfig = loadConfigOrExit(loadAuthConfig, AuthConfigError, 'auth config')
@@ -49,10 +50,14 @@ const managementConfig = loadConfigOrExit(
 )
 
 const pool = createControlPool(config.databaseUrl)
+const metrics = createMetrics()
 const audit = new AuditWriter(pool)
 const users = new AppUserRepository(pool)
 const authorization = new AuthorizationRepository(pool)
-const sessions = new SessionService({ store: new SessionRepository(pool) })
+const sessions = new SessionService({
+  store: new SessionRepository(pool),
+  metrics,
+})
 const breakGlass = new BreakGlassService({ pool, authorization, users })
 const oidc = createOidcProvider({
   issuer: authConfig.issuer,
@@ -84,6 +89,7 @@ const app = createApp({
       oidc,
       completion: new PostgresLoginStore(pool),
       audit,
+      metrics,
       sealingKey: authConfig.sealingKey,
     }),
     sessions,
@@ -94,13 +100,16 @@ const app = createApp({
       oidc,
       sealingKey: authConfig.sealingKey,
     }),
-    rateLimit: new RateLimiter({ store: new RateLimitRepository(pool) }),
+    rateLimit: new RateLimiter({
+      store: new RateLimitRepository(pool),
+      metrics,
+    }),
   },
   admin: {
     organisations: new OrganisationAdminService(
       organisations,
       authorization,
-      new OrganisationProvisioningService(pool, zitadel, audit),
+      new OrganisationProvisioningService(pool, zitadel, audit, metrics),
     ),
     hospitals: new HospitalAdminService(hospitals, organisations, authorization, audit),
     memberships: new MembershipAdminService(memberships, authorization, audit),

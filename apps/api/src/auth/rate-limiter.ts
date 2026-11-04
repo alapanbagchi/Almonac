@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { AppError } from '../shared/errors'
+import { NO_METRICS, type Metrics } from '../shared/metrics'
 import type { RateLimitStore } from './rate-limit-repository'
 
 export type RateLimitRoute = 'login' | 'callback' | 'step_up'
@@ -20,6 +21,7 @@ export interface AuthRateLimit {
 
 export interface RateLimiterOptions {
   readonly store: RateLimitStore
+  readonly metrics?: Metrics
   readonly clock?: () => Date
 }
 
@@ -31,9 +33,11 @@ export interface RateLimiterOptions {
  */
 export class RateLimiter implements AuthRateLimit {
   private readonly clock: () => Date
+  private readonly metrics: Metrics
 
   constructor(private readonly options: RateLimiterOptions) {
     this.clock = options.clock ?? (() => new Date())
+    this.metrics = options.metrics ?? NO_METRICS
   }
 
   async check(route: RateLimitRoute, ip: string | null): Promise<void> {
@@ -47,6 +51,8 @@ export class RateLimiter implements AuthRateLimit {
       now,
     )
     if (count <= RATE_LIMITS[route]) return
+
+    this.metrics.count('auth.rate_limited', { route })
 
     const resetAt = windowStart.getTime() + WINDOW_SECONDS * 1_000
     const retryAfterSeconds = Math.max(1, Math.ceil((resetAt - now.getTime()) / 1_000))

@@ -3,6 +3,7 @@ import {
   isSessionToken,
   mintToken,
 } from '../shared/tokens'
+import { NO_METRICS, type Metrics } from '../shared/metrics'
 import type { NewWebSession, WebSession } from './session-repository'
 
 /** Provisional values. Shared-workstation policy must sign these off before P3. */
@@ -55,6 +56,7 @@ export interface SessionServiceOptions {
   readonly idleTimeoutMs?: number
   readonly absoluteTimeoutMs?: number
   readonly touchIntervalMs?: number
+  readonly metrics?: Metrics
 }
 
 /**
@@ -68,6 +70,7 @@ export class SessionService {
   private readonly idleTimeoutMs: number
   private readonly absoluteTimeoutMs: number
   private readonly touchIntervalMs: number
+  private readonly metrics: Metrics
 
   constructor(options: SessionServiceOptions) {
     this.store = options.store
@@ -75,6 +78,7 @@ export class SessionService {
     this.idleTimeoutMs = options.idleTimeoutMs ?? SESSION_IDLE_TIMEOUT_MS
     this.absoluteTimeoutMs = options.absoluteTimeoutMs ?? SESSION_ABSOLUTE_TIMEOUT_MS
     this.touchIntervalMs = options.touchIntervalMs ?? SESSION_TOUCH_INTERVAL_MS
+    this.metrics = options.metrics ?? NO_METRICS
 
     if (this.idleTimeoutMs <= 0 || this.absoluteTimeoutMs <= 0) {
       throw new Error('session timeouts must be positive')
@@ -170,6 +174,7 @@ export class SessionService {
       throw new Error('session id token hint and key version must be paired')
     }
     if (!(await this.store.revoke(session.id, now, 'rotated'))) return null
+    this.metrics.count('auth.session_revoked', { reason: 'rotated' })
 
     const { token: nextToken, tokenHash } = mintToken()
     const idleExpiresAt = new Date(now.getTime() + this.idleTimeoutMs)
@@ -203,7 +208,9 @@ export class SessionService {
     const session = await this.findByToken(token)
     if (session === null) return false
 
-    return this.store.revoke(session.id, this.clock(), reason)
+    const revoked = await this.store.revoke(session.id, this.clock(), reason)
+    if (revoked) this.metrics.count('auth.session_revoked', { reason })
+    return revoked
   }
 }
 

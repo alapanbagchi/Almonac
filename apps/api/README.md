@@ -120,6 +120,16 @@ digest of the route and address, never the address itself; an operations job
 must delete rows whose window has passed. The API limits the address Bun
 reports, so a proxy in front of it must preserve the client address.
 
+Operational counters are one JSON object per line on stdout:
+`auth.login_succeeded`, `auth.login_failed` (with a bounded `reason`),
+`auth.id_token_rejected`, `auth.session_revoked`, `auth.rate_limited`
+and `admin.provisioning_lag`. Only fixed attribute names and bounded
+values are admitted; an email address, token, IP address or free text is
+dropped before the line is written. The deployment forwards stdout to its
+log pipeline and counts those lines. Error logs never include the thrown
+message, request body, token or identity: they carry a request ID, an error
+code and a sanitised error name.
+
 Break-glass requires a recent session with at least two authentication factors
 (`aal` 2) and an authentication time within five minutes. The ID-token verifier
 maps Zitadel's `hwk`, `swk`, `webauthn`, `passkey`, `mfa`, `otp` and `pin` AMR

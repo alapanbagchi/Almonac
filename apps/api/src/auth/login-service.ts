@@ -4,6 +4,7 @@ import { open, seal } from '../shared/sealed'
 import { AppError } from '../shared/errors'
 import { hashToken, isSessionToken } from '../shared/tokens'
 import { safeName } from '../shared/log'
+import { NO_METRICS, type Metrics } from '../shared/metrics'
 import { LOGIN_ATTEMPT_AAD, SESSION_ID_TOKEN_HINT_AAD } from './aad'
 import {
   InvalidIdTokenError,
@@ -74,6 +75,7 @@ export interface LoginServiceOptions {
   readonly oidc: OidcProvider
   readonly completion: LoginCompletionStore
   readonly audit: AuditSink
+  readonly metrics?: Metrics
   readonly sealingKey: SealingKey
   readonly clock?: () => Date
   readonly loginAttemptTtlMs?: number
@@ -89,6 +91,7 @@ export class LoginService {
   private readonly oidc: OidcProvider
   private readonly completion: LoginCompletionStore
   private readonly audit: AuditSink
+  private readonly metrics: Metrics
   private readonly sealingKey: SealingKey
   private readonly clock: () => Date
   private readonly loginAttemptTtlMs: number
@@ -98,6 +101,7 @@ export class LoginService {
     this.oidc = options.oidc
     this.completion = options.completion
     this.audit = options.audit
+    this.metrics = options.metrics ?? NO_METRICS
     this.sealingKey = options.sealingKey
     this.clock = options.clock ?? (() => new Date())
     this.loginAttemptTtlMs = options.loginAttemptTtlMs ?? LOGIN_ATTEMPT_TTL_MS
@@ -252,13 +256,17 @@ export class LoginService {
       }
 
       if (stepUpToken !== null) {
-        return await this.completion.completeStepUp({
+        const completed = await this.completion.completeStepUp({
           ...completionInput,
           sessionToken: stepUpToken,
         })
+        this.metrics.count('auth.login_succeeded', { purpose: 'step_up' })
+        return completed
       }
 
-      return await this.completion.complete(completionInput)
+      const completed = await this.completion.complete(completionInput)
+      this.metrics.count('auth.login_succeeded', { purpose: 'login' })
+      return completed
     } catch (error) {
       if (error instanceof OidcUnavailableError) {
         await this.fail('identity_unavailable', null, context)
@@ -267,6 +275,9 @@ export class LoginService {
           503,
           'Authentication is temporarily unavailable.',
         )
+      }
+      if (error instanceof InvalidIdTokenError) {
+        this.metrics.count('auth.id_token_rejected', { reason: 'invalid' })
       }
       if (
         error instanceof OidcRejectedError ||
@@ -291,6 +302,7 @@ export class LoginService {
     userId: string | null,
     context: LoginRequestContext,
   ): Promise<void> {
+    this.metrics.count('auth.login_failed', { reason: reasonCode })
     const event: AuditEvent = {
       actorUserId: userId,
       actorType: userId === null ? 'system' : 'user',
