@@ -49,10 +49,15 @@ export const breakGlassGrantSchema = t.Object({
   hospitalId: t.String(),
   userId: t.String(),
   approvedBy: t.Union([t.String(), t.Null()]),
-  approvalMode: t.String(),
+  approvalMode: t.Union([t.Literal('pre_approved'), t.Literal('emergency')]),
   reason: t.String(),
-  accessLevel: t.String(),
-  status: t.String(),
+  accessLevel: t.Literal('read_only'),
+  status: t.Union([
+    t.Literal('approved'),
+    t.Literal('active'),
+    t.Literal('revoked'),
+    t.Literal('expired'),
+  ]),
   startsAt: t.String(),
   endsAt: t.String(),
   approvedAt: t.String(),
@@ -67,7 +72,11 @@ export const breakGlassReviewSchema = t.Object({
   grantId: t.String(),
   reviewerId: t.String(),
   reviewedAt: t.String(),
-  decision: t.String(),
+  decision: t.Union([
+    t.Literal('upheld'),
+    t.Literal('overturned'),
+    t.Literal('escalated'),
+  ]),
   notes: t.Union([t.String(), t.Null()]),
 })
 
