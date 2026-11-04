@@ -14,6 +14,23 @@ import { hashToken, mintToken } from '../shared/tokens'
 import { withTransaction, type DatabaseQuery } from '../db/pool'
 import type { AdminRequestContext } from './admin-context'
 
+/** What an issue writes, and the only time the raw token exists. */
+interface InvitationIssue {
+  readonly invitation: Invitation
+  readonly token: string
+}
+
+/** The row and roles an invitation is written from. */
+interface InvitationDraft {
+  readonly actorId: string
+  readonly email: string
+  readonly kind: Invitation['kind']
+  readonly zitadelSub: string | null
+  readonly organisationId: string
+  readonly hospitalId: string | null
+  readonly roleIds: readonly string[]
+}
+
 /** Creating, listing, resending, revoking and accepting invitations. */
 export class InvitationService {
   constructor(private readonly dependencies: InvitationServiceDependencies) {}
@@ -132,10 +149,7 @@ export class InvitationService {
     if (invitation === null) throw notFound('Invitation not found.')
     await this.requireManage(context.actor.id, invitation)
     await withTransaction(this.dependencies.pool, async (db) => {
-      if (!(await this.dependencies.invitations.revokePending(invitationId, this.clock(), db))) {
-        throw conflict('Invitation is no longer pending.')
-      }
-      await this.dependencies.audit.write(this.change(invitation, 'invitation.revoked', context), db)
+      await this.revokePending(db, invitation, context)
     })
   }
 
@@ -199,8 +213,8 @@ export class InvitationService {
 
   private async issue(
     context: AdminRequestContext,
-    draft: { actorId: string; email: string; kind: Invitation['kind']; zitadelSub: string | null; organisationId: string; hospitalId: string | null; roleIds: readonly string[] },
-  ): Promise<{ invitation: Invitation; token: string }> {
+    draft: InvitationDraft,
+  ): Promise<InvitationIssue> {
     return withTransaction(this.dependencies.pool, async (db) => {
       const issued = await this.persist(db, draft)
       await this.dependencies.audit.write(this.change(issued.invitation, 'invitation.created', context), db)
@@ -208,10 +222,7 @@ export class InvitationService {
     })
   }
 
-  private async persist(
-    db: DatabaseQuery,
-    draft: { actorId: string; email: string; kind: Invitation['kind']; zitadelSub: string | null; organisationId: string; hospitalId: string | null; roleIds: readonly string[] },
-  ): Promise<{ invitation: Invitation; token: string }> {
+  private async persist(db: DatabaseQuery, draft: InvitationDraft): Promise<InvitationIssue> {
     const minted = mintToken()
     const invitation = await this.dependencies.invitations.create(
       {
@@ -232,7 +243,7 @@ export class InvitationService {
 
   private async deliver(
     context: AdminRequestContext,
-    issued: { invitation: Invitation; token: string },
+    issued: InvitationIssue,
     delivery: InvitationDelivery,
   ): Promise<void> {
     // Both kinds receive the local link. A new user cannot accept until their
@@ -248,8 +259,7 @@ export class InvitationService {
     } catch (error) {
       try {
         await withTransaction(this.dependencies.pool, async (db) => {
-          await this.dependencies.invitations.revokePending(issued.invitation.id, this.clock(), db)
-          await this.dependencies.audit.write(this.change(issued.invitation, 'invitation.revoked', context), db)
+          await this.revokePending(db, issued.invitation, context, true)
         })
       } catch {
         // Keep the delivery failure. An unrevoked invitation still expires.
@@ -274,9 +284,7 @@ export class InvitationService {
       }
     }
     const issued = await withTransaction(this.dependencies.pool, async (db) => {
-      if (!(await this.dependencies.invitations.revokePending(invitation.id, this.clock(), db))) {
-        throw conflict('Invitation is no longer pending.')
-      }
+      await this.revokePending(db, invitation, context)
       const created = await this.persist(db, {
         actorId: context.actor.id,
         email: invitation.email,
@@ -313,6 +321,24 @@ export class InvitationService {
     }
   }
 
+  /**
+   * Close a pending invitation and audit why. A replacement and a delivery
+   * failure both revoke first, so the state change is written in one place.
+   */
+  private async revokePending(
+    db: DatabaseQuery,
+    invitation: Invitation,
+    context: AdminRequestContext,
+    ignoreMissing = false,
+  ): Promise<void> {
+    const revoked = await this.dependencies.invitations.revokePending(invitation.id, this.clock(), db)
+    if (!revoked) {
+      if (ignoreMissing) return
+      throw conflict('Invitation is no longer pending.')
+    }
+    await this.dependencies.audit.write(this.change(invitation, 'invitation.revoked', context), db)
+  }
+
   private requireManage(
     actorId: string,
     target: { organisationId: string; hospitalId: string | null },
@@ -343,17 +369,16 @@ export class InvitationService {
     const available = new Map(
       (await this.dependencies.memberships.findRoles(organisationId, roleIds)).map((role) => [role.id, role]),
     )
-    const selected = roleIds.map((roleId) => {
+    const expectedScope = hospitalId === null ? 'organisation' : 'hospital'
+    return roleIds.map((roleId) => {
       const role = available.get(roleId)
       if (role === undefined) {
         throw new AppError('RULE_VIOLATION', 422, 'Role is not available in this organisation.')
       }
+      if (role.scope !== expectedScope) {
+        throw new AppError('RULE_VIOLATION', 422, 'Role scope does not match the invitation.')
+      }
       return role
     })
-    const expectedScope = hospitalId === null ? 'organisation' : 'hospital'
-    if (selected.some((role) => role.scope !== expectedScope)) {
-      throw new AppError('RULE_VIOLATION', 422, 'Role scope does not match the invitation.')
-    }
-    return selected
   }
 }
