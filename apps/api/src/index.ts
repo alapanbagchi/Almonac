@@ -110,6 +110,8 @@ const smtpOptions = {
   smtpUser: mailConfig.smtpUser,
   smtpPassword: mailConfig.smtpPassword,
   from: mailConfig.from,
+  fromName: mailConfig.fromName,
+  requireTls: mailConfig.requireTls,
   webPublicOrigin: mailConfig.webPublicOrigin,
 }
 const registration = new RegistrationService(
