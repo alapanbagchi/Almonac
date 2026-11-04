@@ -6,6 +6,7 @@ import {
   nullableStringField,
   rowRecord,
   stringField,
+  textArrayField,
 } from '../db/rows'
 
 export type InvitationKind = 'new_user' | 'existing_user'
@@ -30,6 +31,15 @@ export interface Invitation {
 const COLUMNS = `
   id, email::text as email, organisation_id, hospital_id, kind, zitadel_sub, status,
   expires_at, created_at, accepted_at, accepted_by_user_id, invited_by
+`
+
+const SELECT_COLUMNS = `${COLUMNS},
+  coalesce(
+    (select array_agg(invitation_role.role_id::text order by invitation_role.role_id)
+       from control.invitation_role as invitation_role
+      where invitation_role.invitation_id = invitation.id),
+    '{}'::text[]
+  ) as role_ids
 `
 
 export class InvitationRepository {
@@ -89,11 +99,10 @@ export class InvitationRepository {
 
   async findById(id: string): Promise<Invitation | null> {
     const result = await this.pool.query(
-      `select ${COLUMNS} from identity.invitation where id = $1`,
+      `select ${SELECT_COLUMNS} from identity.invitation as invitation where invitation.id = $1`,
       [id],
     )
-    if (result.rows[0] === undefined) return null
-    return withRoles(this.pool, result.rows[0])
+    return result.rows[0] === undefined ? null : mapRow(result.rows[0])
   }
 
   async list(input: {
@@ -101,16 +110,14 @@ export class InvitationRepository {
     hospitalId?: string | null
   }): Promise<Invitation[]> {
     const result = await this.pool.query(
-      `select ${COLUMNS}
-         from identity.invitation
-        where organisation_id = $1
-          and ($2::uuid is null or hospital_id = $2)
-        order by created_at desc, id`,
+      `select ${SELECT_COLUMNS}
+         from identity.invitation as invitation
+        where invitation.organisation_id = $1
+          and ($2::uuid is null or invitation.hospital_id = $2)
+        order by invitation.created_at desc, invitation.id`,
       [input.organisationId, input.hospitalId ?? null],
     )
-    return Promise.all(
-      result.rows.map(async (row) => withRoles(this.pool, row)),
-    )
+    return result.rows.map(mapRow)
   }
 
   async findPendingForScope(input: {
@@ -119,19 +126,18 @@ export class InvitationRepository {
     hospitalId: string | null
   }): Promise<Invitation | null> {
     const result = await this.pool.query(
-      `select ${COLUMNS}
-         from identity.invitation
-        where email = $1
-          and organisation_id = $2
-          and hospital_id is not distinct from $3::uuid
-          and status = 'pending'
-          and expires_at > now()
-        order by created_at desc
+      `select ${SELECT_COLUMNS}
+         from identity.invitation as invitation
+        where invitation.email = $1
+          and invitation.organisation_id = $2
+          and invitation.hospital_id is not distinct from $3::uuid
+          and invitation.status = 'pending'
+          and invitation.expires_at > now()
+        order by invitation.created_at desc
         limit 1`,
       [input.email, input.organisationId, input.hospitalId],
     )
-    if (result.rows[0] === undefined) return null
-    return withRoles(this.pool, result.rows[0])
+    return result.rows[0] === undefined ? null : mapRow(result.rows[0])
   }
 
   async revokePending(id: string, at: Date): Promise<boolean> {
@@ -197,25 +203,18 @@ export async function findInvitationByTokenHashForUpdate(
   tokenHash: Buffer,
 ): Promise<Invitation | null> {
   const result = await db.query(
-    `select ${COLUMNS}
-       from identity.invitation
-      where token_hash = $1
+    `select ${SELECT_COLUMNS}
+       from identity.invitation as invitation
+      where invitation.token_hash = $1
       for update`,
     [tokenHash],
   )
-  if (result.rows[0] === undefined) return null
-  return withRoles(db, result.rows[0])
+  return result.rows[0] === undefined ? null : mapRow(result.rows[0])
 }
 
-async function withRoles(db: DatabaseQuery, row: unknown): Promise<Invitation> {
-  const roles = await db.query(
-    `select role_id from control.invitation_role where invitation_id = $1`,
-    [rowRecord(row).id],
-  )
-  return mapInvitation(
-    row,
-    roles.rows.map((role) => stringField(rowRecord(role), 'role_id')),
-  )
+function mapRow(value: unknown): Invitation {
+  const row = rowRecord(value)
+  return mapInvitation(row, textArrayField(row, 'role_ids'))
 }
 
 function mapInvitation(value: unknown, roleIds: readonly string[]): Invitation {

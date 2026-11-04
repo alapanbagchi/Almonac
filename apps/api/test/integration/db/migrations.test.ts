@@ -2612,6 +2612,7 @@ describe('invitation service', () => {
     )
     expect(accepted.status).toBe('accepted')
     expect(accepted.acceptedByUserId).toBe(inviteeId)
+    expect(accepted.roleIds).toEqual([role])
 
     const membership = await ownerPool.query<{ count: number }>(
       'select count(*)::int as count from control.membership where user_id = $1 and organisation_id = $2',
