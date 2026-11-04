@@ -155,11 +155,7 @@ export class ZitadelManagementClient {
       },
       organisationId ?? undefined,
     )
-    const userId = readRecord(body).userId
-    if (typeof userId !== 'string' || userId.length === 0) {
-      throw new ZitadelUnavailableError('user response has no id')
-    }
-    return userId
+    return readUserId(body)
   }
 
   /**
@@ -179,11 +175,7 @@ export class ZitadelManagementClient {
       email: { email: input.email, isVerified: true },
       hashedPassword: { hash: input.passwordHash },
     })
-    const userId = readRecord(body).userId
-    if (typeof userId !== 'string' || userId.length === 0) {
-      throw new ZitadelUnavailableError('user response has no id')
-    }
-    return userId
+    return readUserId(body)
   }
 
   async resendInitialization(organisationId: string, userId: string): Promise<void> {
@@ -267,6 +259,15 @@ function splitName(input: { email: string; displayName: string }): {
 } {
   const [first = input.email, ...rest] = input.displayName.trim().split(/\s+/)
   return { givenName: first, familyName: rest.join(' ') || first }
+}
+
+/** The user id both create calls return; a provider without one is unusable. */
+function readUserId(body: unknown): string {
+  const userId = readRecord(body).userId
+  if (typeof userId !== 'string' || userId.length === 0) {
+    throw new ZitadelUnavailableError('user response has no id')
+  }
+  return userId
 }
 
 function readRecord(value: unknown): Record<string, unknown> {
