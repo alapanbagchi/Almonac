@@ -77,10 +77,11 @@ export class BreakGlassConstraintError extends Error {
 
 /** Control-plane repository for time-boxed emergency access grants. */
 export class BreakGlassRepository {
-  constructor(private readonly db: DatabaseQuery) {}
+  /** The connection or transaction every method of this instance reads and writes through. */
+  constructor(readonly connection: DatabaseQuery) {}
 
   async findHospital(id: string): Promise<BreakGlassHospital | null> {
-    const result = await this.db.query(
+    const result = await this.connection.query(
       'select id, organisation_id, name, status from control.hospital where id = $1',
       [id],
     )
@@ -102,7 +103,7 @@ export class BreakGlassRepository {
     hospitalId: string,
     at: Date,
   ): Promise<boolean> {
-    const result = await this.db.query(
+    const result = await this.connection.query(
       `select 1
        from control.membership
        where user_id = $1
@@ -122,7 +123,7 @@ export class BreakGlassRepository {
     hospitalId: string,
     at: Date,
   ): Promise<BreakGlassGrant | null> {
-    const result = await this.db.query(
+    const result = await this.connection.query(
       `select ${COLUMNS}
        from control.break_glass_grant
        where user_id = $1
@@ -136,7 +137,7 @@ export class BreakGlassRepository {
   }
 
   async create(input: NewBreakGlassGrant): Promise<BreakGlassGrant> {
-    const result = await this.db.query(
+    const result = await this.connection.query(
       `insert into control.break_glass_grant
          (organisation_id, hospital_id, user_id, approved_by, approval_mode,
           reason, access_level, status, validity, approved_at,
@@ -163,7 +164,7 @@ export class BreakGlassRepository {
   }
 
   async findById(id: string): Promise<BreakGlassGrant | null> {
-    const result = await this.db.query(
+    const result = await this.connection.query(
       `select ${COLUMNS} from control.break_glass_grant where id = $1`,
       [id],
     )
@@ -175,7 +176,7 @@ export class BreakGlassRepository {
     hospitalId: string | null,
     page: PageRequest,
   ): Promise<Page<BreakGlassGrant>> {
-    const result = await this.db.query(
+    const result = await this.connection.query(
       `select ${COLUMNS}
        from control.break_glass_grant
        where ($1::uuid is null or user_id = $1::uuid)
@@ -189,7 +190,7 @@ export class BreakGlassRepository {
   }
 
   async activate(id: string, userId: string, at: Date): Promise<BreakGlassGrant | null> {
-    const result = await this.db.query(
+    const result = await this.connection.query(
       `update control.break_glass_grant
        set status = 'active', activated_at = $3, activated_by = $2
        where id = $1
@@ -204,7 +205,7 @@ export class BreakGlassRepository {
   }
 
   async revoke(id: string, at: Date): Promise<BreakGlassGrant | null> {
-    const result = await this.db.query(
+    const result = await this.connection.query(
       `update control.break_glass_grant
        set status = 'revoked', revoked_at = $2
        where id = $1 and status in ('approved', 'active')
@@ -223,7 +224,7 @@ export class BreakGlassRepository {
     notes: string | null
   }): Promise<BreakGlassReview> {
     try {
-      const result = await this.db.query(
+      const result = await this.connection.query(
         `insert into control.break_glass_review
            (grant_id, reviewer_id, reviewed_at, decision, notes)
          values ($1, $2, $3, $4, $5)

@@ -1,6 +1,7 @@
 import type { Pool } from 'pg'
+import { conflict, forbidden, notFound, ruleViolation as invalid } from '../shared/app-errors'
 import { AppError } from '../shared/errors'
-import { AuditWriter } from '../audit/audit-writer'
+import { AuditWriter, type AuditEvent, type AuditSink } from '../audit/audit-writer'
 import type { AuthorizationRepository } from '../access/authorization-repository'
 import type { UserLookup } from '../auth/bearer'
 import { requireAssurance, type AssurancePolicy } from '../auth/assurance'
@@ -43,8 +44,15 @@ export interface BreakGlassDependencies {
   readonly pool: Pool
   readonly authorization: AuthorizationRepository
   readonly users: UserLookup
+  /** Defaults to the append-only audit writer on the same database. */
+  readonly audit?: AuditSink
   readonly clock?: () => Date
 }
+
+type BreakGlassAuditEvent = Omit<
+  AuditEvent,
+  'actorUserId' | 'actorType' | 'sessionId' | 'requestId' | 'ip' | 'userAgentHash'
+>
 
 export type CreateBreakGlassInput = {
   readonly hospitalId: string
@@ -64,11 +72,53 @@ export interface CreatePreApprovedInput extends CreateBreakGlassInput {
  */
 export class BreakGlassService {
   private readonly clock: () => Date
+  private readonly auditSink: AuditSink
+
+  /** Reads and single-statement writes go straight to the pool. */
+  private readonly repository: BreakGlassRepository
+
+  /**
+   * Grant mutations and the reads inside them run in one transaction, so the
+   * state a write depends on cannot change between the check and the write.
+   */
+  private transaction: BreakGlassRepository
 
   constructor(private readonly dependencies: BreakGlassDependencies) {
     this.clock = dependencies.clock ?? (() => new Date())
+    this.auditSink = dependencies.audit ?? new AuditWriter(dependencies.pool)
+    this.repository = new BreakGlassRepository(dependencies.pool)
+    this.transaction = this.repository
   }
 
+  private commit<T>(work: (grants: BreakGlassRepository) => Promise<T>): Promise<T> {
+    return withTransaction(this.dependencies.pool, async (db) => {
+      const grants = new BreakGlassRepository(db)
+      this.transaction = grants
+      try {
+        return await work(grants)
+      } finally {
+        this.transaction = this.repository
+      }
+    })
+  }
+
+  /** Writes the audit entry on the transaction opened by `commit`. */
+  private async audit(context: BreakGlassContext, event: BreakGlassAuditEvent): Promise<void> {
+    await this.auditSink.write(
+      {
+        actorUserId: context.actor.id,
+        actorType: 'user',
+        sessionId: context.sessionId,
+        requestId: context.requestId,
+        ip: context.ip,
+        userAgentHash: context.userAgentHash,
+        ...event,
+      },
+      this.transaction.connection,
+    )
+  }
+
+  /** The requester opens their own grant; it is live immediately. */
   async requestEmergency(
     context: BreakGlassContext,
     input: CreateBreakGlassInput,
@@ -77,12 +127,10 @@ export class BreakGlassService {
     const hospital = await this.requireHospital(input.hospitalId)
     await this.requireRequestPermission(context, hospital.organisationId, hospital.id)
     requireAssurance(context, BREAK_GLASS_ASSURANCE, now)
-    await this.requireActiveMembership(context.actor.id, hospital, now)
-    await this.requireNoOpenGrant(context.actor.id, hospital.id, now)
+    await this.acceptRequester(context.actor.id, hospital, now)
 
-    return withTransaction(this.dependencies.pool, async (db) => {
-      const grants = new BreakGlassRepository(db)
-      const grant = await this.createGrant(grants, {
+    return this.commit(async () => {
+      const grant = await this.createGrant({
         organisationId: hospital.organisationId,
         hospitalId: hospital.id,
         userId: context.actor.id,
@@ -93,27 +141,22 @@ export class BreakGlassService {
         now,
         durationMinutes: durationOf(input.durationMinutes),
       })
-      await new AuditWriter(db).write({
-        actorUserId: context.actor.id,
-        actorType: 'user',
-        sessionId: context.sessionId,
-        organisationId: hospital.organisationId,
-        hospitalId: hospital.id,
+      await this.audit(context, {
+        organisationId: grant.organisationId,
+        hospitalId: grant.hospitalId,
         eventType: 'break_glass.activate',
         outcome: 'success',
         targetType: 'break_glass_grant',
         targetId: grant.id,
-        requestId: context.requestId,
         reason: grant.reason,
         reasonCode: 'break_glass.emergency',
-        ip: context.ip,
-        userAgentHash: context.userAgentHash,
         metadata: { grant_id: grant.id },
       })
       return grant
     })
   }
 
+  /** An approver opens a grant for someone else that the person then activates. */
   async createPreApproved(
     context: BreakGlassContext,
     input: CreatePreApprovedInput,
@@ -130,13 +173,11 @@ export class BreakGlassService {
     if (subject === null || subject.status !== 'active') {
       throw invalid('The person is not an active member of the platform.')
     }
-    await this.requireActiveMembership(subject.id, hospital, now)
-    await this.requireNoOpenGrant(subject.id, hospital.id, now)
+    await this.acceptRequester(subject.id, hospital, now)
 
     const reason = normaliseReason(input.reason)
-    return withTransaction(this.dependencies.pool, async (db) => {
-      const grants = new BreakGlassRepository(db)
-      const grant = await this.createGrant(grants, {
+    return this.commit(async () => {
+      const grant = await this.createGrant({
         organisationId: hospital.organisationId,
         hospitalId: hospital.id,
         userId: subject.id,
@@ -147,21 +188,15 @@ export class BreakGlassService {
         now,
         durationMinutes: durationOf(input.durationMinutes),
       })
-      await new AuditWriter(db).write({
-        actorUserId: context.actor.id,
-        actorType: 'user',
-        sessionId: context.sessionId,
-        organisationId: hospital.organisationId,
-        hospitalId: hospital.id,
+      await this.audit(context, {
+        organisationId: grant.organisationId,
+        hospitalId: grant.hospitalId,
         eventType: 'admin.change',
         outcome: 'success',
         targetType: 'break_glass_grant',
         targetId: grant.id,
-        requestId: context.requestId,
         reason: grant.reason,
         reasonCode: 'break_glass.approved',
-        ip: context.ip,
-        userAgentHash: context.userAgentHash,
         metadata: {
           resource_type: 'break_glass_grant',
           resource_id: grant.id,
@@ -173,8 +208,8 @@ export class BreakGlassService {
 
   async activate(context: BreakGlassContext, grantId: string): Promise<BreakGlassGrant> {
     const now = this.clock()
-    const grant = await new BreakGlassRepository(this.dependencies.pool).findById(grantId)
-    if (grant === null) throw notFound()
+    const grant = await this.repository.findById(grantId)
+    if (grant === null) throw notFound('Break-glass grant not found.')
     if (grant.userId !== context.actor.id) throw forbidden()
     if (grant.status !== 'approved') throw conflict('The grant is not awaiting activation.')
     if (grant.endsAt <= now) throw conflict('The grant has expired.')
@@ -185,57 +220,45 @@ export class BreakGlassService {
       now,
     )
 
-    return withTransaction(this.dependencies.pool, async (db) => {
-      const updated = await new BreakGlassRepository(db).activate(grant.id, context.actor.id, now)
-      if (updated === null) throw conflict('The grant can no longer be activated.')
-      await new AuditWriter(db).write({
-        actorUserId: context.actor.id,
-        actorType: 'user',
-        sessionId: context.sessionId,
-        organisationId: updated.organisationId,
-        hospitalId: updated.hospitalId,
+    return this.commit(async (grants) => {
+      const activated = await grants.activate(grant.id, context.actor.id, now)
+      if (activated === null) throw conflict('The grant can no longer be activated.')
+      await this.audit(context, {
+        organisationId: activated.organisationId,
+        hospitalId: activated.hospitalId,
         eventType: 'break_glass.activate',
         outcome: 'success',
         targetType: 'break_glass_grant',
-        targetId: updated.id,
-        requestId: context.requestId,
-        reason: updated.reason,
+        targetId: activated.id,
+        reason: activated.reason,
         reasonCode: 'break_glass.activated',
-        ip: context.ip,
-        userAgentHash: context.userAgentHash,
-        metadata: { grant_id: updated.id },
+        metadata: { grant_id: activated.id },
       })
-      return updated
+      return activated
     })
   }
 
   async revoke(context: BreakGlassContext, grantId: string, reason: string): Promise<BreakGlassGrant> {
     const now = this.clock()
-    const grant = await new BreakGlassRepository(this.dependencies.pool).findById(grantId)
-    if (grant === null) throw notFound()
+    const grant = await this.repository.findById(grantId)
+    if (grant === null) throw notFound('Break-glass grant not found.')
     if (grant.userId !== context.actor.id && !(await this.isApprover(context))) {
       throw forbidden()
     }
     const revokeReason = normaliseReason(reason)
 
-    return withTransaction(this.dependencies.pool, async (db) => {
-      const revoked = await new BreakGlassRepository(db).revoke(grant.id, now)
+    return this.commit(async (grants) => {
+      const revoked = await grants.revoke(grant.id, now)
       if (revoked === null) throw conflict('The grant is already closed.')
-      await new AuditWriter(db).write({
-        actorUserId: context.actor.id,
-        actorType: 'user',
-        sessionId: context.sessionId,
+      await this.audit(context, {
         organisationId: revoked.organisationId,
         hospitalId: revoked.hospitalId,
         eventType: 'admin.change',
         outcome: 'success',
         targetType: 'break_glass_grant',
         targetId: revoked.id,
-        requestId: context.requestId,
         reason: revokeReason,
         reasonCode: 'break_glass.revoked',
-        ip: context.ip,
-        userAgentHash: context.userAgentHash,
         metadata: {
           resource_type: 'break_glass_grant',
           resource_id: revoked.id,
@@ -253,24 +276,21 @@ export class BreakGlassService {
   ): Promise<BreakGlassReview> {
     const now = this.clock()
     await this.requireApprover(context)
-    const grant = await new BreakGlassRepository(this.dependencies.pool).findById(grantId)
-    if (grant === null) throw notFound()
+    const grant = await this.repository.findById(grantId)
+    if (grant === null) throw notFound('Break-glass grant not found.')
     if (grant.userId === context.actor.id || grant.approvedBy === context.actor.id) {
       throw forbidden()
     }
     if (grant.endsAt > now) throw conflict('Access must end before it is reviewed.')
-    if (!['upheld', 'overturned', 'escalated'].includes(decision)) {
-      throw invalid('The review decision is not valid.')
-    }
     const reviewNotes = notes?.trim() || null
     if (reviewNotes !== null && reviewNotes.length > 1_000) {
       throw invalid('Review notes are too long.')
     }
 
-    return withTransaction(this.dependencies.pool, async (db) => {
+    return this.commit(async (grants) => {
       let review: BreakGlassReview
       try {
-        review = await new BreakGlassRepository(db).createReview({
+        review = await grants.createReview({
           grantId: grant.id,
           reviewerId: context.actor.id,
           reviewedAt: now,
@@ -283,21 +303,15 @@ export class BreakGlassService {
         }
         throw error
       }
-      await new AuditWriter(db).write({
-        actorUserId: context.actor.id,
-        actorType: 'user',
-        sessionId: context.sessionId,
+      await this.audit(context, {
         organisationId: grant.organisationId,
         hospitalId: grant.hospitalId,
         eventType: 'break_glass.review',
         outcome: 'success',
         targetType: 'break_glass_grant',
         targetId: grant.id,
-        requestId: context.requestId,
         reason: reviewNotes ?? 'Break-glass access reviewed.',
         reasonCode: decision,
-        ip: context.ip,
-        userAgentHash: context.userAgentHash,
         metadata: { grant_id: grant.id },
       })
       return review
@@ -311,11 +325,11 @@ export class BreakGlassService {
   ): Promise<Page<BreakGlassGrant>> {
     const approver = await this.isApprover(context)
     const userId = approver ? null : context.actor.id
-    return new BreakGlassRepository(this.dependencies.pool).list(userId, hospitalId, page)
+    return this.repository.list(userId, hospitalId, page)
   }
 
+  /** Runs on the transaction opened by `commit`. */
   private async createGrant(
-    grants: BreakGlassRepository,
     input: {
       organisationId: string
       hospitalId: string
@@ -330,7 +344,7 @@ export class BreakGlassService {
   ): Promise<BreakGlassGrant> {
     const endsAt = new Date(input.now.getTime() + input.durationMinutes * 60_000)
     try {
-      return await grants.create({
+      return await this.transaction.create({
         organisationId: input.organisationId,
         hospitalId: input.hospitalId,
         userId: input.userId,
@@ -352,11 +366,24 @@ export class BreakGlassService {
   }
 
   private async requireHospital(hospitalId: string) {
-    const hospital = await new BreakGlassRepository(this.dependencies.pool).findHospital(hospitalId)
+    const hospital = await this.repository.findHospital(hospitalId)
     if (hospital === null || hospital.status !== 'active') {
       throw notFound('Hospital not found.')
     }
     return hospital
+  }
+
+  /**
+   * The person who may hold a grant must still be a member of the hospital and
+   * free of an open grant for it.
+   */
+  private async acceptRequester(
+    userId: string,
+    hospital: { id: string; organisationId: string },
+    now: Date,
+  ): Promise<void> {
+    await this.requireActiveMembership(userId, hospital, now)
+    await this.requireNoOpenGrant(userId, hospital.id, now)
   }
 
   private async requireRequestPermission(
@@ -394,9 +421,12 @@ export class BreakGlassService {
     hospital: { id: string; organisationId: string },
     at: Date,
   ): Promise<void> {
-    const active = await new BreakGlassRepository(
-      this.dependencies.pool,
-    ).hasActiveMembership(userId, hospital.organisationId, hospital.id, at)
+    const active = await this.repository.hasActiveMembership(
+      userId,
+      hospital.organisationId,
+      hospital.id,
+      at,
+    )
     if (!active) throw invalid('The person has no current access to this hospital.')
   }
 
@@ -405,9 +435,7 @@ export class BreakGlassService {
     hospitalId: string,
     at: Date,
   ): Promise<void> {
-    const open = await new BreakGlassRepository(
-      this.dependencies.pool,
-    ).findOpenForUserAtHospital(userId, hospitalId, at)
+    const open = await this.repository.findOpenForUserAtHospital(userId, hospitalId, at)
     if (open !== null) {
       throw conflict('The person already has an open emergency grant for this hospital.')
     }
@@ -435,18 +463,3 @@ function normaliseReason(value: string): string {
   return reason
 }
 
-function forbidden(): AppError {
-  return new AppError('FORBIDDEN', 403, 'You do not have permission for this action.')
-}
-
-function notFound(message = 'Break-glass grant not found.'): AppError {
-  return new AppError('NOT_FOUND', 404, message)
-}
-
-function conflict(message: string): AppError {
-  return new AppError('CONFLICT', 409, message)
-}
-
-function invalid(message: string): AppError {
-  return new AppError('RULE_VIOLATION', 422, message)
-}
