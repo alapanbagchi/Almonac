@@ -1,3 +1,4 @@
+import { readJsonBody } from '../shared/http-body'
 import { OidcRejectedError, OidcUnavailableError } from './errors'
 import type { FetchLike } from './fetch'
 
@@ -60,9 +61,7 @@ export async function exchangeAuthorizationCode(
 
   let payload: unknown
   try {
-    const text = await response.text()
-    if (text.length > MAX_TOKEN_BODY_BYTES) throw new Error('body too large')
-    payload = JSON.parse(text)
+    payload = await readJsonBody(response, MAX_TOKEN_BODY_BYTES)
   } catch {
     throw new OidcUnavailableError()
   }

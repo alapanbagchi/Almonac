@@ -1,4 +1,5 @@
 import { SignJWT, importPKCS8 } from 'jose'
+import { readJsonBody } from '../shared/http-body'
 
 export interface ServiceUserKey {
   readonly issuer: string
@@ -51,7 +52,7 @@ export function createServiceUserTokenProvider(
         throw new ZitadelUnavailableError('service token request failed')
       }
 
-      const body = readRecord(await readJson(response))
+      const body = readRecord(await readProviderJson(response))
       const value = body.access_token
       const expiresIn = body.expires_in
       if (typeof value !== 'string' || value.length === 0 || typeof expiresIn !== 'number') {
@@ -236,7 +237,7 @@ export class ZitadelManagementClient {
       throw new ZitadelUnavailableError()
     }
     if (!response.ok) {
-      const body = await readJson(response).catch(() => null)
+      const body = await readProviderJson(response).catch(() => null)
       const code =
         body !== null && typeof body === 'object' && 'message' in body
           ? String((body as { message: unknown }).message).slice(0, 100)
@@ -244,15 +245,18 @@ export class ZitadelManagementClient {
       throw new ZitadelRejectedError(response.status, code)
     }
 
-    return readJson(response)
+    return readProviderJson(response)
   }
 }
 
-async function readJson(response: Response): Promise<unknown> {
-  const text = await response.text()
-  if (text.length === 0) return {}
-  if (text.length > 64 * 1024) throw new ZitadelUnavailableError('response is too large')
-  return JSON.parse(text) as unknown
+const MAX_RESPONSE_BYTES = 64 * 1024
+
+async function readProviderJson(response: Response): Promise<unknown> {
+  try {
+    return await readJsonBody(response, MAX_RESPONSE_BYTES)
+  } catch {
+    throw new ZitadelUnavailableError('response body is unavailable')
+  }
 }
 
 function readRecord(value: unknown): Record<string, unknown> {

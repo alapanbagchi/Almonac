@@ -1,3 +1,4 @@
+import { readJsonBody } from '../shared/http-body'
 import { OidcUnavailableError } from './errors'
 import type { FetchLike } from './fetch'
 
@@ -71,9 +72,7 @@ export function createOidcDiscovery(options: OidcDiscoveryOptions): OidcDiscover
 
     let body: unknown
     try {
-      const text = await response.text()
-      if (text.length > MAX_DISCOVERY_BODY_BYTES) throw new Error('body too large')
-      body = JSON.parse(text)
+      body = await readJsonBody(response, MAX_DISCOVERY_BODY_BYTES)
     } catch {
       throw new OidcUnavailableError()
     }
