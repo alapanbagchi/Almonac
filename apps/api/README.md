@@ -10,9 +10,15 @@ review and a catalogued append-only audit log.
 
 OpenID Connect authentication is implemented: login attempts with PKCE and
 nonce, the callback exchange, ID token verification, opaque server-side
-sessions, bearer authentication, session access read and logout. The API owns
-the flow and holds the client secret; the web app relays the authorization code
-and state.
+sessions, bearer authentication, session access read and logout. Step-up
+re-authentication rotates the session token in place. The API owns the flow and
+holds the client secret; the web app relays the authorization code and state.
+
+Break-glass access is implemented at `/v1/break-glass`: a permitted clinician
+can request a time-boxed, read-only grant for one hospital. An approver can
+reserve access for another person, or a clinician can activate an emergency
+grant after a step-up. Grants last at most four hours, are reviewed after the
+window closes, and every transition is audited.
 
 The admin plane is implemented at `/v1/admin`: organisation provisioning through
 the Zitadel management API, hospital and domain management, staff invitations
@@ -69,9 +75,14 @@ production data.
 | GET | `/health` | Liveness probe: `{ "status": "ok" }` |
 | GET | `/health/ready` | Readiness probe; 503 unless the schema version and runtime privileges are correct |
 | POST | `/v1/auth/login-attempts` | Start a login: returns the Zitadel authorization URL and its expiry |
-| POST | `/v1/auth/callback` | Complete a login: consumes the attempt, exchanges the code and returns a session token once; `expiresAt` is the absolute expiry |
+| POST | `/v1/auth/step-up-attempts` | Start a step-up: forces `prompt=login` and `max_age=0`; requires a bearer session token |
+| POST | `/v1/auth/callback` | Complete a login or step-up: consumes the attempt, exchanges the code and returns a session token once; `expiresAt` is the absolute expiry |
 | GET | `/v1/auth/session` | Current user, active memberships and permissions; requires a bearer session token |
 | POST | `/v1/auth/logout` | Revoke the current session and return an optional Zitadel end-session URL; idempotent |
+| POST/GET | `/v1/break-glass/grants` | Request emergency access or reserve it for another person; list grants |
+| POST | `/v1/break-glass/grants/:grantId/activate` | Activate a reserved grant as its subject |
+| POST | `/v1/break-glass/grants/:grantId/revoke` | Close a grant; the subject or an approver may revoke |
+| POST | `/v1/break-glass/grants/:grantId/review` | Record an independent review after the access window |
 | POST/GET | `/v1/admin/organisations` | Create a provisioned organisation or list the caller's organisations |
 | GET | `/v1/admin/organisations/:organisationId` | Read one organisation |
 | GET/POST | `/v1/admin/organisations/:organisationId/hospitals` | List or create hospitals |
@@ -98,7 +109,16 @@ to Zitadel. The API never reads cookies: the web app sends
 the callback response and is stored as a hash in the control database.
 
 The idle timeout is 15 minutes and the absolute lifetime is 8 hours. The
-cookie uses the absolute expiry. `GET /v1/auth/session` is informational; it
+cookie uses the absolute expiry. A step-up keeps the same absolute expiry and
+rotates the token, so the previous token stops working immediately.
+
+Break-glass requires a recent session with at least two authentication factors
+(`aal` 2) and an authentication time within five minutes. The ID-token verifier
+maps Zitadel's `hwk`, `swk`, `webauthn`, `passkey`, `mfa`, `otp` and `pin` AMR
+values to AAL2; it does not infer AAL3, so the API must not claim NIST AAL3.
+The timeout and factor policy are enforced on every break-glass transition.
+A clinical route still has to consume the grant; the grant alone is not an
+authorisation decision. `GET /v1/auth/session` is informational; it
 is not the access check for a protected route. Logout is idempotent: a second
 call does not add another audit record, and an expired session still returns
 the Zitadel end-session URL.
@@ -166,6 +186,7 @@ src/
 ├── config.ts        startup configuration validation
 ├── index.ts         opens the port and owns the pool lifecycle
 ├── audit/           append-only event writer
+├── break-glass/     time-boxed emergency access service and routes
 ├── db/              control pool, migration runner, row parsing
 ├── health/          liveness and readiness features
 ├── identity/        user, session and access repositories, session service
