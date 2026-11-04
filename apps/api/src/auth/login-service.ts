@@ -87,22 +87,12 @@ export interface LoginServiceOptions {
  * nonce is stored, and the verifier is sealed with the session key.
  */
 export class LoginService {
-  private readonly attempts: LoginAttemptStore
-  private readonly oidc: OidcProvider
-  private readonly completion: LoginCompletionStore
-  private readonly audit: AuditSink
   private readonly metrics: Metrics
-  private readonly sealingKey: SealingKey
   private readonly clock: () => Date
   private readonly loginAttemptTtlMs: number
 
-  constructor(options: LoginServiceOptions) {
-    this.attempts = options.attempts
-    this.oidc = options.oidc
-    this.completion = options.completion
-    this.audit = options.audit
+  constructor(private readonly options: LoginServiceOptions) {
     this.metrics = options.metrics ?? NO_METRICS
-    this.sealingKey = options.sealingKey
     this.clock = options.clock ?? (() => new Date())
     this.loginAttemptTtlMs = options.loginAttemptTtlMs ?? LOGIN_ATTEMPT_TTL_MS
 
@@ -111,10 +101,7 @@ export class LoginService {
     }
   }
 
-  async start(
-    returnTo: unknown,
-    context: LoginRequestContext,
-  ): Promise<LoginStart> {
+  async start(returnTo: unknown, context: LoginRequestContext): Promise<LoginStart> {
     return this.begin(returnTo, context, null)
   }
 
@@ -134,10 +121,7 @@ export class LoginService {
    * Record a rejected first-party attempt. The audit write stays best effort,
    * exactly as it does for a rejected callback.
    */
-  async recordFailure(
-    reasonCode: string,
-    context: LoginRequestContext,
-  ): Promise<void> {
+  async recordFailure(reasonCode: string, context: LoginRequestContext): Promise<void> {
     await this.fail(reasonCode, null, context)
   }
 
@@ -150,44 +134,28 @@ export class LoginService {
     try {
       target = normaliseReturnTo(returnTo)
     } catch (error) {
-      if (error instanceof InvalidReturnToError) {
-        throw new AppError(
-          'VALIDATION_FAILED',
-          400,
-          'returnTo must be an internal path.',
-        )
-      }
-      throw error
+      if (!(error instanceof InvalidReturnToError)) throw error
+      throw new AppError('VALIDATION_FAILED', 400, 'returnTo must be an internal path.')
     }
 
     const now = this.clock()
     const secrets = createLoginSecrets()
     let authorizationUrl: string
     try {
-      authorizationUrl = await this.oidc.authorizationUrl({
+      authorizationUrl = await this.options.oidc.authorizationUrl({
         state: secrets.state,
         nonce: secrets.nonce,
         challenge: secrets.challenge,
         ...(userId === null ? {} : { prompt: 'login', maxAgeSeconds: 0 }),
       })
     } catch (error) {
-      if (error instanceof OidcUnavailableError) {
-        throw new AppError(
-          'AUTH_UNAVAILABLE',
-          503,
-          'Authentication is temporarily unavailable.',
-        )
-      }
-      throw error
+      if (!(error instanceof OidcUnavailableError)) throw error
+      throw unavailable()
     }
-    const sealedVerifier = seal(
-      secrets.verifier,
-      this.sealingKey,
-      LOGIN_ATTEMPT_AAD,
-    )
+    const sealedVerifier = seal(secrets.verifier, this.options.sealingKey, LOGIN_ATTEMPT_AAD)
     const expiresAt = new Date(now.getTime() + this.loginAttemptTtlMs)
 
-    await this.attempts.create({
+    await this.options.attempts.create({
       userId,
       stateHash: hashToken(secrets.state),
       nonceHash: hashToken(secrets.nonce),
@@ -215,42 +183,34 @@ export class LoginService {
     }
 
     const now = this.clock()
-    const attempt = await this.attempts.consume(hashToken(state), now)
+    const attempt = await this.options.attempts.consume(hashToken(state), now)
     if (attempt === null) {
       await this.fail('invalid_attempt', null, context)
       throw authFailed()
     }
     const stepUpToken =
-      attempt.purpose === 'step_up' && isSessionToken(sessionToken ?? '')
-        ? sessionToken
-        : null
+      attempt.purpose === 'step_up' && isSessionToken(sessionToken ?? '') ? sessionToken : null
     if (attempt.purpose === 'step_up' && stepUpToken === null) {
       await this.fail('missing_session', attempt.userId, context)
       throw authFailed()
     }
+
+    let identity: VerifiedIdentity
+    let completionInput: LoginCompletionInput
     try {
       const verifier = open(
-        {
-          ciphertext: attempt.pkceVerifierCiphertext,
-          keyVersion: attempt.keyVersion,
-        },
-        this.sealingKey,
+        { ciphertext: attempt.pkceVerifierCiphertext, keyVersion: attempt.keyVersion },
+        this.options.sealingKey,
         LOGIN_ATTEMPT_AAD,
       )
-      const idToken = await this.oidc.exchangeCode(code, verifier)
-      const verified = await this.oidc.verifyIdToken(idToken, attempt.nonceHash)
+      const idToken = await this.options.oidc.exchangeCode(code, verifier)
+      const verified = await this.options.oidc.verifyIdToken(idToken, attempt.nonceHash)
       // The provider may report an authentication time up to the verification
       // tolerance ahead of this clock. Clamp it so session timestamps stay
       // ordered and a small clock difference cannot fail the login.
-      const identity =
-        verified.authTime > now ? { ...verified, authTime: now } : verified
-      const sealedHint = seal(
-        identity.idToken,
-        this.sealingKey,
-        SESSION_ID_TOKEN_HINT_AAD,
-      )
-
-      const completionInput = {
+      identity = verified.authTime > now ? { ...verified, authTime: now } : verified
+      const sealedHint = seal(identity.idToken, this.options.sealingKey, SESSION_ID_TOKEN_HINT_AAD)
+      completionInput = {
         attempt,
         identity,
         idTokenHintCiphertext: sealedHint.ciphertext,
@@ -260,46 +220,40 @@ export class LoginService {
         userAgentHash: attempt.userAgentHash ?? context.userAgentHash,
         requestId: context.requestId,
       }
-
-      if (stepUpToken !== null) {
-        const completed = await this.completion.completeStepUp({
-          ...completionInput,
-          sessionToken: stepUpToken,
-        })
-        this.metrics.count('auth.login_succeeded', { purpose: 'step_up' })
-        return completed
-      }
-
-      const completed = await this.completion.complete(completionInput)
-      this.metrics.count('auth.login_succeeded', { purpose: 'login' })
-      return completed
     } catch (error) {
-      if (error instanceof OidcUnavailableError) {
-        await this.fail('identity_unavailable', null, context)
-        throw new AppError(
-          'AUTH_UNAVAILABLE',
-          503,
-          'Authentication is temporarily unavailable.',
-        )
-      }
-      if (error instanceof InvalidIdTokenError) {
-        this.metrics.count('auth.id_token_rejected', { reason: 'invalid' })
-      }
-      if (
-        error instanceof OidcRejectedError ||
-        error instanceof InvalidIdTokenError ||
-        error instanceof InvalidLoginAttemptError ||
-        error instanceof LoginRejectedError
-      ) {
-        await this.fail(
-          error instanceof LoginRejectedError ? error.reason : 'token_rejected',
-          error instanceof LoginRejectedError ? error.userId : null,
-          context,
-        )
-        throw authFailed()
-      }
-      throw error
+      throw await this.rejection(error, context)
     }
+
+    const completed =
+      stepUpToken === null
+        ? await this.options.completion.complete(completionInput)
+        : await this.options.completion.completeStepUp({ ...completionInput, sessionToken: stepUpToken })
+    this.metrics.count('auth.login_succeeded', {
+      purpose: stepUpToken === null ? 'login' : 'step_up',
+    })
+    return completed
+  }
+
+  /** Map a callback failure to the response, after recording why it failed. */
+  private async rejection(error: unknown, context: LoginRequestContext): Promise<unknown> {
+    if (error instanceof OidcUnavailableError) {
+      await this.fail('identity_unavailable', null, context)
+      return unavailable()
+    }
+    if (error instanceof InvalidIdTokenError) {
+      this.metrics.count('auth.id_token_rejected', { reason: 'invalid' })
+    }
+    if (
+      error instanceof OidcRejectedError ||
+      error instanceof InvalidIdTokenError ||
+      error instanceof InvalidLoginAttemptError ||
+      error instanceof LoginRejectedError
+    ) {
+      const rejected = error instanceof LoginRejectedError
+      await this.fail(rejected ? error.reason : 'token_rejected', rejected ? error.userId : null, context)
+      return authFailed()
+    }
+    return error
   }
 
   /** A failed login is audited best effort; the audit must not mask the error. */
@@ -325,7 +279,7 @@ export class LoginService {
     }
 
     try {
-      await this.audit.write(event)
+      await this.options.audit.write(event)
     } catch (error) {
       console.error('[api] login audit failed:', safeName(error))
     }
@@ -334,4 +288,8 @@ export class LoginService {
 
 function authFailed(): AppError {
   return new AppError('UNAUTHENTICATED', 401, 'Authentication failed.')
+}
+
+function unavailable(): AppError {
+  return new AppError('AUTH_UNAVAILABLE', 503, 'Authentication is temporarily unavailable.')
 }

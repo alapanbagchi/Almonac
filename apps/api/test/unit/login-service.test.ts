@@ -372,6 +372,28 @@ describe('login service', () => {
     })
   })
 
+  test('records why a provider rejection failed the callback', async () => {
+    const { login, oidc, audit } = service()
+    const start = await login.start('/', context)
+    const state = new URL(start.authorizationUrl).searchParams.get('state')!
+    oidc.reject = true
+    await expect(login.complete('code', state, context)).rejects.toMatchObject({
+      code: 'UNAUTHENTICATED',
+    })
+    expect(audit.events.at(-1)?.reasonCode).toBe('token_rejected')
+  })
+
+  test('records why an identity outage failed the callback', async () => {
+    const { login, oidc, audit } = service()
+    const start = await login.start('/', context)
+    const state = new URL(start.authorizationUrl).searchParams.get('state')!
+    oidc.unavailable = true
+    await expect(login.complete('code', state, context)).rejects.toMatchObject({
+      code: 'AUTH_UNAVAILABLE',
+    })
+    expect(audit.events.at(-1)?.reasonCode).toBe('identity_unavailable')
+  })
+
   test('keeps the authentication failure when the audit write fails', async () => {
     const { login, audit, oidc } = service()
     const start = await login.start('/', context)
