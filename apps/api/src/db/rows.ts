@@ -9,74 +9,83 @@ export function rowRecord(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>
 }
 
-export function stringField(row: Record<string, unknown>, key: string): string {
+type FieldCheck<T> = (value: unknown) => value is T
+
+function fieldValue<T>(
+  row: Record<string, unknown>,
+  key: string,
+  label: string,
+  check: FieldCheck<T>,
+): T {
   const value = row[key]
-  if (typeof value !== 'string') throw new Error(`database field ${key} is not text`)
+  if (!check(value)) throw new Error(`database field ${key} is not ${label}`)
   return value
+}
+
+function nullableFieldValue<T>(
+  row: Record<string, unknown>,
+  key: string,
+  label: string,
+  check: FieldCheck<T>,
+): T | null {
+  const value = row[key]
+  if (value === null) return null
+  if (!check(value)) throw new Error(`database field ${key} is not ${label}`)
+  return value
+}
+
+const isString = (value: unknown): value is string => typeof value === 'string'
+const isDate = (value: unknown): value is Date =>
+  value instanceof Date && !Number.isNaN(value.getTime())
+const isInteger = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isInteger(value)
+const isTextArray = (value: unknown): value is string[] =>
+  Array.isArray(value) && value.every((item) => typeof item === 'string')
+
+export function stringField(row: Record<string, unknown>, key: string): string {
+  return fieldValue(row, key, 'text', isString)
 }
 
 export function nullableStringField(
   row: Record<string, unknown>,
   key: string,
 ): string | null {
-  const value = row[key]
-  if (value === null) return null
-  if (typeof value !== 'string') throw new Error(`database field ${key} is not text`)
-  return value
+  return nullableFieldValue(row, key, 'text', isString)
 }
 
 export function dateField(row: Record<string, unknown>, key: string): Date {
-  const value = row[key]
-  if (value instanceof Date && !Number.isNaN(value.getTime())) return value
-  throw new Error(`database field ${key} is not a timestamp`)
+  return fieldValue(row, key, 'a timestamp', isDate)
 }
 
 export function nullableDateField(
   row: Record<string, unknown>,
   key: string,
 ): Date | null {
-  const value = row[key]
-  if (value === null) return null
-  if (value instanceof Date && !Number.isNaN(value.getTime())) return value
-  throw new Error(`database field ${key} is not a timestamp`)
+  return nullableFieldValue(row, key, 'a timestamp', isDate)
 }
 
 export function bufferField(row: Record<string, unknown>, key: string): Buffer {
-  const value = row[key]
-  if (Buffer.isBuffer(value)) return value
-  throw new Error(`database field ${key} is not bytea`)
+  return fieldValue(row, key, 'bytea', Buffer.isBuffer)
 }
 
 export function nullableBufferField(
   row: Record<string, unknown>,
   key: string,
 ): Buffer | null {
-  const value = row[key]
-  if (value === null) return null
-  if (Buffer.isBuffer(value)) return value
-  throw new Error(`database field ${key} is not bytea`)
+  return nullableFieldValue(row, key, 'bytea', Buffer.isBuffer)
 }
 
 export function integerField(row: Record<string, unknown>, key: string): number {
-  const value = row[key]
-  if (typeof value === 'number' && Number.isInteger(value)) return value
-  throw new Error(`database field ${key} is not an integer`)
+  return fieldValue(row, key, 'an integer', isInteger)
 }
 
 export function nullableIntegerField(
   row: Record<string, unknown>,
   key: string,
 ): number | null {
-  const value = row[key]
-  if (value === null) return null
-  if (typeof value === 'number' && Number.isInteger(value)) return value
-  throw new Error(`database field ${key} is not an integer`)
+  return nullableFieldValue(row, key, 'an integer', isInteger)
 }
 
 export function textArrayField(row: Record<string, unknown>, key: string): string[] {
-  const value = row[key]
-  if (Array.isArray(value) && value.every((item) => typeof item === 'string')) {
-    return value
-  }
-  throw new Error(`database field ${key} is not a text array`)
+  return fieldValue(row, key, 'a text array', isTextArray)
 }
