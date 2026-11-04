@@ -1,5 +1,6 @@
 import type { AuthorizationRepository } from '../access/authorization-repository'
 import { forbidden, notFound } from './admin-errors'
+import { isPlatformAdmin, requireAdminPermission } from './admin-authorization'
 import type { AdminRequestContext } from './admin-context'
 import type { Page, PageRequest } from '../shared/pagination'
 import type { Organisation, OrganisationRepository } from './organisation-repository'
@@ -13,26 +14,21 @@ export class OrganisationAdminService {
   ) {}
 
   async create(context: AdminRequestContext, input: { name: string; slug: string }): Promise<Organisation> {
-    if (!(await this.authorization.hasPlatformPermission(context.actor.id, 'platform.manage'))) {
-      throw forbidden()
-    }
+    if (!(await isPlatformAdmin(this.authorization, context.actor.id))) throw forbidden()
     return this.provisioning.provision(input)
   }
 
   async list(context: AdminRequestContext, page: PageRequest): Promise<Page<Organisation>> {
-    if (await this.authorization.hasPlatformPermission(context.actor.id, 'platform.manage')) {
+    if (await isPlatformAdmin(this.authorization, context.actor.id)) {
       return this.organisations.listAll(page)
     }
     return this.organisations.listForUser(context.actor.id, page)
   }
 
   async get(context: AdminRequestContext, organisationId: string): Promise<Organisation> {
-    const allowed =
-      (await this.authorization.hasPlatformPermission(context.actor.id, 'platform.manage')) ||
-      (await this.authorization.hasPermission(context.actor.id, 'organisation.manage', {
-        organisationId,
-      }))
-    if (!allowed) throw forbidden()
+    await requireAdminPermission(this.authorization, context.actor.id, 'organisation.manage', {
+      organisationId,
+    })
     const organisation = await this.organisations.findById(organisationId)
     if (organisation === null) throw notFound('Organisation not found.')
     return organisation

@@ -2,7 +2,8 @@ import type { Pool } from 'pg'
 import { AppError } from '../shared/errors'
 import type { Page, PageRequest } from '../shared/pagination'
 import { withTransaction, type DatabaseQuery } from '../db/pool'
-import { asAdminError, conflict, forbidden, notFound } from './admin-errors'
+import { asAdminError, conflict, notFound } from './admin-errors'
+import { isPlatformAdmin, requireAdminPermission } from './admin-authorization'
 import type { AuditSink } from '../audit/audit-writer'
 import type { AuthorizationRepository } from '../access/authorization-repository'
 import type { AdminRequestContext } from './admin-context'
@@ -125,18 +126,15 @@ export class MembershipAdminService {
     return membership
   }
 
-  private async requireManage(
+  private requireManage(
     context: AdminRequestContext,
     organisationId: string,
     hospitalId: string | null,
   ): Promise<void> {
-    const allowed =
-      (await this.authorization.hasPlatformPermission(context.actor.id, 'platform.manage')) ||
-      (await this.authorization.hasPermission(context.actor.id, 'membership.manage', {
-        organisationId,
-        hospitalId,
-      }))
-    if (!allowed) throw forbidden()
+    return requireAdminPermission(this.authorization, context.actor.id, 'membership.manage', {
+      organisationId,
+      hospitalId,
+    })
   }
 
   private async preventEscalation(
@@ -144,7 +142,7 @@ export class MembershipAdminService {
     membership: MembershipSummary,
     role: OrganisationRole,
   ): Promise<void> {
-    if (await this.authorization.hasPlatformPermission(context.actor.id, 'platform.manage')) return
+    if (await isPlatformAdmin(this.authorization, context.actor.id)) return
     const held = new Set(
       await this.authorization.listPermissions(context.actor.id, {
         organisationId: membership.organisationId,

@@ -23,6 +23,7 @@ import {
 } from './invitation-repository'
 import type { ZitadelManagementClient } from './zitadel-management-client'
 import { asAdminError, conflict, forbidden, notFound } from './admin-errors'
+import { requireAdminPermission } from './admin-authorization'
 
 export const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000
 
@@ -409,11 +410,13 @@ export class InvitationService {
     )
   }
 
-  private async requireManage(actorId: string, target: AccessTarget): Promise<void> {
-    const allowed =
-      (await this.dependencies.authorization.hasPlatformPermission(actorId, 'platform.manage')) ||
-      (await this.dependencies.authorization.hasPermission(actorId, 'membership.manage', target))
-    if (!allowed) throw forbidden()
+  private requireManage(actorId: string, target: AccessTarget): Promise<void> {
+    return requireAdminPermission(
+      this.dependencies.authorization,
+      actorId,
+      'membership.manage',
+      target,
+    )
   }
 
   private async requireNoMembership(

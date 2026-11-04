@@ -7,7 +7,8 @@ import type { AuthorizationRepository } from '../access/authorization-repository
 import type { AdminRequestContext } from './admin-context'
 import type { Hospital, HospitalDomain, HospitalRepository } from './hospital-repository'
 import type { Page, PageRequest } from '../shared/pagination'
-import { asAdminError, forbidden, notFound } from './admin-errors'
+import { asAdminError, notFound } from './admin-errors'
+import { requireAdminPermission } from './admin-authorization'
 
 export class HospitalAdminService {
   constructor(
@@ -149,16 +150,13 @@ export class HospitalAdminService {
     })
   }
 
-  private async requireOrganisationManage(
+  private requireOrganisationManage(
     context: AdminRequestContext,
     organisationId: string,
   ): Promise<void> {
-    const allowed =
-      (await this.authorization.hasPlatformPermission(context.actor.id, 'platform.manage')) ||
-      (await this.authorization.hasPermission(context.actor.id, 'hospital.manage', {
-        organisationId,
-      }))
-    if (!allowed) throw forbidden()
+    return requireAdminPermission(this.authorization, context.actor.id, 'hospital.manage', {
+      organisationId,
+    })
   }
 
   private async requireHospitalManage(
@@ -167,13 +165,10 @@ export class HospitalAdminService {
   ): Promise<Hospital> {
     const hospital = await this.hospitals.findById(hospitalId)
     if (hospital === null) throw notFound('Hospital not found.')
-    const allowed =
-      (await this.authorization.hasPlatformPermission(context.actor.id, 'platform.manage')) ||
-      (await this.authorization.hasPermission(context.actor.id, 'hospital.manage', {
-        organisationId: hospital.organisationId,
-        hospitalId: hospital.id,
-      }))
-    if (!allowed) throw forbidden()
+    await requireAdminPermission(this.authorization, context.actor.id, 'hospital.manage', {
+      organisationId: hospital.organisationId,
+      hospitalId: hospital.id,
+    })
     return hospital
   }
 
