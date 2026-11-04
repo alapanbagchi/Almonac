@@ -4,6 +4,7 @@ import {
   dateField,
   hasSqlState,
   integerField,
+  isEmpty,
   nullableDateField,
   nullableStringField,
   rowRecord,
@@ -129,7 +130,7 @@ export class MembershipAdminRepository {
        group by membership.id, app_user.email, app_user.display_name`,
       [id],
     )
-    return result.rows[0] === undefined ? null : mapMembership(result.rows[0])
+    return isEmpty(result) ? null : mapMembership(result.rows[0])
   }
 
   async list(
@@ -177,7 +178,7 @@ export class MembershipAdminRepository {
         group by role.id, role.key, role.name, role.scope`,
       [organisationId, roleId],
     )
-    return result.rows[0] === undefined ? null : mapRole(result.rows[0])
+    return isEmpty(result) ? null : mapRole(result.rows[0])
   }
 
   async assignRole(
@@ -285,7 +286,7 @@ export class MembershipAdminRepository {
        limit 1`,
       [input.userId, input.organisationId, input.hospitalId ?? null],
     )
-    return result.rows[0] === undefined ? null : mapMembership(result.rows[0])
+    return isEmpty(result) ? null : mapMembership(result.rows[0])
   }
 }
 

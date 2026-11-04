@@ -3,6 +3,7 @@ import { pageOf, type Page, type PageRequest } from '../shared/pagination'
 import {
   dateField,
   hasSqlState,
+  isEmpty,
   nullableDateField,
   nullableStringField,
   rowRecord,
@@ -53,17 +54,16 @@ export class PrimaryDomainRejectedError extends Error {
   }
 }
 
-const HOSPITAL_SELECT = `
-  select id, organisation_id, name, slug, timezone, status, primary_domain_id,
-         created_at
-  from control.hospital
+const HOSPITAL_COLUMNS = `
+  id, organisation_id, name, slug, timezone, status, primary_domain_id, created_at
 `
 
-const DOMAIN_SELECT = `
-  select id, hospital_id, domain::text as domain, verified_at, retired_at,
-         created_at
-  from control.hospital_domain
+const DOMAIN_COLUMNS = `
+  id, hospital_id, domain::text as domain, verified_at, retired_at, created_at
 `
+
+const HOSPITAL_SELECT = `select ${HOSPITAL_COLUMNS} from control.hospital`
+const DOMAIN_SELECT = `select ${DOMAIN_COLUMNS} from control.hospital_domain`
 
 export class HospitalRepository {
   constructor(private readonly db: DatabaseQuery) {}
@@ -76,8 +76,7 @@ export class HospitalRepository {
       const result = await db.query(
         `insert into control.hospital (organisation_id, name, slug, timezone)
          values ($1, $2, $3, $4)
-         returning id, organisation_id, name, slug, timezone, status,
-                   primary_domain_id, created_at`,
+         returning ${HOSPITAL_COLUMNS}`,
         [input.organisationId, input.name, input.slug, input.timezone],
       )
       return mapHospital(result.rows[0])
@@ -89,7 +88,7 @@ export class HospitalRepository {
 
   async findById(id: string): Promise<Hospital | null> {
     const result = await this.db.query(`${HOSPITAL_SELECT} where id = $1`, [id])
-    return result.rows[0] === undefined ? null : mapHospital(result.rows[0])
+    return isEmpty(result) ? null : mapHospital(result.rows[0])
   }
 
   async listByOrganisation(
@@ -113,8 +112,7 @@ export class HospitalRepository {
         `insert into control.hospital_domain
            (hospital_id, domain, verification_token_hash)
          values ($1, $2, $3)
-         returning id, hospital_id, domain::text as domain, verified_at,
-                   retired_at, created_at`,
+         returning ${DOMAIN_COLUMNS}`,
         [input.hospitalId, input.domain, input.tokenHash],
       )
       return mapDomain(result.rows[0])
@@ -145,11 +143,10 @@ export class HospitalRepository {
           and verification_token_hash = $3
           and verified_at is null
           and retired_at is null
-        returning id, hospital_id, domain::text as domain, verified_at,
-                  retired_at, created_at`,
+        returning ${DOMAIN_COLUMNS}`,
       [input.hospitalId, input.domainId, input.tokenHash, input.at],
     )
-    return result.rows[0] === undefined ? null : mapDomain(result.rows[0])
+    return isEmpty(result) ? null : mapDomain(result.rows[0])
   }
 
   async setPrimaryDomain(
@@ -165,7 +162,7 @@ export class HospitalRepository {
                     primary_domain_id, created_at`,
         [input.hospitalId, input.domainId],
       )
-      return result.rows[0] === undefined ? null : mapHospital(result.rows[0])
+      return isEmpty(result) ? null : mapHospital(result.rows[0])
     } catch (error) {
       // The trigger rejects a missing, unverified, retired or foreign domain
       // with 23503 or 23514. Both mean the same thing to the caller.

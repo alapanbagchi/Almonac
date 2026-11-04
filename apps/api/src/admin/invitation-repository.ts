@@ -3,6 +3,7 @@ import { pageOf, type Page, type PageRequest } from '../shared/pagination'
 import { withTransaction, type DatabaseQuery } from '../db/pool'
 import {
   dateField,
+  isEmpty,
   nullableDateField,
   nullableStringField,
   rowRecord,
@@ -45,7 +46,7 @@ const SELECT_COLUMNS = `${COLUMNS},
 
 /** One invitation, or null when the query found none. */
 function single(result: { readonly rows: readonly unknown[] }): Invitation | null {
-  return result.rows[0] === undefined ? null : mapRow(result.rows[0])
+  return isEmpty(result) ? null : mapRow(result.rows[0])
 }
 
 export class InvitationRepository {

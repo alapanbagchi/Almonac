@@ -87,6 +87,15 @@ export function booleanField(row: Record<string, unknown>, key: string): boolean
 export function textArrayField(row: Record<string, unknown>, key: string): string[] {
   return field(row, key, KIND.textArray)
 }
+
+/**
+ * True when a query returned no row. Repositories read this instead of
+ * indexing rows[0] and then testing the result for undefined.
+ */
+export function isEmpty(result: { readonly rows: readonly unknown[] }): boolean {
+  return result.rows[0] === undefined
+}
+
 /** True when PostgreSQL rejected the statement with any of these SQLSTATEs. */
 export function hasSqlState(error: unknown, ...codes: readonly string[]): boolean {
   if (typeof error !== 'object' || error === null) return false
