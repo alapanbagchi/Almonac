@@ -1,5 +1,5 @@
-import { AppError } from '../shared/errors'
 import type { AuthorizationRepository } from '../access/authorization-repository'
+import { forbidden, notFound } from './admin-errors'
 import type { AdminRequestContext } from './admin-context'
 import type { Organisation, OrganisationRepository } from './organisation-repository'
 import type { OrganisationProvisioningService } from './organisation-provisioning-service'
@@ -27,7 +27,7 @@ export class OrganisationAdminService {
 
   async get(context: AdminRequestContext, organisationId: string): Promise<Organisation> {
     const organisation = await this.organisations.findById(organisationId)
-    if (organisation === null) throw notFound()
+    if (organisation === null) throw notFound('Organisation not found.')
     const allowed =
       (await this.authorization.hasPlatformPermission(context.actor.id, 'platform.manage')) ||
       (await this.authorization.hasPermission(context.actor.id, 'organisation.manage', {
@@ -36,12 +36,4 @@ export class OrganisationAdminService {
     if (!allowed) throw forbidden()
     return organisation
   }
-}
-
-function forbidden(): AppError {
-  return new AppError('FORBIDDEN', 403, 'You do not have permission for this action.')
-}
-
-function notFound(): AppError {
-  return new AppError('NOT_FOUND', 404, 'Organisation not found.')
 }

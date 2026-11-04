@@ -1,7 +1,7 @@
 import type { Pool } from 'pg'
 import { AppError } from '../shared/errors'
 import { withTransaction, type DatabaseQuery } from '../db/pool'
-import { asAdminError } from './admin-errors'
+import { asAdminError, conflict, forbidden, notFound } from './admin-errors'
 import type { AuditSink } from '../audit/audit-writer'
 import type { AuthorizationRepository } from '../access/authorization-repository'
 import type { AdminRequestContext } from './admin-context'
@@ -119,7 +119,7 @@ export class MembershipAdminService {
     membershipId: string,
   ): Promise<MembershipSummary> {
     const membership = await this.memberships.findById(membershipId)
-    if (membership === null) throw notFound()
+    if (membership === null) throw notFound('Membership not found.')
     await this.requireManage(context, membership.organisationId, membership.hospitalId)
     return membership
   }
@@ -220,16 +220,4 @@ export class MembershipAdminService {
       metadata: { membership_id: membership.id, role_id: roleId },
     }, db)
   }
-}
-
-function forbidden(): AppError {
-  return new AppError('FORBIDDEN', 403, 'You do not have permission for this action.')
-}
-
-function notFound(): AppError {
-  return new AppError('NOT_FOUND', 404, 'Membership not found.')
-}
-
-function conflict(message: string): AppError {
-  return new AppError('CONFLICT', 409, message)
 }

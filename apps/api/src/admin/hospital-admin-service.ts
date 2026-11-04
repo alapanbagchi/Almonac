@@ -7,7 +7,7 @@ import type { AuthorizationRepository } from '../access/authorization-repository
 import type { AdminRequestContext } from './admin-context'
 import type { Hospital, HospitalDomain, HospitalRepository } from './hospital-repository'
 import type { OrganisationRepository } from './organisation-repository'
-import { asAdminError } from './admin-errors'
+import { asAdminError, forbidden, notFound } from './admin-errors'
 
 export class HospitalAdminService {
   constructor(
@@ -131,7 +131,7 @@ export class HospitalAdminService {
       } catch (error) {
         throw asAdminError(error)
       }
-      if (updated === null) throw notFound()
+      if (updated === null) throw notFound('Hospital not found.')
       await this.auditChange(
         context,
         hospital.organisationId,
@@ -162,7 +162,7 @@ export class HospitalAdminService {
     hospitalId: string,
   ): Promise<Hospital> {
     const hospital = await this.hospitals.findById(hospitalId)
-    if (hospital === null) throw notFound()
+    if (hospital === null) throw notFound('Hospital not found.')
     const allowed =
       (await this.authorization.hasPlatformPermission(context.actor.id, 'platform.manage')) ||
       (await this.authorization.hasPermission(context.actor.id, 'hospital.manage', {
@@ -220,12 +220,4 @@ function humanReason(code: string): string {
 
 function validation(message: string): AppError {
   return new AppError('VALIDATION_FAILED', 400, message)
-}
-
-function forbidden(): AppError {
-  return new AppError('FORBIDDEN', 403, 'You do not have permission for this action.')
-}
-
-function notFound(): AppError {
-  return new AppError('NOT_FOUND', 404, 'Hospital not found.')
 }

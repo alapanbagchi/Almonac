@@ -12,6 +12,18 @@ import {
   ZitadelUnavailableError,
 } from './zitadel-management-client'
 
+export function forbidden(): AppError {
+  return new AppError('FORBIDDEN', 403, 'You do not have permission for this action.')
+}
+
+export function notFound(message: string): AppError {
+  return new AppError('NOT_FOUND', 404, message)
+}
+
+export function conflict(message: string): AppError {
+  return new AppError('CONFLICT', 409, message)
+}
+
 /**
  * Translates administration and identity-provider failures into the public
  * error envelope. Provider response bodies never reach the browser.

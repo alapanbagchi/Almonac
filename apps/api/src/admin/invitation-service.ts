@@ -20,7 +20,7 @@ import {
   type InvitationKind,
 } from './invitation-repository'
 import type { ZitadelManagementClient } from './zitadel-management-client'
-import { asAdminError } from './admin-errors'
+import { asAdminError, conflict, forbidden, notFound } from './admin-errors'
 
 export const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000
 
@@ -406,16 +406,4 @@ function normaliseEmail(value: string): string {
     throw new AppError('INVALID_EMAIL', 422, 'Email address is not valid.')
   }
   return email
-}
-
-function notFound(message: string): AppError {
-  return new AppError('NOT_FOUND', 404, message)
-}
-
-function forbidden(): AppError {
-  return new AppError('FORBIDDEN', 403, 'You do not have permission for this action.')
-}
-
-function conflict(message: string): AppError {
-  return new AppError('CONFLICT', 409, message)
 }
