@@ -157,6 +157,13 @@ Verification: search for `localStorage`, `sessionStorage`, `console.log`, `use c
 - Loading, empty and error states are designed, not afterthoughts.
 - Verify with keyboard-only navigation and the browser accessibility tree before calling a screen done.
 
-## 7. Before you finish
+## 7. Security headers and content security policy
+
+- `src/proxy.ts` sets the response headers for every rendered document: a per-request nonce in `script-src` with `'strict-dynamic'`, framing denial (`frame-ancestors 'none'`, `x-frame-options: DENY`), `referrer-policy: same-origin`, a Permissions Policy, `nosniff`, and HSTS only when `AUTH_PUBLIC_ORIGIN` is https. Do not add `'unsafe-inline'` to `script-src` or widen the framing rules.
+- A nonce only works on a request-time render. Every page that returns HTML exports `const instant = false` and awaits `connection()` from `next/server` in an async component; the build then reports the route as dynamic. `instant = false` alone does not make a route dynamic, and a static route serves scripts without a nonce that the browser refuses to run.
+- `referrer-policy: same-origin` is deliberate. `no-referrer` makes Chromium send `Origin: null` on same-origin form POSTs, which the BFF origin check rejects with 403. BFF route responses still send `no-referrer` themselves.
+- The policy lives in `src/lib/http/security-headers.ts`. Change it there, extend `src/lib/http/security-headers.test.ts`, and keep the `e2e/smoke.spec.ts` assertion: it reads raw HTML rather than `document.scripts` so dev-only injected scripts do not mask a missing nonce on the server output.
+
+## 8. Before you finish
 
 `npm run lint` and `npm run build` pass (build type-checks; `npx tsc --noEmit` is acceptable for a faster loop). No new `any`, no non-null assertions to silence the compiler, no unused imports. No PHI in logs, URLs or storage. New routes have loading and error handling. The diff touches only the feature you were asked to change. Report anything you could not verify, and do not claim a screen works because it renders.
