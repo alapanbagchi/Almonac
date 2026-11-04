@@ -69,29 +69,33 @@ export class PasswordLoginService {
     }
   }
 
+  /** Record why the attempt failed and answer with the matching envelope. */
   private async reject(error: unknown, context: LoginRequestContext): Promise<never> {
-    if (error instanceof MfaRequiredError) {
-      await this.login.recordFailure('mfa_required', context)
-      throw new AppError(
-        'MFA_REQUIRED',
-        403,
-        'Multi-factor authentication is required. Use single sign-on.',
-      )
-    }
-    if (error instanceof ZitadelRejectedError) {
-      await this.login.recordFailure('invalid_credentials', context)
-      throw new AppError('UNAUTHENTICATED', 401, 'Authentication failed.')
-    }
-    if (error instanceof ZitadelUnavailableError) {
-      await this.login.recordFailure('identity_unavailable', context)
-      throw new AppError('AUTH_UNAVAILABLE', 503, 'Authentication is temporarily unavailable.')
-    }
-    if (error instanceof InvalidAuthRequestError) {
-      await this.login.recordFailure('invalid_authorization', context)
-      throw new AppError('AUTH_UNAVAILABLE', 503, 'Authentication is temporarily unavailable.')
-    }
-    throw error
+    const [reasonCode, failure] = failureOf(error)
+    await this.login.recordFailure(reasonCode, context)
+    throw failure
   }
+}
+
+/** What a provider failure means to the caller, and what the audit record calls it. */
+function failureOf(error: unknown): [reasonCode: string, failure: AppError] {
+  if (error instanceof MfaRequiredError) {
+    return [
+      'mfa_required',
+      new AppError('MFA_REQUIRED', 403, 'Multi-factor authentication is required. Use single sign-on.'),
+    ]
+  }
+  if (error instanceof ZitadelRejectedError) {
+    return ['invalid_credentials', new AppError('UNAUTHENTICATED', 401, 'Authentication failed.')]
+  }
+  if (error instanceof ZitadelUnavailableError || error instanceof InvalidAuthRequestError) {
+    const reasonCode = error instanceof ZitadelUnavailableError ? 'identity_unavailable' : 'invalid_authorization'
+    return [
+      reasonCode,
+      new AppError('AUTH_UNAVAILABLE', 503, 'Authentication is temporarily unavailable.'),
+    ]
+  }
+  throw error
 }
 
 function stateOf(url: string): string | null {

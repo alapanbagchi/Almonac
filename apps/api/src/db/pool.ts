@@ -104,7 +104,7 @@ interface ReadinessRow {
  */
 export async function checkControlDatabase(db: DatabaseQuery): Promise<void> {
   const result = await db.query(READINESS_QUERY)
-  const row = isEmpty(result) ? undefined : readReadiness(rowRecord(result.rows[0]))
+  const row = isEmpty(result) ? undefined : readinessOf(result.rows[0])
 
   if (
     row === undefined ||
@@ -119,13 +119,19 @@ export async function checkControlDatabase(db: DatabaseQuery): Promise<void> {
   }
 }
 
-function readReadiness(row: Record<string, unknown>): ReadinessRow {
-  return {
-    runtimeRole: stringField(row, 'runtime_role'),
-    version: integerField(row, 'version'),
-    canInsert: booleanField(row, 'can_insert'),
-    canUpdate: booleanField(row, 'can_update'),
-    canDelete: booleanField(row, 'can_delete'),
-    canTruncate: booleanField(row, 'can_truncate'),
+/** A row of the wrong shape is as unready as a missing one, so it reads as absent. */
+function readinessOf(value: unknown): ReadinessRow | undefined {
+  try {
+    const row = rowRecord(value)
+    return {
+      runtimeRole: stringField(row, 'runtime_role'),
+      version: integerField(row, 'version'),
+      canInsert: booleanField(row, 'can_insert'),
+      canUpdate: booleanField(row, 'can_update'),
+      canDelete: booleanField(row, 'can_delete'),
+      canTruncate: booleanField(row, 'can_truncate'),
+    }
+  } catch {
+    return undefined
   }
 }
