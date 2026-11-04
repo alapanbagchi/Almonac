@@ -130,6 +130,18 @@ export class InvitationRepository {
     return result.rows[0] === undefined ? null : mapRow(result.rows[0])
   }
 
+  /** The invitation a token names, locked for the accepting transaction. */
+  async findByTokenHashForUpdate(db: DatabaseQuery, tokenHash: Buffer): Promise<Invitation | null> {
+    const result = await db.query(
+      `select ${SELECT_COLUMNS}
+         from identity.invitation as invitation
+        where invitation.token_hash = $1
+        for update`,
+      [tokenHash],
+    )
+    return result.rows[0] === undefined ? null : mapRow(result.rows[0])
+  }
+
   async revokePending(
     id: string,
     at: Date,
@@ -162,20 +174,6 @@ export class InvitationRepository {
     )
     return result.rows.length > 0
   }
-}
-
-export async function findInvitationByTokenHashForUpdate(
-  db: DatabaseQuery,
-  tokenHash: Buffer,
-): Promise<Invitation | null> {
-  const result = await db.query(
-    `select ${SELECT_COLUMNS}
-       from identity.invitation as invitation
-      where invitation.token_hash = $1
-      for update`,
-    [tokenHash],
-  )
-  return result.rows[0] === undefined ? null : mapRow(result.rows[0])
 }
 
 function mapRow(value: unknown): Invitation {

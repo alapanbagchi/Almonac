@@ -1,5 +1,5 @@
 import nodemailer from 'nodemailer'
-import type { InvitationMailer } from './invitation-service'
+import type { InvitationMailer } from './invitation-types'
 
 export interface SmtpMailerOptions {
   readonly smtpUrl: string
