@@ -33,7 +33,7 @@ import {
   roleResponse,
 } from './admin-responses'
 import { authenticateBearer } from '../auth/bearer'
-import { pageRequest, pageSchema, paginationFields } from '../shared/pagination'
+import { pageRequest, pageResponse, pageSchema, paginationFields } from '../shared/pagination'
 import { requestIdOf } from '../shared/request'
 
 /**
@@ -90,10 +90,7 @@ export function createAdmin(dependencies: AdminDependencies) {
           context.adminContext,
           pageRequest(context.query),
         )
-        return {
-          items: organisations.items.map(organisationResponse),
-          nextOffset: organisations.nextOffset,
-        }
+        return pageResponse(organisations, organisationResponse)
       },
     )
     .get(
@@ -121,10 +118,7 @@ export function createAdmin(dependencies: AdminDependencies) {
           context.params.organisationId,
           pageRequest(context.query),
         )
-        return {
-          items: hospitals.items.map(hospitalResponse),
-          nextOffset: hospitals.nextOffset,
-        }
+        return pageResponse(hospitals, hospitalResponse)
       },
     )
     .post(
@@ -163,10 +157,7 @@ export function createAdmin(dependencies: AdminDependencies) {
           context.params.hospitalId,
           pageRequest(context.query),
         )
-        return {
-          items: domains.items.map(domainResponse),
-          nextOffset: domains.nextOffset,
-        }
+        return pageResponse(domains, domainResponse)
       },
     )
     .post(
@@ -238,10 +229,7 @@ export function createAdmin(dependencies: AdminDependencies) {
           },
           pageRequest(context.query),
         )
-        return {
-          items: memberships.items.map(membershipResponse),
-          nextOffset: memberships.nextOffset,
-        }
+        return pageResponse(memberships, membershipResponse)
       },
     )
     .get(
@@ -266,10 +254,7 @@ export function createAdmin(dependencies: AdminDependencies) {
           context.params.organisationId,
           pageRequest(context.query),
         )
-        return {
-          items: roles.items.map(roleResponse),
-          nextOffset: roles.nextOffset,
-        }
+        return pageResponse(roles, roleResponse)
       },
     )
     .post(
@@ -356,10 +341,7 @@ export function createAdmin(dependencies: AdminDependencies) {
           },
           pageRequest(context.query),
         )
-        return {
-          items: invitations.items.map(invitationResponse),
-          nextOffset: invitations.nextOffset,
-        }
+        return pageResponse(invitations, invitationResponse)
       },
     )
     .post(

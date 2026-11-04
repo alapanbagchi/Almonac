@@ -3,7 +3,7 @@ import type { AppUser } from '../identity/app-user-repository'
 import type { WebSession } from '../identity/session-repository'
 import { authenticateBearer, type SessionAuthenticator, type UserLookup } from '../auth/bearer'
 import { requestContext, type RequestServer } from '../auth/request-context'
-import { pageRequest, pageSchema } from '../shared/pagination'
+import { pageRequest, pageResponse, pageSchema } from '../shared/pagination'
 import { requestIdOf } from '../shared/request'
 import type { BreakGlassGrant, BreakGlassReview } from './break-glass-repository'
 import type { BreakGlassContext, BreakGlassService } from './break-glass-service'
@@ -90,7 +90,7 @@ export function createBreakGlass(dependencies: BreakGlassDependencies) {
           context.query.hospitalId ?? null,
           pageRequest(context.query),
         )
-        return { items: grants.items.map(grantResponse), nextOffset: grants.nextOffset }
+        return pageResponse(grants, grantResponse)
       },
     )
     .post(

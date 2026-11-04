@@ -34,6 +34,14 @@ export function pageOf<T>(rows: readonly T[], request: PageRequest): Page<T> {
   }
 }
 
+/** Map a page while preserving its cursor. */
+export function pageResponse<T, R>(
+  page: Page<T>,
+  map: (item: T) => R,
+): { items: R[]; nextOffset: number | null } {
+  return { items: page.items.map(map), nextOffset: page.nextOffset }
+}
+
 export function pageSchema<T extends Parameters<typeof t.Array>[0]>(item: T) {
   return t.Object({
     items: t.Array(item),
