@@ -101,7 +101,9 @@ export class HospitalAdminService {
     token: string,
   ): Promise<HospitalDomain> {
     const hospital = await this.requireHospitalManage(context, hospitalId)
-    if (token.length === 0 || token.length > 128) throw validation('Verification token is not valid.')
+    if (token.length === 0 || token.length > 128) {
+      throw new AppError('VALIDATION_FAILED', 400, 'Verification token is not valid.')
+    }
     return withTransaction(this.pool, async (db) => {
       const verified = await this.hospitals.verifyDomain(
         { hospitalId: hospital.id, domainId, tokenHash: hashToken(token), at: new Date() },
@@ -181,23 +183,26 @@ export class HospitalAdminService {
     reasonCode: string,
     db?: DatabaseQuery,
   ): Promise<void> {
-    await this.audit.write({
-      actorUserId: context.actor.id,
-      actorType: 'user',
-      sessionId: context.sessionId,
-      organisationId,
-      hospitalId,
-      eventType: 'admin.change',
-      outcome: 'success',
-      targetType: resourceType,
-      targetId: resourceId,
-      requestId: context.requestId,
-      reason: humanReason(reasonCode),
-      reasonCode,
-      ip: context.ip,
-      userAgentHash: context.userAgentHash,
-      metadata: { resource_type: resourceType, resource_id: resourceId },
-    }, db)
+    await this.audit.write(
+      {
+        actorUserId: context.actor.id,
+        actorType: 'user',
+        sessionId: context.sessionId,
+        organisationId,
+        hospitalId,
+        eventType: 'admin.change',
+        outcome: 'success',
+        targetType: resourceType,
+        targetId: resourceId,
+        requestId: context.requestId,
+        reason: humanReason(reasonCode),
+        reasonCode,
+        ip: context.ip,
+        userAgentHash: context.userAgentHash,
+        metadata: { resource_type: resourceType, resource_id: resourceId },
+      },
+      db,
+    )
   }
 }
 
@@ -208,15 +213,11 @@ function normaliseDomain(value: string): string {
     domain.length > 253 ||
     !/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(domain)
   ) {
-    throw validation('Domain is not valid.')
+    throw new AppError('VALIDATION_FAILED', 400, 'Domain is not valid.')
   }
   return domain
 }
 
 function humanReason(code: string): string {
   return code.replace(/\./g, ' ').replace(/_/g, ' ').slice(0, 500)
-}
-
-function validation(message: string): AppError {
-  return new AppError('VALIDATION_FAILED', 400, message)
 }
