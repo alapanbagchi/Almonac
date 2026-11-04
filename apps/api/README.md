@@ -229,7 +229,7 @@ src/
 ├── health/          liveness and readiness features
 ├── identity/        user, session, access and pending-registration repositories
 ├── onboarding/      first-organisation service and routes
-├── plugins/         errors, OpenAPI
+├── plugins/         security headers, errors, OpenAPI
 └── shared/          error envelope, AppError, tokens, sealing
 test/
 ├── unit/            no database
