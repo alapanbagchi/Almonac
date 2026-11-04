@@ -12,13 +12,27 @@ The API is a modular monolith owning the Control, Hospital and Terminology domai
 apps/api/src/
 ├── index.ts                 process entry: config, pool, port and shutdown
 ├── app.ts                   composition root (exports App for Eden)
-├── plugins/                 db, auth, tenant, errors, openapi
-├── domains/
-│   ├── control/<feature>/
-│   ├── hospital/<feature>/
-│   └── terminology/<feature>/
-└── shared/                  errors, ids, pagination, result types
+├── config.ts                startup configuration and mail settings
+├── plugins/                 authentication, errors, security headers, openapi
+├── shared/                  errors, request ids, pagination, HTTP body helpers
+├── db/                      pool, transactions, migrations, column readers
+├── auth/                    OIDC flow, credential entry, invitations, sessions
+├── identity/                users, sessions, access reads
+├── access/                  permission evaluation
+├── admin/                   organisations, hospitals, staff, audit reads
+├── onboarding/              first-organisation creation
+├── break-glass/             emergency read-only grants
+├── audit/                   append-only audit writer
+└── health/                  liveness and readiness
 ```
+
+The control plane arrived flat, and stays flat. The `domains/<domain>/<feature>/`
+split is the target when a feature has a hospital or terminology counterpart to
+sit beside; creating `domains/control/` for the whole control plane today would
+nest every folder one level deeper without separating anything, and
+`domains/hospital/` and `domains/terminology/` would be empty. Move a feature
+into `domains/` when the second domain lands, in one commit that touches only
+moves and imports.
 
 Every feature is a folder with exactly these four files unless a file would be empty:
 
