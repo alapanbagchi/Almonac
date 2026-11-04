@@ -4,6 +4,7 @@ import type { AdminDependencies } from '../../src/controllers/admin/dependencies
 import { parseAuditCursor } from '../../src/controllers/admin/audit/cursor'
 import { auditResponse, listAudit } from '../../src/controllers/admin/audit/list-audit'
 import type { AdminRequestContext } from '../../src/guards/admin-context'
+import { withTransaction } from '../../src/db/pool'
 import type { AppUser } from '../../src/identity/app-user-repository'
 import type { AuditEntry } from '../../src/repositories/audit-repository'
 import { AppError, forbidden } from '../../src/shared/errors'
@@ -108,7 +109,13 @@ describe('audit list authorisation', () => {
     let auditWrites = 0
     const target: { organisationId?: string; hospitalId?: string | null } = {}
     const dependencies: AdminDependencies = {
-      pool,
+      db: pool,
+      transaction: (run) => withTransaction(pool, run),
+      organisationIdentity: {
+        async create() {
+          throw new Error('the identity provider must not be reached')
+        },
+      },
       async authorize(_actorId, _permission, requested) {
         target.organisationId = requested.organisationId
         target.hospitalId = requested.hospitalId

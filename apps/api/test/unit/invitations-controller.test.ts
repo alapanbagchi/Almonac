@@ -12,7 +12,7 @@ import type { AdminRequestContext } from '../../src/guards/admin-context'
 import type { AppUser } from '../../src/identity/app-user-repository'
 import type { Invitation } from '../../src/repositories/invitation-repository'
 import type { AuditEvent } from '../../src/audit/audit-writer'
-import type { DatabaseQuery } from '../../src/db/pool'
+import { withTransaction, type DatabaseQuery } from '../../src/db/pool'
 import { AppError, forbidden } from '../../src/shared/errors'
 
 const ORGANISATION_ID = '22222222-2222-4222-8222-222222222222'
@@ -80,7 +80,13 @@ function dependencies(pool: Pool, authorize: AdminDependencies['authorize']): In
   return {
     events,
     mails,
-    pool,
+    db: pool,
+    transaction: (run) => withTransaction(pool, run),
+    organisationIdentity: {
+      async create() {
+        throw new Error('the identity provider must not be reached')
+      },
+    },
     authorize,
     permissions: async () => [],
     isPlatformAdmin: async () => false,

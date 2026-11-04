@@ -22,7 +22,7 @@ export async function listInvitations(
     hospitalId: input.hospitalId,
   })
 
-  const page = await createInvitationRepository(d.pool).list(
+  const page = await createInvitationRepository(d.db).list(
     { organisationId: input.organisationId, hospitalId: input.hospitalId },
     pageRequest({ limit: input.limit, offset: input.offset }),
   )

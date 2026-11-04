@@ -5,9 +5,7 @@ import { createInvitation } from '../controllers/admin/invitations/create-invita
 import { listInvitations } from '../controllers/admin/invitations/list-invitations'
 import { resendInvitation } from '../controllers/admin/invitations/resend-invitation'
 import { revokeInvitation } from '../controllers/admin/invitations/revoke-invitation'
-import { adminContext, adminContextOf } from '../guards/admin-context'
-import { authenticateBearer } from '../guards/bearer'
-import { requestIdOf, type RequestServer } from '../shared/request'
+import { adminContextOf, adminGuard } from '../guards/admin-context'
 import { pageSchema, scopedPageQuery } from '../shared/pagination'
 import { instant, nullable, okSchema, routeDetail, uuid } from '../shared/validation'
 
@@ -46,16 +44,7 @@ const organisationParams = t.Object({ organisationId: uuid })
 /** Invitations: list, invite, resend, revoke and accept. */
 export function invitationsRouter(d: InvitationDependencies) {
   return new Elysia({ name: 'admin.invitations', prefix: '/v1/admin' })
-    // Derived here, not from a local-scope plugin: a plugin's derive only
-    // reaches the routes registered on the plugin itself.
-    .derive(async (context) => ({
-      adminContext: adminContext(
-        await authenticateBearer(context.headers.authorization, d.sessions, d.users),
-        context.request,
-        context.server as RequestServer | null,
-        requestIdOf(context),
-      ),
-    }))
+    .use(adminGuard(d))
     .get(
       '/organisations/:organisationId/invitations',
       {

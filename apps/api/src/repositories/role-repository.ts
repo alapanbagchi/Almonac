@@ -29,6 +29,7 @@ export interface RevokeRoleInput {
 export interface RoleRepository {
   list(organisationId: string, page: PageRequest): Promise<Page<OrganisationRole>>
   find(organisationId: string, roleId: string): Promise<OrganisationRole | null>
+  findAll(organisationId: string, roleIds: readonly string[]): Promise<OrganisationRole[]>
   assign(input: AssignRoleInput): Promise<void>
   revoke(input: RevokeRoleInput): Promise<boolean>
 }
@@ -70,6 +71,16 @@ export function createRoleRepository(db: DatabaseQuery): RoleRepository {
         [organisationId, roleId],
       )
       return isEmpty(result) ? null : mapRole(result.rows[0])
+    },
+
+    async findAll(organisationId, roleIds) {
+      const result = await db.query(
+        `${ROLE_SELECT}
+          where role.organisation_id = $1 and role.id = any($2::uuid[])
+          ${ROLE_GROUP}`,
+        [organisationId, roleIds],
+      )
+      return result.rows.map(mapRole)
     },
 
     async assign(input) {

@@ -1,19 +1,20 @@
 import type { AdminDependencies } from '../dependencies'
 import type { AdminRequestContext } from '../../../guards/admin-context'
 import type { AccessTarget } from '../../../shared/access-target'
-import type { AppUser } from '../../../identity/app-user-repository'
-import type { Hospital } from '../../../admin/hospital-repository'
-import type { Organisation } from '../../../admin/organisation-repository'
-import type { OrganisationRole } from '../../../admin/membership-admin-repository'
+import type { AppUser } from '../../../repositories/app-user-repository'
+import type { Hospital } from '../../../repositories/hospital-repository'
+import type { Organisation } from '../../../repositories/organisation-repository'
+import type { OrganisationRole } from '../../../repositories/role-repository'
 import {
   createInvitationRepository,
   type Invitation,
   type NewInvitation,
 } from '../../../repositories/invitation-repository'
-import { HospitalRepository } from '../../../admin/hospital-repository'
-import { OrganisationRepository } from '../../../admin/organisation-repository'
-import { MembershipAdminRepository } from '../../../admin/membership-admin-repository'
-import { withTransaction, type DatabaseQuery } from '../../../db/pool'
+import { createHospitalRepository } from '../../../repositories/hospital-repository'
+import { createMembershipRepository } from '../../../repositories/membership-repository'
+import { createOrganisationRepository } from '../../../repositories/organisation-repository'
+import { createRoleRepository } from '../../../repositories/role-repository'
+import type { DatabaseQuery } from '../../../db/pool'
 import { recordAdminChange } from '../../../shared/change-log'
 import { conflict, forbidden, notFound, ruleViolation } from '../../../shared/errors'
 import { mintToken } from '../../../shared/tokens'
@@ -81,7 +82,7 @@ export async function invitationScope(
   organisationId: string,
   hospitalId: string | null,
 ): Promise<InvitationScope> {
-  const organisation = await new OrganisationRepository(db).findById(organisationId)
+  const organisation = await createOrganisationRepository(db).findById(organisationId)
   if (organisation === null) throw notFound('Organisation not found.')
 
   if (hospitalId === null) {
@@ -93,7 +94,7 @@ export async function invitationScope(
     }
   }
 
-  const hospital = await new HospitalRepository(db).findById(hospitalId)
+  const hospital = await createHospitalRepository(db).findById(hospitalId)
   // A hospital of another organisation is not a hospital the caller named.
   if (hospital === null || hospital.organisationId !== organisationId) {
     throw notFound('Hospital not found.')
@@ -113,8 +114,8 @@ export async function requireRoles(
   roleIds: readonly string[],
 ): Promise<string[]> {
   if (roleIds.length === 0) throw ruleViolation('At least one role is required.')
-  const roles = await new MembershipAdminRepository(db).findRoles(target.organisationId, roleIds)
-  return matchRoles(roles, roleIds, target.hospitalId === null || target.hospitalId === undefined ? 'organisation' : 'hospital')
+  const roles = await createRoleRepository(db).findAll(target.organisationId, roleIds)
+  return matchRoles(roles, roleIds, target.hospitalId == null ? 'organisation' : 'hospital')
 }
 
 /**
@@ -141,7 +142,7 @@ export async function requireNoMembership(
   userId: string,
   target: AccessTarget,
 ): Promise<void> {
-  const membership = await new MembershipAdminRepository(db).findActiveMembershipForUser({
+  const membership = await createMembershipRepository(db).findActiveForUser({
     userId,
     organisationId: target.organisationId,
     hospitalId: target.hospitalId ?? null,
@@ -178,7 +179,7 @@ export async function requireInvitation(
   context: AdminRequestContext,
   invitationId: string,
 ): Promise<Invitation> {
-  const invitation = await createInvitationRepository(d.pool).findById(invitationId)
+  const invitation = await createInvitationRepository(d.db).findById(invitationId)
   if (invitation === null) throw notFound('Invitation not found.')
   await d.authorize(context.actor.id, 'membership.manage', {
     organisationId: invitation.organisationId,
@@ -227,7 +228,7 @@ export async function issue(
   delivery: InvitationDelivery,
   options: { reasonCode?: string; replaces?: Invitation } = {},
 ): Promise<Invitation> {
-  const issued = await withTransaction(d.pool, async (db) => {
+  const issued = await d.transaction(async (db) => {
     if (options.replaces !== undefined) {
       await revokePendingInvitation(d, context, db, options.replaces)
     }
@@ -264,9 +265,11 @@ export async function issue(
   } catch (error) {
     // The token is already persisted; leaving it pending would be a live link
     // nobody received, so the compensating revoke runs before the rethrow.
-    await withTransaction(d.pool, async (db) =>
-      revokePendingInvitation(d, context, db, issued.invitation, { ignoreMissing: true }),
-    ).catch(() => undefined)
+    await d
+      .transaction((db) =>
+        revokePendingInvitation(d, context, db, issued.invitation, { ignoreMissing: true }),
+      )
+      .catch(() => undefined)
     throw error
   }
 
@@ -284,9 +287,9 @@ export async function prepareInvitation(
   context: AdminRequestContext,
   input: { organisationId: string; hospitalId: string | null; roleIds: readonly string[] },
 ): Promise<PreparedInvitation> {
-  const scope = await invitationScope(d.pool, input.organisationId, input.hospitalId)
+  const scope = await invitationScope(d.db, input.organisationId, input.hospitalId)
   await d.authorize(context.actor.id, 'membership.manage', scope.target)
-  const roleIds = await requireRoles(d.pool, scope.target, input.roleIds)
+  const roleIds = await requireRoles(d.db, scope.target, input.roleIds)
   return { scope, roleIds }
 }
 

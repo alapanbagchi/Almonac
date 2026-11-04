@@ -1,6 +1,7 @@
 import type { DatabaseQuery } from '../db/pool'
 import {
   dateField,
+  hasSqlState,
   integerField,
   isEmpty,
   nullableDateField,
@@ -9,6 +10,7 @@ import {
   stringField,
   textArrayField,
 } from '../db/rows'
+import { ConflictError } from '../shared/errors'
 import { pageOf, type Page, type PageRequest } from '../shared/pagination'
 
 export type MembershipStatus = 'active' | 'suspended' | 'revoked' | 'expired'
@@ -31,6 +33,14 @@ export interface MembershipListInput {
   readonly hospitalId?: string | null
 }
 
+export interface NewMembership {
+  readonly userId: string
+  readonly organisationId: string
+  readonly hospitalId: string | null
+  readonly roleIds: readonly string[]
+  readonly assignedBy: string
+}
+
 export interface RevokeMembershipInput {
   readonly id: string
   readonly at: Date
@@ -40,7 +50,13 @@ export interface RevokeMembershipInput {
 
 export interface MembershipRepository {
   findById(id: string): Promise<MembershipSummary | null>
+  findActiveForUser(input: {
+    userId: string
+    organisationId: string
+    hospitalId?: string | null
+  }): Promise<MembershipSummary | null>
   list(input: MembershipListInput, page: PageRequest): Promise<Page<MembershipSummary>>
+  createFromInvitation(input: NewMembership): Promise<string>
   suspend(id: string, at: Date): Promise<boolean>
   revoke(input: RevokeMembershipInput): Promise<boolean>
   countActiveOrganisationAdmins(organisationId: string): Promise<number>
@@ -84,6 +100,21 @@ export function createMembershipRepository(db: DatabaseQuery): MembershipReposit
       return isEmpty(result) ? null : mapMembership(result.rows[0])
     },
 
+    async findActiveForUser(input) {
+      const result = await db.query(
+        `${MEMBERSHIP_SELECT}
+         where membership.user_id = $1
+           and membership.organisation_id = $2
+           and ($3::uuid is null or membership.hospital_id = $3)
+           and membership.status = 'active'
+           and membership.validity @> now()
+         ${MEMBERSHIP_GROUP}
+         limit 1`,
+        [input.userId, input.organisationId, input.hospitalId ?? null],
+      )
+      return isEmpty(result) ? null : mapMembership(result.rows[0])
+    },
+
     async list(input, page) {
       const result = await db.query(
         `${MEMBERSHIP_SELECT}
@@ -95,6 +126,33 @@ export function createMembershipRepository(db: DatabaseQuery): MembershipReposit
         [input.organisationId, input.hospitalId ?? null, page.limit + 1, page.offset],
       )
       return pageOf(result.rows.map(mapMembership), page)
+    },
+
+    async createFromInvitation(input) {
+      try {
+        const result = await db.query(
+          `insert into control.membership
+             (user_id, organisation_id, hospital_id, accepted_at, validity)
+           values ($1, $2, $3, now(), tstzrange(now(), null, '[)'))
+           returning id`,
+          [input.userId, input.organisationId, input.hospitalId],
+        )
+        const membershipId = stringField(rowRecord(result.rows[0]), 'id')
+        await db.query(
+          `insert into control.membership_role
+             (membership_id, role_id, assigned_by, assigned_at, validity)
+           select $1, role_id, $3, now(), tstzrange(now(), null, '[)')
+             from unnest($2::uuid[]) as role_id`,
+          [membershipId, input.roleIds, input.assignedBy],
+        )
+        return membershipId
+      } catch (error) {
+        // The exclusion constraint covers a second live membership for the scope.
+        if (hasSqlState(error, '23P01')) {
+          throw new ConflictError('A membership already exists for this scope.')
+        }
+        throw error
+      }
     },
 
     async suspend(id, at) {

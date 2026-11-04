@@ -1,10 +1,9 @@
 import type { AdminRequestContext } from '../../../guards/admin-context'
-import { MembershipAdminRepository } from '../../../admin/membership-admin-repository'
-import { withTransaction } from '../../../db/pool'
 import {
   createInvitationRepository,
   type Invitation,
 } from '../../../repositories/invitation-repository'
+import { createMembershipRepository } from '../../../repositories/membership-repository'
 import { conflict, notFound } from '../../../shared/errors'
 import { hashToken } from '../../../shared/tokens'
 import {
@@ -26,7 +25,7 @@ export async function acceptInvitation(
   input: { token: string },
 ): Promise<InvitationResponse> {
   const actor = context.actor
-  const accepted = await withTransaction(d.pool, async (db): Promise<Invitation> => {
+  const accepted = await d.transaction(async (db): Promise<Invitation> => {
     const invitations = createInvitationRepository(db)
     const invitation = await invitations.findByTokenHashForUpdate(hashToken(input.token))
     if (invitation === null) throw notFound('Invitation not found.')
@@ -35,16 +34,13 @@ export async function acceptInvitation(
     assertInvitationAcceptable(invitation, actor, at)
     await requireNoMembership(db, actor.id, invitation)
 
-    await new MembershipAdminRepository(db).createFromInvitation(
-      {
-        userId: actor.id,
-        organisationId: invitation.organisationId,
-        hospitalId: invitation.hospitalId,
-        roleIds: invitation.roleIds,
-        assignedBy: invitation.invitedBy,
-      },
-      db,
-    )
+    await createMembershipRepository(db).createFromInvitation({
+      userId: actor.id,
+      organisationId: invitation.organisationId,
+      hospitalId: invitation.hospitalId,
+      roleIds: invitation.roleIds,
+      assignedBy: invitation.invitedBy,
+    })
 
     const marked = await invitations.markAccepted(invitation.id, {
       acceptedByUserId: actor.id,

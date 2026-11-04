@@ -68,7 +68,7 @@ export async function listAudit(
     hospitalId: input.hospitalId,
   })
 
-  const page = await createAuditRepository(d.pool).list({
+  const page = await createAuditRepository(d.db).list({
     organisationId: input.organisationId,
     hospitalId: input.hospitalId,
     limit: auditLimit(input.limit),

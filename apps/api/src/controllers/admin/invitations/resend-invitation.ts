@@ -25,7 +25,7 @@ export async function resendInvitation(
     throw conflict('Invitation is no longer pending.')
   }
 
-  const scope = await invitationScope(d.pool, invitation.organisationId, invitation.hospitalId)
+  const scope = await invitationScope(d.db, invitation.organisationId, invitation.hospitalId)
   await resendInitialisation(d, scope.organisation, invitation)
   const reissued = await issue(d, context, draftOf(invitation), scope.delivery, {
     reasonCode: 'invitation.resend',

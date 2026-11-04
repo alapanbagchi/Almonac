@@ -1,5 +1,5 @@
 import type { AdminRequestContext } from '../../../guards/admin-context'
-import { AppUserRepository } from '../../../identity/app-user-repository'
+import { createAppUserRepository } from '../../../repositories/app-user-repository'
 import { createInvitationRepository } from '../../../repositories/invitation-repository'
 import { conflict, ruleViolation } from '../../../shared/errors'
 import { normaliseEmail } from '../../../shared/email'
@@ -41,7 +41,7 @@ export async function createInvitation(
   const organisationId = scope.target.organisationId
   const hospitalId = scope.target.hospitalId ?? null
 
-  const pending = await createInvitationRepository(d.pool).findPendingForScope({
+  const pending = await createInvitationRepository(d.db).findPendingForScope({
     email,
     organisationId,
     hospitalId,
@@ -65,10 +65,10 @@ export async function createInvitation(
     return invitationResponse(invitation)
   }
 
-  const existing = await new AppUserRepository(d.pool).findByEmail(email)
+  const existing = await createAppUserRepository(d.db).findByEmail(email)
   if (existing !== null) {
     if (existing.status !== 'active') throw conflict('This identity is not active.')
-    await requireNoMembership(d.pool, existing.id, scope.target)
+    await requireNoMembership(d.db, existing.id, scope.target)
     const invitation = await issue(
       d,
       context,
