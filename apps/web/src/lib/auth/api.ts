@@ -13,6 +13,12 @@ const loginStart = z.object({
   expiresAt: z.string().datetime(),
 });
 
+const browserLogin = z.object({ callbackUrl: z.string().url() });
+
+const verificationSent = z.object({ status: z.literal("verification_sent") });
+
+const emailVerified = z.object({ status: z.literal("verified") });
+
 const loginResult = z.object({
   token: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
   expiresAt: z.string().datetime(),
@@ -98,6 +104,50 @@ export function createAuthApi({
   }
 
   return {
+    async register(input: {
+      fullName: string;
+      email: string;
+      password: string;
+    }): Promise<{ status: "verification_sent" }> {
+      return call(
+        "/v1/auth/register",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(input),
+        },
+        verificationSent,
+      );
+    },
+
+    async verifyEmail(token: string): Promise<{ status: "verified" }> {
+      return call(
+        "/v1/auth/verify-email",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ token }),
+        },
+        emailVerified,
+      );
+    },
+
+    async passwordLogin(input: {
+      email: string;
+      password: string;
+      returnTo: string;
+    }): Promise<{ callbackUrl: string }> {
+      return call(
+        "/v1/auth/password-login",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(input),
+        },
+        browserLogin,
+      );
+    },
+
     async startLogin(returnTo: string): Promise<LoginStart> {
       const data = await call(
         "/v1/auth/login-attempts",
