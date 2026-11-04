@@ -1,51 +1,37 @@
 import { createApp } from './app'
-import { AuthorizationRepository } from './access/authorization-repository'
-import { AccessRepository } from './identity/access-repository'
-import { AppUserRepository } from './identity/app-user-repository'
-import { PendingRegistrationRepository } from './identity/pending-registration-repository'
-import { SessionRepository } from './identity/session-repository'
-import { SessionService } from './identity/session-service'
-import { AuditReadRepository } from './admin/audit-read-repository'
-import { AuditWriter } from './audit/audit-writer'
-import { AuditAdminService } from './admin/audit-admin-service'
-import { HospitalAdminService } from './admin/hospital-admin-service'
-import { HospitalRepository } from './admin/hospital-repository'
-import { InvitationRepository } from './admin/invitation-repository'
-import { InvitationService } from './admin/invitation-service'
-import { MembershipAdminRepository } from './admin/membership-admin-repository'
-import { MembershipAdminService } from './admin/membership-admin-service'
-import { loadMailConfig, MailConfigError } from './admin/mail-config'
-import { OrganisationAdminService } from './admin/organisation-admin-service'
-import { OrganisationProvisioningService } from './admin/organisation-provisioning-service'
-import { OrganisationRepository } from './admin/organisation-repository'
-import { createSmtpMailer, createVerificationMailer } from './admin/smtp-mailer'
+import { AuthConfigError, loadAuthConfig } from './adapters/oidc/config'
+import { createOidcProvider } from './adapters/oidc/provider'
+import { loadMailConfig, MailConfigError } from './adapters/smtp/config'
+import { createSmtpMailer, createVerificationMailer } from './adapters/smtp/mailer'
+import { createServiceUserTokenProvider, ZitadelManagementClient } from './adapters/zitadel/client'
 import {
-  ZitadelManagementClient,
-  createServiceUserTokenProvider,
-} from './admin/zitadel-management-client'
-import {
-  loadZitadelManagementConfig,
   ZitadelManagementConfigError,
-} from './admin/zitadel-management-config'
-import { AuthConfigError, loadAuthConfig } from './auth/config'
-import { BreakGlassService } from './break-glass/break-glass-service'
-import { LoginAttemptRepository } from './auth/login-attempt-repository'
-import { LoginService } from './auth/login-service'
-import { PasswordLoginService } from './auth/password-login-service'
-import { RateLimitRepository } from './auth/rate-limit-repository'
-import { RateLimiter } from './auth/rate-limiter'
-import { EmailVerificationService } from './auth/email-verification-service'
-import { bcryptPasswordHasher } from './auth/password-hash'
-import { RegistrationService } from './auth/registration-service'
-import { createLogoutService } from './auth/logout-service'
-import { createOidcProvider } from './auth/oidc-provider'
-import { PostgresLoginStore } from './auth/postgres-login-store'
-import { ZitadelLoginClient } from './auth/zitadel-session-client'
+  loadZitadelManagementConfig,
+} from './adapters/zitadel/config'
+import { ZitadelLoginClient } from './adapters/zitadel/login-client'
 import { ConfigError, loadConfig } from './config'
-import { checkControlDatabase, createControlPool, withTransaction } from './db/pool'
-import { OnboardingService } from './onboarding/onboarding-service'
+import type {
+  AdminDependencies,
+  OrganisationIdentity,
+} from './controllers/admin/dependencies'
+import { createAuthRateLimit, type AuthDependencies } from './controllers/auth/dependencies'
+import { sessionServiceOf } from './controllers/auth/session'
+import {
+  checkControlDatabase,
+  createControlPool,
+  withTransaction,
+  type TransactionRunner,
+} from './db/pool'
 import { MAX_BODY_BYTES } from './plugins/security'
+import { createAppUserRepository } from './repositories/app-user-repository'
+import { createAuthorizationRepository } from './repositories/authorization-repository'
+import { createRateLimitRepository } from './repositories/rate-limit-repository'
+import { createAuditWriter } from './shared/audit-writer'
+import type { AccessTarget } from './shared/access-target'
+import { createAuthorize, createIsPlatformAdmin, createRolePermissions } from './shared/authorize'
+import { forbidden } from './shared/errors'
 import { createMetrics } from './shared/metrics'
+import { bcryptPasswordHasher } from './shared/password-hash'
 
 const config = loadConfigOrExit(loadConfig, 'config')
 const authConfig = loadConfigOrExit(loadAuthConfig, 'auth config')
@@ -56,27 +42,12 @@ const managementConfig = loadConfigOrExit(
 )
 
 const pool = createControlPool(config.databaseUrl)
+const transaction: TransactionRunner = (run) => withTransaction(pool, run)
 const metrics = createMetrics()
-const audit = new AuditWriter(pool)
-const users = new AppUserRepository(pool)
-const authorization = new AuthorizationRepository(pool)
-const sessions = new SessionService({
-  store: new SessionRepository(pool),
-  metrics,
-})
-const breakGlass = new BreakGlassService({ pool, authorization, users })
-const oidc = createOidcProvider({
-  issuer: authConfig.issuer,
-  clientId: authConfig.clientId,
-  clientSecret: authConfig.clientSecret,
-  redirectUri: authConfig.redirectUri,
-  postLogoutUri: authConfig.postLogoutUri,
-})
+const audit = createAuditWriter(pool)
+const users = createAppUserRepository(pool)
+const authorization = createAuthorizationRepository(pool)
 
-const organisations = new OrganisationRepository(pool)
-const hospitals = new HospitalRepository(pool)
-const memberships = new MembershipAdminRepository(pool)
-const invitations = new InvitationRepository(pool)
 const serviceTokens = createServiceUserTokenProvider({
   issuer: managementConfig.issuer,
   userId: managementConfig.serviceUserId,
@@ -84,26 +55,6 @@ const serviceTokens = createServiceUserTokenProvider({
   privateKeyPem: managementConfig.privateKeyPem,
 })
 const zitadel = new ZitadelManagementClient(managementConfig.issuer, serviceTokens)
-const loginClient = new ZitadelLoginClient({
-  issuer: managementConfig.issuer,
-  loginClientUserId: managementConfig.serviceUserId,
-  redirectUri: authConfig.redirectUri,
-  tokens: serviceTokens,
-})
-const login = new LoginService({
-  attempts: new LoginAttemptRepository(pool),
-  oidc,
-  completion: new PostgresLoginStore(pool),
-  audit,
-  metrics,
-  sealingKey: authConfig.sealingKey,
-})
-const rateLimit = new RateLimiter({
-  store: new RateLimitRepository(pool),
-  metrics,
-})
-const passwordLogin = new PasswordLoginService(login, loginClient)
-const pendingRegistrations = new PendingRegistrationRepository(pool)
 const smtpOptions = {
   smtpUrl: mailConfig.smtpUrl,
   smtpUser: mailConfig.smtpUser,
@@ -113,63 +64,85 @@ const smtpOptions = {
   requireTls: mailConfig.requireTls,
   webPublicOrigin: mailConfig.webPublicOrigin,
 }
-const registration = new RegistrationService(
+
+const auth: AuthDependencies = {
+  db: pool,
+  transaction,
+  oidc: createOidcProvider({
+    issuer: authConfig.issuer,
+    clientId: authConfig.clientId,
+    clientSecret: authConfig.clientSecret,
+    redirectUri: authConfig.redirectUri,
+    postLogoutUri: authConfig.postLogoutUri,
+  }),
+  sealingKey: authConfig.sealingKey,
+  audit,
+  mailer: createVerificationMailer(smtpOptions),
+  identities: zitadel,
+  loginClient: new ZitadelLoginClient({
+    issuer: managementConfig.issuer,
+    loginClientUserId: managementConfig.serviceUserId,
+    redirectUri: authConfig.redirectUri,
+    tokens: serviceTokens,
+  }),
+  passwords: bcryptPasswordHasher,
+  metrics,
+  rateLimit: createAuthRateLimit({
+    store: createRateLimitRepository(pool),
+    metrics,
+  }),
+}
+
+const sessions = sessionServiceOf(auth)
+
+// The provisioning transaction writes the organisation against a provider
+// account; onboarding and the admin plane share that one capability.
+const organisationIdentity: OrganisationIdentity = {
+  create: (name) => zitadel.createOrganisation(name),
+}
+
+const admin: AdminDependencies = {
+  db: pool,
+  transaction,
+  authorize: createAuthorize(authorization),
+  permissions: createRolePermissions(authorization),
+  isPlatformAdmin: createIsPlatformAdmin(authorization),
+  audit,
+  sessions,
   users,
-  pendingRegistrations,
-  createVerificationMailer(smtpOptions),
-  audit,
-  bcryptPasswordHasher,
-)
-const verification = new EmailVerificationService(
-  pendingRegistrations,
-  zitadel,
-  audit,
-  (run) => withTransaction(pool, run),
-)
-const provisioning = new OrganisationProvisioningService(pool, zitadel, audit, metrics)
-const onboarding = new OnboardingService(pool, provisioning, memberships)
+  organisationIdentity,
+  metrics,
+}
+
+/**
+ * Break-glass is deliberately narrower than the admin rule: a platform
+ * administrator may read the admin plane, but only an approver may grant
+ * emergency access, so there is no platform.manage bypass here.
+ */
+const breakGlassAuthorize = async (
+  actorId: string,
+  permission: string,
+  target: AccessTarget,
+): Promise<void> => {
+  if (!(await authorization.hasPermission(actorId, permission, target))) throw forbidden()
+}
 
 const app = createApp({
   checkDatabase: () => checkControlDatabase(pool),
-  auth: {
-    login,
-    sessions,
+  auth,
+  onboarding: { db: pool, transaction, audit, organisationIdentity, sessions, users },
+  admin,
+  invitations: { ...admin, mailer: createSmtpMailer(smtpOptions), identity: zitadel },
+  breakGlass: {
+    db: pool,
+    transaction,
+    authorize: breakGlassAuthorize,
+    hasAnyPlatformPermission: (actorId, permissions) =>
+      authorization.hasAnyPlatformPermission(actorId, permissions),
     users,
-    access: new AccessRepository(pool),
-    logout: createLogoutService(pool, {
-      sessions,
-      oidc,
-      sealingKey: authConfig.sealingKey,
-    }),
-    rateLimit,
-  },
-  selfService: { registration, verification, passwordLogin, rateLimit },
-  onboarding: { onboarding, sessions, users },
-  admin: {
-    organisations: new OrganisationAdminService(
-      organisations,
-      authorization,
-      provisioning,
-    ),
-    hospitals: new HospitalAdminService(pool, hospitals, authorization, audit),
-    memberships: new MembershipAdminService(pool, memberships, authorization, audit),
-    invitations: new InvitationService({
-      pool,
-      invitations,
-      organisations,
-      hospitals,
-      memberships,
-      users,
-      authorization,
-      zitadel,
-      audit,
-      mailer: createSmtpMailer(smtpOptions),
-    }),
-    audit: new AuditAdminService(new AuditReadRepository(pool), authorization),
+    audit,
     sessions,
-    users,
   },
-  breakGlass: { grants: breakGlass, sessions, users },
   serve: { maxRequestBodySize: MAX_BODY_BYTES },
 })
 

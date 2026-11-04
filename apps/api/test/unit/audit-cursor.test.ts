@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { parseAuditCursor } from '../../src/admin/audit-cursor'
+import { parseAuditCursor } from '../../src/controllers/admin/audit/cursor'
 import { AppError } from '../../src/shared/errors'
 
 const VALID = '2026-11-04T16:25:51.742539Z:42'

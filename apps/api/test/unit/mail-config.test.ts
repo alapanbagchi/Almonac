@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { loadMailConfig, MailConfigError } from '../../src/admin/mail-config'
+import { loadMailConfig, MailConfigError } from '../../src/adapters/smtp/config'
 
 const valid = {
   NODE_ENV: 'development',

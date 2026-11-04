@@ -1,6 +1,11 @@
 import { Elysia } from 'elysia'
-import { AppError } from '../shared/errors'
 import type { ErrorEnvelope } from '../shared/errors'
+import { AppError, ConflictError, RuleViolation } from '../shared/errors'
+import {
+  ZitadelConflictError,
+  ZitadelRejectedError,
+  ZitadelUnavailableError,
+} from '../adapters/zitadel/client'
 import { safeName } from '../shared/log'
 import { requestIdOf } from '../shared/request'
 
@@ -25,35 +30,83 @@ export const errors = new Elysia({ name: 'plugins.errors' })
     const requestId = requestIdOf(context)
     set.headers['x-request-id'] = requestId
 
-    if (error instanceof AppError) {
-      set.status = error.status
-      for (const [name, value] of Object.entries(error.headers)) {
-        set.headers[name] = value
-      }
-      return envelope(error.code, error.message, requestId)
+    const failure = failureOf(error, requestId)
+    set.status = failure.status
+    for (const [name, value] of Object.entries(failure.headers ?? {})) {
+      set.headers[name] = value
     }
-
-    // Elysia's built-in errors carry a lowercase code ('validation', 'not-found').
-    const code =
-      error instanceof Error && 'code' in error && typeof error.code === 'string'
-        ? error.code.toLowerCase()
-        : undefined
-
-    if (code === 'validation' || code === 'parse') {
-      set.status = 400
-      return envelope('VALIDATION_FAILED', 'Request validation failed.', requestId)
-    }
-
-    if (code === 'not-found') {
-      set.status = 404
-      return envelope('NOT_FOUND', 'Resource not found.', requestId)
-    }
-
-    // Log bounded class names only. Error codes and messages can contain
-    // request data, so the log records whether a code exists, not its value.
-    console.error(
-      `[api] unhandled error requestId=${requestId} code=${code === undefined ? 'none' : 'other'} name=${safeName(error, 'Unknown')}`,
-    )
-    set.status = 500
-    return envelope('INTERNAL', 'Unexpected server error.', requestId)
+    return failure.body
   })
+
+interface Failure {
+  readonly status: number
+  readonly body: ErrorEnvelope
+  readonly headers?: Readonly<Record<string, string>>
+}
+
+/** How each thrown error is answered. */
+function failureOf(error: unknown, requestId: string): Failure {
+  if (error instanceof AppError) {
+    return {
+      status: error.status,
+      headers: error.headers,
+      body: envelope(error.code, error.message, requestId),
+    }
+  }
+
+  // A constraint the database refused is a conflict; a rule the domain
+  // refused is unsatisfiable input. Both arrive as thrown types, so this is
+  // the only place that turns them into status codes.
+  if (error instanceof ConflictError) {
+    return { status: 409, body: envelope('CONFLICT', error.message, requestId) }
+  }
+
+  if (error instanceof RuleViolation) {
+    return { status: 422, body: envelope('RULE_VIOLATION', error.message, requestId) }
+  }
+
+  if (error instanceof ZitadelConflictError) {
+    return {
+      status: 409,
+      body: envelope('CONFLICT', 'The identity provider already holds this record.', requestId),
+    }
+  }
+
+  if (error instanceof ZitadelUnavailableError || error instanceof ZitadelRejectedError) {
+    return {
+      status: 503,
+      body: envelope(
+        'UNAVAILABLE',
+        'The identity provider is temporarily unavailable.',
+        requestId,
+      ),
+    }
+  }
+
+  // Elysia's built-in errors carry a lowercase code.
+  const code = providerCode(error)
+
+  if (code === 'validation' || code === 'parse') {
+    return {
+      status: 400,
+      body: envelope('VALIDATION_FAILED', 'Request validation failed.', requestId),
+    }
+  }
+
+  if (code === 'not-found') {
+    return { status: 404, body: envelope('NOT_FOUND', 'Resource not found.', requestId) }
+  }
+
+  // Log bounded class names only. Error codes and messages can contain
+  // request data, so the log records whether a code exists, not its value.
+  console.error(
+    `[api] unhandled error requestId=${requestId} code=${code === undefined ? 'none' : 'other'} name=${safeName(error, 'Unknown')}`,
+  )
+  return { status: 500, body: envelope('INTERNAL', 'Unexpected server error.', requestId) }
+}
+
+function providerCode(error: unknown): string | undefined {
+  return error instanceof Error && 'code' in error && typeof error.code === 'string'
+    ? error.code.toLowerCase()
+    : undefined
+}

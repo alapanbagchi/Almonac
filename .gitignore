@@ -1,2 +1,5 @@
 secrets
 data
+tasks
+.vscode
+.worktrees

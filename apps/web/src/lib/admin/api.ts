@@ -242,7 +242,7 @@ export function createAdminApi({
     resendInvitation: (token: string, invitationId: string): Promise<Invitation> =>
       call(token, "POST", `/invitations/${invitationId}/resend`, invitationSchema),
     revokeInvitation: (token: string, invitationId: string): Promise<void> =>
-      call(token, "DELETE", `/invitations/${invitationId}`, okSchema).then(() => undefined),
+      call(token, "POST", `/invitations/${invitationId}/revoke`, okSchema).then(() => undefined),
     acceptInvitation: (token: string, invitationToken: string): Promise<Invitation> =>
       call(token, "POST", "/invitations/accept", invitationSchema, {
         token: invitationToken,

@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   ZitadelManagementClient,
   ZitadelUnavailableError,
-} from '../../src/admin/zitadel-management-client'
+} from '../../src/adapters/zitadel/client'
 
 const tokens = { token: async () => 'access-token' }
 

@@ -1,5 +1,5 @@
 import { createApp } from '../../src/app'
-import type { AuthDependencies } from '../../src/auth/routes'
+import type { AuthDependencies } from '../../src/controllers/auth/dependencies'
 
 export function createTestApp(
   checkDatabase: () => Promise<void> = async () => {},

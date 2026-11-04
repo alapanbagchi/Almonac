@@ -11,6 +11,7 @@ describe("administration allowlist", () => {
     expect(isAllowedAdminRequest("GET", ["organisations", ID, "hospitals"])).toBe(true);
     expect(isAllowedAdminRequest("POST", ["hospitals", ID, "domains"])).toBe(true);
     expect(isAllowedAdminRequest("DELETE", ["memberships", ID, "roles", ID])).toBe(true);
+    expect(isAllowedAdminRequest("POST", ["invitations", ID, "revoke"])).toBe(true);
     expect(isAllowedAdminRequest("POST", ["invitations", "accept"])).toBe(true);
   });
 
