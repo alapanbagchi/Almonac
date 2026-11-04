@@ -7,7 +7,7 @@ Users cannot sign in, or the API rejects every session. Diagnose in this order: 
 ## Triage
 
 1. Check `GET /health` and `GET /health/ready` on the API. Readiness fails when the schema version or the audit privileges are wrong, not only when the database is down.
-2. Check the web app. A missing or wrong `API_URL` or `AUTH_PUBLIC_ORIGIN` breaks login and logout. The BFF fails closed with 503 when its configuration is invalid.
+2. Check the web app. A missing or wrong `API_URL`, `AUTH_PUBLIC_ORIGIN` or `AUTH_IDP_ORIGIN` breaks login and logout. A missing `AUTH_IDP_ORIGIN` blocks the redirect to the provider, so the app session ends but the single sign-on session survives. The BFF fails closed with 503 when its configuration is invalid.
 3. Check the control PostgreSQL: connections, disk, locks, long transactions.
 4. Check Zitadel: API and login replicas, database, certificate expiry, SMTP.
 5. Check the ingress and DNS for `auth.<domain>`.
