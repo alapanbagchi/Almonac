@@ -2,6 +2,7 @@ import type { DatabaseQuery } from '../db/pool'
 import { pageOf, type Page, type PageRequest } from '../shared/pagination'
 import {
   dateField,
+  hasSqlState,
   nullableDateField,
   nullableStringField,
   rowRecord,
@@ -160,7 +161,7 @@ export class BreakGlassRepository {
       ],
     )
 
-    return mapGrant(result.rows[0] ?? {})
+    return mapGrant(single(result.rows[0]))
   }
 
   async findById(id: string): Promise<BreakGlassGrant | null> {
@@ -231,7 +232,7 @@ export class BreakGlassRepository {
          returning id, grant_id, reviewer_id, reviewed_at, decision, notes`,
         [input.grantId, input.reviewerId, input.reviewedAt, input.decision, input.notes],
       )
-      return mapReview(result.rows[0] ?? {})
+      return mapReview(single(result.rows[0]))
     } catch (error) {
       if (isConstraintViolation(error)) throw new BreakGlassConstraintError()
       throw error
@@ -239,17 +240,20 @@ export class BreakGlassRepository {
   }
 }
 
+/** A returning statement always yields its row; anything else is a bug. */
+function single(row: unknown): unknown {
+  if (row === undefined) throw new Error('database did not return the written row')
+  return row
+}
+
+/** A constraint or exclusion constraint rejected the write. */
 export function isConstraintViolation(error: unknown): boolean {
-  if (typeof error !== 'object' || error === null) return false
-  const code = Reflect.get(error, 'code') as unknown
-  return code === '23505' || code === '23514' || code === '23P01'
+  return hasSqlState(error, '23505', '23514', '23P01')
 }
 
 /** An exclusion constraint rejected an overlapping grant window. */
 export function isOverlapViolation(error: unknown): boolean {
-  return (
-    typeof error === 'object' && error !== null && (Reflect.get(error, 'code') as unknown) === '23P01'
-  )
+  return hasSqlState(error, '23P01')
 }
 
 function mapGrant(value: unknown): BreakGlassGrant {
