@@ -147,7 +147,20 @@ Terminology routes read only the terminology database. Clinical features call th
 | Database/upstream unavailable | 503 | `UNAVAILABLE` |
 | Anything unexpected | 500 | `INTERNAL` |
 
-Log the cause with a request ID server-side; return only the code, a safe message and the request ID. Never include SQL, table names, stack traces, secrets or patient data.
+Log the cause with a request ID server-side; return only the code, a safe message and the request ID.
+
+The table above is the vocabulary for failures. New endpoints use those codes; do not add a code per resource or per rule. A client that needs to distinguish one rule from another reads the message, and the structured log carries the detail the message omits. The exceptions in code are deliberate and closed:
+
+| Code | Status | Why it stays |
+| --- | --- | --- |
+| `MFA_REQUIRED` | 403 | The caller is authenticated; the client must complete a second factor and retry, not request access. |
+| `STEP_UP_REQUIRED` | 403 | Same reason: the browser rotates the session and retries instead of showing a denial. |
+| `RATE_LIMITED` | 429 | The status itself is the contract; the code lets the client read `Retry-After` for a busy form. |
+| `INVALID_EMAIL` `INVALID_NAME` `INVALID_PASSWORD` `EMAIL_VERIFICATION_INVALID` | 422 | Form field errors: the client keys a message onto the field that failed and the rule does not fit "business rule rejected". |
+| `REGISTRATION_REJECTED` | 422 | The sign-up itself is refused; no resource exists to name in the generic message. |
+| `MAIL_UNAVAILABLE` `AUTH_UNAVAILABLE` | 503 | Says which dependency failed so the operator and the client can tell a retry from a broken account. |
+
+Never include SQL, table names, stack traces, secrets or patient data.
 
 ## 8. Testing
 
