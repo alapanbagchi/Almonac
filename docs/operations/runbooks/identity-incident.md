@@ -24,7 +24,7 @@ set revoked_at = now(), revoke_reason = 'incident: <ticket>'
 where id = '<session id>' and revoked_at is null;
 ```
 
-The next request with that token fails with `AUTH_FAILED`. The session row stays for audit. Do not delete it.
+The next request with that token fails with `401 UNAUTHENTICATED`. The session row stays for audit. Do not delete it.
 
 To revoke every session for one user:
 

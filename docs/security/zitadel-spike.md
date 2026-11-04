@@ -139,7 +139,7 @@ The session response contained the synthetic doctor and an empty membership list
 - idle expiry before absolute expiry;
 - a sealed `id_token_hint` with key version 1.
 
-Logout returned a Zitadel end-session URL with an `id_token_hint`. Following it ended the Zitadel session and redirected to the post-logout URI. The local session returned `401` after logout. A second logout also returned `200` and a provider URL, but it added no second audit record. A replayed callback returned `401 AUTH_FAILED`.
+Logout returned a Zitadel end-session URL with an `id_token_hint`. Following it ended the Zitadel session and redirected to the post-logout URI. The local session returned `401` after logout. A second logout also returned `200` and a provider URL, but it added no second audit record. A replayed callback returned `401 UNAUTHENTICATED`.
 
 The audit trail contained one `auth.login` and one `auth.logout` event for the session. Their metadata held only `session_id`.
 

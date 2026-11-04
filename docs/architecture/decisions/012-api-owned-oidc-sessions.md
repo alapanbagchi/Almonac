@@ -36,9 +36,9 @@ The alternative is a backend for frontend (BFF). The API owns the OIDC flow and 
 
 - `POST /v1/auth/login-attempts` creates a login attempt. It returns the authorization URL and expiry.
 - `POST /v1/auth/callback` consumes the attempt, exchanges the code, verifies the ID token, updates the user, checks access, activates an invitation and creates a session. It audits the result.
-- `POST /v1/auth/logout` revokes the current session and audits the action. It returns a Zitadel `end_session_endpoint` URL built from the encrypted `id_token_hint`. A missing or malformed token returns `401 AUTH_REQUIRED`. An unknown token returns no provider URL. An expired or already revoked token still returns the provider URL, so a shared workstation also ends the Zitadel single sign-on session. A second logout does not write a second audit record.
+- `POST /v1/auth/logout` revokes the current session and audits the action. It returns a Zitadel `end_session_endpoint` URL built from the encrypted `id_token_hint`. A missing or malformed token returns `401 UNAUTHENTICATED`. An unknown token returns no provider URL. An expired or already revoked token still returns the provider URL, so a shared workstation also ends the Zitadel single sign-on session. A second logout does not write a second audit record.
 - `GET /v1/auth/session` returns the current user, active memberships and the union of permissions. It never returns tokens or data from another tenant. The response is informational. It is not the authorisation decision for a protected route, because a membership can change between its two queries. Every protected route must resolve access again.
-- A Bearer guard resolves `Authorization: Bearer <opaque token>` on every protected route. A missing or malformed token returns `401 AUTH_REQUIRED`. An unknown, expired or revoked token returns `401 AUTH_FAILED`. The API never reads cookies.
+- A Bearer guard resolves `Authorization: Bearer <opaque token>` on every protected route. A missing or malformed token, and an unknown, expired or revoked token, both return `401 UNAUTHENTICATED`. Distinguishing the two would tell an unauthenticated caller whether a token had ever existed. The API never reads cookies.
 
 ### Session model
 
@@ -80,7 +80,7 @@ The alternative is a backend for frontend (BFF). The API owns the OIDC flow and 
 ### Failure rules
 
 - A repeated `state` is rejected. Consuming the attempt is one atomic update, so only one callback can consume it.
-- A failed code exchange, ID-token verification, user-status check or invitation check creates no session. The API returns a generic `401 AUTH_FAILED`. It logs internal detail without the code, token or claims.
+- A failed code exchange, ID-token verification, user-status check or invitation check creates no session. The API returns a generic `401 UNAUTHENTICATED`. It logs internal detail without the code, token or claims.
 - `returnTo` must be an internal absolute path that starts with a single `/`. The API rejects schemes, protocol-relative paths, backslashes and control characters.
 - Responses that carry a token or a redirect use `Cache-Control: no-store` and `Referrer-Policy: no-referrer`.
 
