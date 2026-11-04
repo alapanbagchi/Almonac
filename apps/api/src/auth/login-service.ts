@@ -228,11 +228,6 @@ export class LoginService {
       await this.fail('missing_session', attempt.userId, context)
       throw authFailed()
     }
-    if (attempt.purpose !== 'login' && attempt.purpose !== 'step_up') {
-      await this.fail('invalid_attempt', attempt.userId, context)
-      throw authFailed()
-    }
-
     try {
       const verifier = open(
         {

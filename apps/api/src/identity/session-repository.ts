@@ -174,7 +174,7 @@ function mapRow(value: unknown): WebSession {
     acr: nullableStringField(row, 'acr'),
     idTokenHintCiphertext: nullableBufferField(row, 'id_token_hint_ciphertext'),
     keyVersion: nullableIntegerField(row, 'key_version'),
-    amr: textArray(row),
+    amr: textArrayField(row, 'amr'),
     authTime: dateField(row, 'auth_time'),
     aal: integerField(row, 'aal'),
     createdAt: dateField(row, 'created_at'),
@@ -188,6 +188,3 @@ function mapRow(value: unknown): WebSession {
   }
 }
 
-function textArray(row: Record<string, unknown>): string[] {
-  return textArrayField(row, 'amr')
-}
