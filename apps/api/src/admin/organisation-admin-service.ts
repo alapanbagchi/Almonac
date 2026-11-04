@@ -27,14 +27,14 @@ export class OrganisationAdminService {
   }
 
   async get(context: AdminRequestContext, organisationId: string): Promise<Organisation> {
-    const organisation = await this.organisations.findById(organisationId)
-    if (organisation === null) throw notFound('Organisation not found.')
     const allowed =
       (await this.authorization.hasPlatformPermission(context.actor.id, 'platform.manage')) ||
       (await this.authorization.hasPermission(context.actor.id, 'organisation.manage', {
         organisationId,
       }))
     if (!allowed) throw forbidden()
+    const organisation = await this.organisations.findById(organisationId)
+    if (organisation === null) throw notFound('Organisation not found.')
     return organisation
   }
 }

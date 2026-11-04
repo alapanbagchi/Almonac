@@ -2827,6 +2827,43 @@ describe('admin routes', () => {
     expect(body.error.code).toBe('VALIDATION_FAILED')
   })
 
+  test('hides organisation existence from a caller without access', async () => {
+    const organisation = await createOrganisation(ownerPool, 'hidden-organisation')
+    const user = await createUser(ownerPool, 'hidden-user', 'hidden@example.test')
+    const { app, sessions } = application()
+    const issued = await sessions.mint({
+      userId: user,
+      identityIssuer: 'http://localhost:8080',
+      zitadelSessionId: null,
+      oidcSid: null,
+      acr: null,
+      idTokenHintCiphertext: null,
+      keyVersion: null,
+      amr: ['pwd'],
+      authTime: new Date(Date.now() - 60_000),
+      aal: 1,
+      ip: null,
+      userAgentHash: null,
+    })
+
+    const existing = await app.handle(
+      new Request(`http://localhost/v1/admin/organisations/${organisation}`, {
+        headers: { authorization: `Bearer ${issued.token}` },
+      }),
+    )
+    const missing = await app.handle(
+      new Request(`http://localhost/v1/admin/organisations/${randomUUID()}`, {
+        headers: { authorization: `Bearer ${issued.token}` },
+      }),
+    )
+
+    expect(existing.status).toBe(403)
+    expect(missing.status).toBe(403)
+    const existingBody = await existing.json() as { error: { code: string } }
+    const missingBody = await missing.json() as { error: { code: string } }
+    expect(existingBody.error.code).toBe(missingBody.error.code)
+  })
+
   test('paginates the administration lists', async () => {
     await createOrganisation(ownerPool, 'pagination-first')
     await createOrganisation(ownerPool, 'pagination-second')
