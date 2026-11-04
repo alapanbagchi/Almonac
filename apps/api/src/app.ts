@@ -46,6 +46,9 @@ export function createApp({
     .use(docs)
     .use(createHealth(checkDatabase, readinessTimeoutMs))
 
+  // Feature routes are mounted only when their dependencies are supplied, so
+  // tests can build an app with a subset. Each plugin keeps its own instance
+  // type, so the mounts stay chained rather than collected in a list.
   const withAuth = auth === undefined ? app : app.use(createAuth(auth))
   const withSelfService =
     selfService === undefined ? withAuth : withAuth.use(createSelfService(selfService))
