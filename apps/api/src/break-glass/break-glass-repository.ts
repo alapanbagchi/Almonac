@@ -210,20 +210,6 @@ export class BreakGlassRepository {
     return result.rows[0] === undefined ? null : mapGrant(result.rows[0])
   }
 
-  async expire(id: string, at: Date): Promise<BreakGlassGrant | null> {
-    const result = await this.db.query(
-      `update control.break_glass_grant
-       set status = 'expired', expired_at = upper(validity)
-       where id = $1
-         and status = 'active'
-         and upper(validity) <= $2::timestamptz
-       returning ${COLUMNS}`,
-      [id, at],
-    )
-
-    return result.rows[0] === undefined ? null : mapGrant(result.rows[0])
-  }
-
   async createReview(input: {
     grantId: string
     reviewerId: string
