@@ -1,6 +1,5 @@
 import type { Pool } from 'pg'
 import { AuditWriter } from '../audit/audit-writer'
-import type { AuditSink } from '../audit/audit-writer'
 import { withTransaction, type DatabaseQuery } from '../db/pool'
 import { rowRecord, stringField } from '../db/rows'
 import type { MembershipAdminRepository } from '../admin/membership-admin-repository'
@@ -48,7 +47,6 @@ export class OnboardingService {
     private readonly pool: Pool,
     private readonly provisioning: OnboardingProvisioner,
     private readonly memberships: MembershipAdminRepository,
-    private readonly audit: AuditSink,
   ) {}
 
   async create(context: OnboardingContext, input: OnboardingInput): Promise<Organisation> {

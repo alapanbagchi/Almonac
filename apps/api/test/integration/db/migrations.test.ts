@@ -2721,7 +2721,7 @@ describe('admin routes', () => {
           authorization,
           new OrganisationProvisioningService(appPool, zitadel, audit),
         ),
-        hospitals: new HospitalAdminService(appPool, hospitals, organisations, authorization, audit),
+        hospitals: new HospitalAdminService(appPool, hospitals, authorization, audit),
         memberships: new MembershipAdminService(appPool, memberships, authorization, audit),
         invitations: new InvitationService({
           pool: appPool,
@@ -3014,7 +3014,6 @@ describe('admin routes', () => {
       const service = new HospitalAdminService(
         appPool,
         new HospitalRepository(appPool),
-        new OrganisationRepository(appPool),
         new AuthorizationRepository(appPool),
         { async write() { throw new Error('audit unavailable') } },
       )
@@ -3484,7 +3483,6 @@ describe('onboarding service', () => {
       appPool,
       provisioner(),
       new MembershipAdminRepository(appPool),
-      new AuditWriter(appPool),
     )
   }
 
@@ -3583,7 +3581,6 @@ describe('onboarding service', () => {
         },
       },
       new MembershipAdminRepository(appPool),
-      new AuditWriter(appPool),
     )
 
     await expect(

@@ -128,7 +128,7 @@ const verification = new EmailVerificationService(
   (run) => withTransaction(pool, run),
 )
 const provisioning = new OrganisationProvisioningService(pool, zitadel, audit, metrics)
-const onboarding = new OnboardingService(pool, provisioning, memberships, audit)
+const onboarding = new OnboardingService(pool, provisioning, memberships)
 
 const app = createApp({
   checkDatabase: () => checkControlDatabase(pool),
@@ -152,7 +152,7 @@ const app = createApp({
       authorization,
       provisioning,
     ),
-    hospitals: new HospitalAdminService(pool, hospitals, organisations, authorization, audit),
+    hospitals: new HospitalAdminService(pool, hospitals, authorization, audit),
     memberships: new MembershipAdminService(pool, memberships, authorization, audit),
     invitations: new InvitationService({
       pool,

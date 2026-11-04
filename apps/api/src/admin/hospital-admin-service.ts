@@ -7,14 +7,12 @@ import type { AuthorizationRepository } from '../access/authorization-repository
 import type { AdminRequestContext } from './admin-context'
 import type { Hospital, HospitalDomain, HospitalRepository } from './hospital-repository'
 import type { Page, PageRequest } from '../shared/pagination'
-import type { OrganisationRepository } from './organisation-repository'
 import { asAdminError, forbidden, notFound } from './admin-errors'
 
 export class HospitalAdminService {
   constructor(
     private readonly pool: Pool,
     private readonly hospitals: HospitalRepository,
-    private readonly organisations: OrganisationRepository,
     private readonly authorization: AuthorizationRepository,
     private readonly audit: AuditSink,
   ) {}
