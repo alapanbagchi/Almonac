@@ -47,12 +47,11 @@ import { OnboardingService } from './onboarding/onboarding-service'
 import { MAX_BODY_BYTES } from './plugins/security'
 import { createMetrics } from './shared/metrics'
 
-const config = loadConfigOrExit(loadConfig, ConfigError, 'config')
-const authConfig = loadConfigOrExit(loadAuthConfig, AuthConfigError, 'auth config')
-const mailConfig = loadConfigOrExit(() => loadMailConfig(process.env), MailConfigError, 'mail config')
+const config = loadConfigOrExit(loadConfig, 'config')
+const authConfig = loadConfigOrExit(loadAuthConfig, 'auth config')
+const mailConfig = loadConfigOrExit(() => loadMailConfig(process.env), 'mail config')
 const managementConfig = loadConfigOrExit(
   () => loadZitadelManagementConfig(process.env),
-  ZitadelManagementConfigError,
   'Zitadel management config',
 )
 
@@ -187,17 +186,21 @@ const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
 process.once('SIGINT', () => void shutdown('SIGINT'))
 process.once('SIGTERM', () => void shutdown('SIGTERM'))
 
-function loadConfigOrExit<T>(
-  load: () => T,
-  errorType: new (issues: readonly string[]) => Error,
-  label: string,
-): T {
+/**
+ * Startup configuration is validated once. Every loader signals a bad
+ * environment with an error that carries its issues, so the process reports
+ * them by name and exits instead of starting half-configured.
+ */
+function loadConfigOrExit<T>(load: () => T, label: string): T {
   try {
     return load()
   } catch (error) {
-    const issues =
-      error instanceof errorType ? (error as Error & { issues: readonly string[] }).issues : ['unexpected validation failure']
-    for (const issue of issues) console.error(`[api] ${label}: ${issue}`)
+    if (error instanceof ConfigError || error instanceof AuthConfigError ||
+        error instanceof MailConfigError || error instanceof ZitadelManagementConfigError) {
+      for (const issue of error.issues) console.error(`[api] ${label}: ${issue}`)
+    } else {
+      console.error(`[api] ${label}: unexpected validation failure`)
+    }
     process.exit(1)
   }
 }
