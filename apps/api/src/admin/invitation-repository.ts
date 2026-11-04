@@ -43,20 +43,28 @@ const SELECT_COLUMNS = `${COLUMNS},
   ) as role_ids
 `
 
+/** One invitation, or null when the query found none. */
+function single(result: { readonly rows: readonly unknown[] }): Invitation | null {
+  return result.rows[0] === undefined ? null : mapRow(result.rows[0])
+}
+
 export class InvitationRepository {
   constructor(private readonly pool: Pool) {}
 
-  async create(input: {
-    email: string
-    organisationId: string
-    hospitalId: string | null
-    kind: InvitationKind
-    zitadelSub: string | null
-    tokenHash: Buffer
-    invitedBy: string
-    expiresAt: Date
-    roleIds: readonly string[]
-  }, db?: DatabaseQuery): Promise<Invitation> {
+  async create(
+    input: {
+      email: string
+      organisationId: string
+      hospitalId: string | null
+      kind: InvitationKind
+      zitadelSub: string | null
+      tokenHash: Buffer
+      invitedBy: string
+      expiresAt: Date
+      roleIds: readonly string[]
+    },
+    db?: DatabaseQuery,
+  ): Promise<Invitation> {
     if (db === undefined) {
       return withTransaction(this.pool, (tx) => this.create(input, tx))
     }
@@ -91,7 +99,7 @@ export class InvitationRepository {
       `select ${SELECT_COLUMNS} from identity.invitation as invitation where invitation.id = $1`,
       [id],
     )
-    return result.rows[0] === undefined ? null : mapRow(result.rows[0])
+    return single(result)
   }
 
   async list(
@@ -127,7 +135,7 @@ export class InvitationRepository {
         limit 1`,
       [input.email, input.organisationId, input.hospitalId],
     )
-    return result.rows[0] === undefined ? null : mapRow(result.rows[0])
+    return single(result)
   }
 
   /** The invitation a token names, locked for the accepting transaction. */
@@ -139,7 +147,7 @@ export class InvitationRepository {
         for update`,
       [tokenHash],
     )
-    return result.rows[0] === undefined ? null : mapRow(result.rows[0])
+    return single(result)
   }
 
   async revokePending(
