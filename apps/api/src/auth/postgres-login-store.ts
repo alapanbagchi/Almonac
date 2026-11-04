@@ -45,7 +45,38 @@ export class PostgresLoginStore implements LoginCompletionStore {
   constructor(private readonly pool: Pool) {}
 
   async complete(input: LoginCompletionInput): Promise<LoginCompletion> {
-    return withTransaction(this.pool, (db) => this.completeInTransaction(db, input))
+    return withTransaction(this.pool, async (db) => {
+      const users = new AppUserRepository(db)
+      let user: AppUser
+      try {
+        user = await users.upsertFromIdentity({
+          identityIssuer: input.identity.issuer,
+          zitadelSubject: input.identity.subject,
+          email: input.identity.email,
+          emailVerifiedAt: input.identity.emailVerifiedAt,
+          displayName: input.identity.displayName,
+          homeOrganisationId: null,
+        })
+      } catch (error) {
+        if (error instanceof AppUserEmailConflictError) {
+          throw new LoginRejectedError('email_conflict')
+        }
+        throw error
+      }
+
+      if (user.status !== 'active') {
+        throw new LoginRejectedError('user_inactive', user.id)
+      }
+
+      for (const invitation of await this.pendingInvitations(db, user, input.now)) {
+        await this.acceptInvitation(db, user, invitation, input)
+      }
+
+      const loggedIn = await users.markLogin(user.id, input.now)
+      if (loggedIn === null) throw new LoginRejectedError('user_inactive', user.id)
+
+      return this.mintSession(db, loggedIn, input)
+    })
   }
 
   /**
@@ -118,41 +149,11 @@ export class PostgresLoginStore implements LoginCompletionStore {
     })
   }
 
-  private async completeInTransaction(
+  private async mintSession(
     db: DatabaseQuery,
+    user: AppUser,
     input: LoginCompletionInput,
   ): Promise<LoginCompletion> {
-    const users = new AppUserRepository(db)
-    let user: AppUser
-    try {
-      user = await users.upsertFromIdentity({
-        identityIssuer: input.identity.issuer,
-        zitadelSubject: input.identity.subject,
-        email: input.identity.email,
-        emailVerifiedAt: input.identity.emailVerifiedAt,
-        displayName: input.identity.displayName,
-        homeOrganisationId: null,
-      })
-    } catch (error) {
-      if (error instanceof AppUserEmailConflictError) {
-        throw new LoginRejectedError('email_conflict')
-      }
-      throw error
-    }
-
-    if (user.status !== 'active') {
-      throw new LoginRejectedError('user_inactive', user.id)
-    }
-
-    const invitations = await this.pendingInvitations(db, user, input.now)
-    for (const invitation of invitations) {
-      await this.acceptInvitation(db, user, invitation, input)
-    }
-
-    const loggedIn = await users.markLogin(user.id, input.now)
-    if (loggedIn === null) throw new LoginRejectedError('user_inactive', user.id)
-    user = loggedIn
-
     const sessions = new SessionService({
       store: new SessionRepository(db),
       clock: () => input.now,
