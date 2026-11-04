@@ -67,8 +67,9 @@ export function createOidcProvider(options: OidcProviderOptions): OidcProvider {
     },
 
     async verifyIdToken(idToken, nonceHash) {
+      // The key set is cached until discovery starts advertising another JWKS.
       const metadata = await discovery.metadata()
-      if (verifier === null || verifier.keySetUri !== metadata.jwksUri) {
+      if (verifier?.keySetUri !== metadata.jwksUri) {
         verifier = {
           keySetUri: metadata.jwksUri,
           value: createIdTokenVerifier({
