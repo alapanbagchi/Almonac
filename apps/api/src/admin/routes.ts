@@ -14,6 +14,7 @@ import {
   limitOf,
   listLimit,
   membershipSchema,
+  okSchema,
   organisationBody,
   organisationSchema,
   reasonBody,
@@ -276,6 +277,7 @@ export function createAdmin(dependencies: AdminDependencies) {
       {
         params: t.Object({ membershipId: uuid }),
         body: reasonBody,
+        response: { 200: okSchema },
         detail: routeDetail('Suspend a membership'),
       },
       async (context) => {
@@ -292,6 +294,7 @@ export function createAdmin(dependencies: AdminDependencies) {
       {
         params: t.Object({ membershipId: uuid }),
         body: reasonBody,
+        response: { 200: okSchema },
         detail: routeDetail('Revoke a membership'),
       },
       async (context) => {
@@ -308,6 +311,7 @@ export function createAdmin(dependencies: AdminDependencies) {
       {
         params: t.Object({ membershipId: uuid }),
         body: roleBody,
+        response: { 200: okSchema },
         detail: routeDetail('Assign a role'),
       },
       async (context) => {
@@ -323,6 +327,7 @@ export function createAdmin(dependencies: AdminDependencies) {
       '/memberships/:membershipId/roles/:roleId',
       {
         params: t.Object({ membershipId: uuid, roleId: uuid }),
+        response: { 200: okSchema },
         detail: routeDetail('Remove a role'),
       },
       async (context) => {
@@ -396,6 +401,7 @@ export function createAdmin(dependencies: AdminDependencies) {
       '/invitations/:invitationId',
       {
         params: t.Object({ invitationId: uuid }),
+        response: { 200: okSchema },
         detail: routeDetail('Revoke an invitation'),
       },
       async (context) => {

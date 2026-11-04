@@ -29,12 +29,19 @@ export const invitationBody = t.Object({
 })
 export const acceptBody = t.Object({ token: t.String({ minLength: 32, maxLength: 128 }) })
 
+export const okSchema = t.Object({ ok: t.Boolean() })
+
 export const organisationSchema = t.Object({
   id: t.String(),
   zitadelOrgId: t.Union([t.String(), t.Null()]),
   name: t.String(),
   slug: t.String(),
-  status: t.String(),
+  status: t.Union([
+    t.Literal('pending'),
+    t.Literal('active'),
+    t.Literal('suspended'),
+    t.Literal('archived'),
+  ]),
   provisionedAt: t.Union([t.String(), t.Null()]),
   createdAt: t.String(),
 })
@@ -44,7 +51,12 @@ export const hospitalSchema = t.Object({
   name: t.String(),
   slug: t.String(),
   timezone: t.String(),
-  status: t.String(),
+  status: t.Union([
+    t.Literal('pending'),
+    t.Literal('active'),
+    t.Literal('suspended'),
+    t.Literal('closed'),
+  ]),
   primaryDomainId: t.Union([t.String(), t.Null()]),
   createdAt: t.String(),
 })
@@ -63,7 +75,12 @@ export const membershipSchema = t.Object({
   displayName: t.String(),
   organisationId: t.String(),
   hospitalId: t.Union([t.String(), t.Null()]),
-  status: t.String(),
+  status: t.Union([
+    t.Literal('active'),
+    t.Literal('suspended'),
+    t.Literal('revoked'),
+    t.Literal('expired'),
+  ]),
   acceptedAt: t.String(),
   endsAt: t.Union([t.String(), t.Null()]),
   roles: t.Array(t.String()),
@@ -73,9 +90,14 @@ export const invitationSchema = t.Object({
   email: t.String(),
   organisationId: t.String(),
   hospitalId: t.Union([t.String(), t.Null()]),
-  kind: t.String(),
+  kind: t.Union([t.Literal('new_user'), t.Literal('existing_user')]),
   zitadelSub: t.Union([t.String(), t.Null()]),
-  status: t.String(),
+  status: t.Union([
+    t.Literal('pending'),
+    t.Literal('accepted'),
+    t.Literal('revoked'),
+    t.Literal('expired'),
+  ]),
   expiresAt: t.String(),
   createdAt: t.String(),
   acceptedAt: t.Union([t.String(), t.Null()]),
@@ -86,13 +108,18 @@ export const invitationSchema = t.Object({
 export const auditSchema = t.Object({
   id: t.String(),
   occurredAt: t.String(),
-  actorType: t.String(),
+  actorType: t.Union([
+    t.Literal('user'),
+    t.Literal('system'),
+    t.Literal('service'),
+    t.Literal('break_glass'),
+  ]),
   actorUserId: t.Union([t.String(), t.Null()]),
   sessionId: t.Union([t.String(), t.Null()]),
   organisationId: t.Union([t.String(), t.Null()]),
   hospitalId: t.Union([t.String(), t.Null()]),
   eventType: t.String(),
-  outcome: t.String(),
+  outcome: t.Union([t.Literal('success'), t.Literal('failure'), t.Literal('denied')]),
   targetType: t.Union([t.String(), t.Null()]),
   targetId: t.Union([t.String(), t.Null()]),
   requestId: t.Union([t.String(), t.Null()]),
