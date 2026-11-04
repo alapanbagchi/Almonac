@@ -34,7 +34,7 @@ export function pageOf<T>(rows: readonly T[], request: PageRequest): Page<T> {
   }
 }
 
-/** Map a page while preserving its cursor. */
+/** Map a page while preserving its next offset. */
 export function pageResponse<T, R>(
   page: Page<T>,
   map: (item: T) => R,
