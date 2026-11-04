@@ -2796,6 +2796,51 @@ describe('admin routes', () => {
     )
     expect(created.rows[0]!.count).toBe(0)
   })
+
+  test('answers an unusable primary domain with a domain error', async () => {
+    const organisation = await createOrganisation(ownerPool, 'primary-domain')
+    const hospital = await createHospital(ownerPool, organisation, 'primary-hospital')
+    const domain = await createDomain(ownerPool, hospital, 'primary-domain.example.test')
+    const user = await createUser(ownerPool, 'primary-domain-user', 'primary-domain@example.test')
+    const platformRole = await findSystemRole(ownerPool, 'platform_admin')
+    await ownerPool.query(
+      'insert into control.platform_assignment (user_id, role_id) values ($1, $2)',
+      [user, platformRole],
+    )
+
+    try {
+      const { app, sessions } = application()
+      const issued = await sessions.mint({
+        userId: user,
+        identityIssuer: 'http://localhost:8080',
+        zitadelSessionId: null,
+        oidcSid: null,
+        acr: null,
+        idTokenHintCiphertext: null,
+        keyVersion: null,
+        amr: ['pwd'],
+        authTime: new Date(Date.now() - 60_000),
+        aal: 1,
+        ip: null,
+        userAgentHash: null,
+      })
+      const response = await app.handle(
+        new Request(
+          `http://localhost/v1/admin/hospitals/${hospital}/domains/${domain}/primary`,
+          {
+            method: 'POST',
+            headers: { authorization: `Bearer ${issued.token}` },
+          },
+        ),
+      )
+
+      expect(response.status).toBe(422)
+      const body = await response.json() as { error: { code: string } }
+      expect(body.error.code).toBe('DOMAIN_NOT_VERIFIED')
+    } finally {
+      await ownerPool.query('delete from control.platform_assignment where user_id = $1', [user])
+    }
+  })
 })
 
 describe('break-glass service', () => {

@@ -107,8 +107,13 @@ export class HospitalAdminService {
     domainId: string,
   ): Promise<Hospital> {
     const hospital = await this.requireHospitalManage(context, hospitalId)
-    const updated = await this.hospitals.setPrimaryDomain({ hospitalId, domainId, at: new Date() })
-    if (updated === null) throw new AppError('DOMAIN_NOT_VERIFIED', 422, 'Domain is not verified.')
+    let updated: Hospital | null
+    try {
+      updated = await this.hospitals.setPrimaryDomain({ hospitalId, domainId, at: new Date() })
+    } catch (error) {
+      throw asAdminError(error)
+    }
+    if (updated === null) throw notFound()
     await this.auditChange(
       context,
       hospital.organisationId,

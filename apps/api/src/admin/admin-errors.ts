@@ -1,5 +1,9 @@
 import { AppError } from '../shared/errors'
-import { DomainConflictError, HospitalSlugConflictError } from './hospital-repository'
+import {
+  DomainConflictError,
+  HospitalSlugConflictError,
+  PrimaryDomainRejectedError,
+} from './hospital-repository'
 import { MembershipConflictError, RoleAssignmentConflictError } from './membership-admin-repository'
 import { OrganisationSlugConflictError } from './organisation-repository'
 import {
@@ -48,6 +52,14 @@ export function asAdminError(error: unknown): unknown {
     return new AppError('DOMAIN_TAKEN', 409, 'This domain is already registered.', {
       cause: error,
     })
+  }
+  if (error instanceof PrimaryDomainRejectedError) {
+    return new AppError(
+      'DOMAIN_NOT_VERIFIED',
+      422,
+      'The domain must be verified for this hospital before it becomes primary.',
+      { cause: error },
+    )
   }
   if (error instanceof MembershipConflictError) {
     return new AppError('MEMBERSHIP_CONFLICT', 409, 'This person already has overlapping access.', {

@@ -43,6 +43,14 @@ export class DomainConflictError extends Error {
   }
 }
 
+/** The database refused a primary domain: missing, unverified, retired or owned by another hospital. */
+export class PrimaryDomainRejectedError extends Error {
+  constructor() {
+    super('primary domain is not available to this hospital')
+    this.name = 'PrimaryDomainRejectedError'
+  }
+}
+
 const HOSPITAL_SELECT = `
   select id, organisation_id, name, slug, timezone, status, primary_domain_id,
          created_at
@@ -147,15 +155,22 @@ export class HospitalRepository {
     domainId: string
     at: Date
   }): Promise<Hospital | null> {
-    const result = await this.db.query(
-      `update control.hospital
-          set primary_domain_id = $2, status = 'active'
-        where id = $1
-        returning id, organisation_id, name, slug, timezone, status,
-                  primary_domain_id, created_at`,
-      [input.hospitalId, input.domainId],
-    )
-    return result.rows[0] === undefined ? null : mapHospital(result.rows[0])
+    try {
+      const result = await this.db.query(
+        `update control.hospital
+            set primary_domain_id = $2, status = 'active'
+          where id = $1
+          returning id, organisation_id, name, slug, timezone, status,
+                    primary_domain_id, created_at`,
+        [input.hospitalId, input.domainId],
+      )
+      return result.rows[0] === undefined ? null : mapHospital(result.rows[0])
+    } catch (error) {
+      // The trigger rejects a missing, unverified, retired or foreign domain
+      // with 23503 or 23514. Both mean the same thing to the caller.
+      if (isConstraintViolation(error)) throw new PrimaryDomainRejectedError()
+      throw error
+    }
   }
 }
 
@@ -186,10 +201,15 @@ function mapDomain(value: unknown): HospitalDomain {
 }
 
 function isUniqueViolation(error: unknown): boolean {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'code' in error &&
-    (error as { code?: unknown }).code === '23505'
-  )
+  return hasSqlState(error, '23505')
+}
+
+function isConstraintViolation(error: unknown): boolean {
+  return hasSqlState(error, '23503', '23514')
+}
+
+function hasSqlState(error: unknown, ...codes: string[]): boolean {
+  if (typeof error !== 'object' || error === null || !('code' in error)) return false
+  const code = (error as { code?: unknown }).code
+  return typeof code === 'string' && codes.includes(code)
 }
