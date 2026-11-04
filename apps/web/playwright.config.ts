@@ -29,6 +29,7 @@ export default defineConfig({
       env: {
         AUTH_PUBLIC_ORIGIN: `http://localhost:${port}`,
         API_URL: `http://localhost:${apiPort}`,
+        AUTH_IDP_ORIGIN: `http://localhost:${apiPort}`,
       },
     },
   ],

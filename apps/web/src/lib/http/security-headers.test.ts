@@ -26,6 +26,16 @@ describe("content security policy", () => {
     expect(script).not.toContain("'unsafe-eval'");
   });
 
+  test("allows the provider origin for the sign-out redirect", () => {
+    const value = contentSecurityPolicy(NONCE, {
+      development: false,
+      secureOrigin: true,
+      idpOrigin: "https://id.example",
+    });
+
+    expect(value).toContain("form-action 'self' https://id.example");
+  });
+
   test("allows the React development build to evaluate code", () => {
     expect(policy({ development: true, secureOrigin: false })).toContain(
       "'unsafe-eval'",

@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { readOptionalOrigin } from "@/lib/auth/config";
 import {
   SECURITY_HEADERS,
   STRICT_TRANSPORT_SECURITY,
@@ -8,6 +9,12 @@ import {
 
 const development = process.env.NODE_ENV === "development";
 const secureOrigin = process.env.AUTH_PUBLIC_ORIGIN?.startsWith("https://") ?? false;
+// The sign-out form posts to the BFF and redirects to the provider to end the
+// single sign-on session. A form submission may only follow that redirect when
+// form-action allows the provider origin.
+const idpOrigin = readOptionalOrigin(
+  process.env.AUTH_IDP_ORIGIN ?? (development ? "http://localhost:8080" : ""),
+);
 
 /**
  * A nonce lets the application run with no 'unsafe-inline' script source.
@@ -16,7 +23,7 @@ const secureOrigin = process.env.AUTH_PUBLIC_ORIGIN?.startsWith("https://") ?? f
  */
 export function proxy(request: NextRequest) {
   const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
-  const policy = contentSecurityPolicy(nonce, { development, secureOrigin });
+  const policy = contentSecurityPolicy(nonce, { development, secureOrigin, idpOrigin });
 
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set("x-nonce", nonce);

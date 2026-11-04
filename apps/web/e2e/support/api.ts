@@ -159,7 +159,15 @@ Bun.serve({
         ? json(200, SESSION)
         : failure(401, "AUTH_FAILED");
     }
-    if (pathname === "/v1/auth/logout") return json(200, { endSessionUrl: null });
+    if (pathname === "/v1/auth/logout") {
+      return json(200, { endSessionUrl: `http://localhost:${PORT}/oidc/end-session` });
+    }
+    if (pathname === "/oidc/end-session") {
+      return new Response(null, {
+        status: 303,
+        headers: { location: "http://localhost:3100/login" },
+      });
+    }
 
     if (pathname.startsWith("/v1/admin/")) {
       if (!authorised(request)) return failure(401, "AUTH_FAILED");

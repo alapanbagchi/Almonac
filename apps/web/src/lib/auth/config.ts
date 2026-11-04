@@ -1,6 +1,8 @@
 export interface WebConfig {
   readonly apiUrl: string;
   readonly publicOrigin: string;
+  /** Identity provider origin that ends the single sign-on session. */
+  readonly idpOrigin: string;
 }
 
 export class WebConfigError extends Error {
@@ -32,11 +34,46 @@ export function loadWebConfig(
     production,
     issues,
   );
+  const idpOrigin = readOrigin(
+    env.AUTH_IDP_ORIGIN ?? (production ? "" : "http://localhost:8080"),
+    "AUTH_IDP_ORIGIN",
+    production,
+    issues,
+  );
 
-  if (issues.length > 0 || apiUrl === undefined || publicOrigin === undefined) {
+  if (
+    issues.length > 0 ||
+    apiUrl === undefined ||
+    publicOrigin === undefined ||
+    idpOrigin === undefined
+  ) {
     throw new WebConfigError(issues);
   }
-  return { apiUrl, publicOrigin };
+  return { apiUrl, publicOrigin, idpOrigin };
+}
+
+/**
+ * Parses an http(s) origin without reporting issues. The proxy uses it for the
+ * content security policy, where an invalid value must only narrow the policy.
+ */
+export function readOptionalOrigin(value: string | undefined): string | null {
+  if (value === undefined || value.trim() === "") return null;
+  try {
+    const url = new URL(value);
+    if (
+      (url.protocol !== "http:" && url.protocol !== "https:") ||
+      url.username !== "" ||
+      url.password !== "" ||
+      url.search !== "" ||
+      url.hash !== "" ||
+      (url.pathname !== "/" && url.pathname !== "")
+    ) {
+      return null;
+    }
+    return url.origin;
+  } catch {
+    return null;
+  }
 }
 
 function readOrigin(

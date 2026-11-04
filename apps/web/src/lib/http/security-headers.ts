@@ -1,6 +1,8 @@
 export interface PolicyOptions {
   development: boolean;
   secureOrigin: boolean;
+  /** Origin of the identity provider, which receives the sign-out redirect. */
+  idpOrigin?: string | null;
 }
 
 export const SECURITY_HEADERS: Readonly<Record<string, string>> = {
@@ -35,7 +37,7 @@ export function contentSecurityPolicy(
     "connect-src 'self'",
     "object-src 'none'",
     "base-uri 'self'",
-    "form-action 'self'",
+    `form-action ${["'self'", ...(options.idpOrigin ? [options.idpOrigin] : [])].join(" ")}`,
     "frame-ancestors 'none'",
     ...(options.secureOrigin ? ["upgrade-insecure-requests"] : []),
   ];
