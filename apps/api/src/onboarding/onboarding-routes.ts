@@ -4,7 +4,8 @@ import {
   type SessionAuthenticator,
   type UserLookup,
 } from '../auth/bearer'
-import { requestContext, requestIdOf } from '../auth/request-context'
+import { requestContext } from '../auth/request-context'
+import { requestIdOf } from '../shared/request'
 import type { OnboardingService } from './onboarding-service'
 
 export interface OnboardingRouteDependencies {
@@ -36,10 +37,6 @@ export function createOnboarding(dependencies: OnboardingRouteDependencies) {
     prefix: '/v1/onboarding',
     tags: ['Onboarding'],
   })
-    .onRequest(({ set }) => {
-      set.headers['cache-control'] = 'no-store'
-      set.headers['referrer-policy'] = 'no-referrer'
-    })
     .post('/organisation', {
       body,
       response: { 201: response },

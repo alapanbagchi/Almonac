@@ -3,7 +3,8 @@ import type { AppUser } from '../identity/app-user-repository'
 import type { WebSession } from '../identity/session-repository'
 import { AppError } from '../shared/errors'
 import { authenticateBearer, type SessionAuthenticator, type UserLookup } from '../auth/bearer'
-import { requestContext, requestIdOf, type RequestServer } from '../auth/request-context'
+import { requestContext, type RequestServer } from '../auth/request-context'
+import { requestIdOf } from '../shared/request'
 import type { BreakGlassGrant, BreakGlassReview } from './break-glass-repository'
 import type { BreakGlassContext, BreakGlassService } from './break-glass-service'
 import {
@@ -48,10 +49,6 @@ export function createBreakGlass(dependencies: BreakGlassDependencies) {
   }
 
   return new Elysia({ name: 'break-glass.routes', prefix: '/v1/break-glass', tags: ['Break glass'] })
-    .onRequest(({ set }) => {
-      set.headers['cache-control'] = 'no-store'
-      set.headers['referrer-policy'] = 'no-referrer'
-    })
     .post(
       '/grants',
       {

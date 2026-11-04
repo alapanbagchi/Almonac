@@ -1,6 +1,7 @@
 import { Elysia, t } from 'elysia'
 import type { AuthRateLimit } from './rate-limiter'
-import { clientIp, requestContext, requestIdOf } from './request-context'
+import { clientIp, requestContext } from './request-context'
+import { requestIdOf } from '../shared/request'
 import type { PasswordLoginService } from './password-login-service'
 import type { RegistrationService } from './registration-service'
 import type { EmailVerificationService } from './email-verification-service'
@@ -45,10 +46,6 @@ export function createSelfService(dependencies: SelfServiceDependencies) {
     prefix: '/v1/auth',
     tags: ['Authentication'],
   })
-    .onRequest(({ set }) => {
-      set.headers['cache-control'] = 'no-store'
-      set.headers['referrer-policy'] = 'no-referrer'
-    })
     .post('/register', {
       body: registrationBody,
       response: { 202: sentResponse },

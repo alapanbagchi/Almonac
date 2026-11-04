@@ -14,12 +14,8 @@ import type {
 } from './login-service'
 import type { LogoutContext, LogoutResult } from './logout-service'
 import type { AuthRateLimit } from './rate-limiter'
-import {
-  clientIp,
-  requestContext,
-  requestIdOf,
-  type RequestServer,
-} from './request-context'
+import { clientIp, requestContext, type RequestServer } from './request-context'
+import { requestIdOf } from '../shared/request'
 
 export interface LoginFlow {
   start(returnTo: unknown, context: LoginRequestContext): Promise<LoginStart>
@@ -132,10 +128,6 @@ export function createAuth(dependencies: AuthDependencies) {
     prefix: '/v1/auth',
     tags: ['Authentication'],
   })
-    .onRequest(({ set }) => {
-      set.headers['cache-control'] = 'no-store'
-      set.headers['referrer-policy'] = 'no-referrer'
-    })
     .post(
       '/login-attempts',
       {

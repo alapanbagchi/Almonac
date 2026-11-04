@@ -32,7 +32,7 @@ import {
   roleResponse,
 } from './admin-responses'
 import { authenticateBearer } from '../auth/bearer'
-import { requestIdOf } from '../auth/request-context'
+import { requestIdOf } from '../shared/request'
 
 
 
@@ -61,9 +61,6 @@ export function createAdmin(dependencies: AdminDependencies) {
   }
 
   return new Elysia({ name: 'admin.routes', prefix: '/v1/admin', tags: ['Administration'] })
-    .onRequest(({ set }) => {
-      set.headers['cache-control'] = 'no-store'
-    })
     .post(
       '/organisations',
       {

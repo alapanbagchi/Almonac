@@ -2,6 +2,7 @@ import { Elysia } from 'elysia'
 import { AppError } from '../shared/errors'
 import type { ErrorEnvelope } from '../shared/errors'
 import { safeName } from '../shared/log'
+import { requestIdOf } from '../shared/request'
 
 function envelope(code: string, message: string, requestId: string): ErrorEnvelope {
   return { error: { code, message, requestId } }
@@ -21,11 +22,7 @@ export const errors = new Elysia({ name: 'plugins.errors' })
   })
   .onError('global', (context) => {
     const { error, set } = context
-    const derived = Reflect.get(context, 'requestId')
-    const requestId =
-      typeof derived === 'string' && derived.length > 0
-        ? derived
-        : crypto.randomUUID()
+    const requestId = requestIdOf(context)
     set.headers['x-request-id'] = requestId
 
     if (error instanceof AppError) {
