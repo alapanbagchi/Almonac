@@ -3,6 +3,8 @@ import type { AdminDependencies } from './admin/admin-context'
 import { createAdmin } from './admin/routes'
 import type { AuthDependencies } from './auth/routes'
 import { createAuth } from './auth/routes'
+import type { BreakGlassDependencies } from './break-glass/break-glass-routes'
+import { createBreakGlass } from './break-glass/break-glass-routes'
 import { createHealth, type ReadinessCheck } from './health'
 import { errors } from './plugins/errors'
 import { docs } from './plugins/openapi'
@@ -12,6 +14,7 @@ export interface AppDependencies {
   readonly readinessTimeoutMs?: number
   readonly auth?: AuthDependencies
   readonly admin?: AdminDependencies
+  readonly breakGlass?: BreakGlassDependencies
 }
 
 /**
@@ -24,6 +27,7 @@ export function createApp({
   readinessTimeoutMs,
   auth,
   admin,
+  breakGlass,
 }: AppDependencies) {
   const app = new Elysia({ name: 'almonac.api' })
     .use(errors)
@@ -31,7 +35,8 @@ export function createApp({
     .use(createHealth(checkDatabase, readinessTimeoutMs))
 
   const withAuth = auth === undefined ? app : app.use(createAuth(auth))
-  return admin === undefined ? withAuth : withAuth.use(createAdmin(admin))
+  const withAdmin = admin === undefined ? withAuth : withAuth.use(createAdmin(admin))
+  return breakGlass === undefined ? withAdmin : withAdmin.use(createBreakGlass(breakGlass))
 }
 
 export type App = ReturnType<typeof createApp>

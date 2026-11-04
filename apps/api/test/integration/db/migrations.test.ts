@@ -36,6 +36,8 @@ import { MembershipAdminService } from '../../../src/admin/membership-admin-serv
 import { AuditAdminService } from '../../../src/admin/audit-admin-service'
 import { AuditReadRepository } from '../../../src/admin/audit-read-repository'
 import { SessionService } from '../../../src/identity/session-service'
+import { BreakGlassService, type BreakGlassContext } from '../../../src/break-glass/break-glass-service'
+import { createBreakGlass } from '../../../src/break-glass/break-glass-routes'
 import type { LoginAttempt } from '../../../src/auth/login-attempt-repository'
 import type { VerifiedIdentity } from '../../../src/auth/id-token-verifier'
 
@@ -353,7 +355,7 @@ describe('control database schema', () => {
       'select version from control.schema_metadata where id = 1',
     )
 
-    expect(result.rows[0]?.version).toBe(5)
+    expect(result.rows[0]?.version).toBe(6)
   })
 })
 
@@ -2601,6 +2603,323 @@ describe('admin routes', () => {
       "select count(*)::int as count from control.organisation where slug = 'denied'",
     )
     expect(created.rows[0]!.count).toBe(0)
+  })
+})
+
+describe('break-glass service', () => {
+  async function contextFor(
+    userId: string,
+    aal = 2,
+    authTime = new Date(),
+  ): Promise<BreakGlassContext> {
+    const actor = await new AppUserRepository(appPool).findById(userId)
+    if (actor === null) throw new Error('missing test user')
+
+    return {
+      actor,
+      sessionId: randomUUID(),
+      aal,
+      amr: ['pwd', 'hwk'],
+      authTime,
+      requestId: `bg-${randomUUID()}`,
+      ip: null,
+      userAgentHash: null,
+    }
+  }
+
+  function service(): BreakGlassService {
+    return new BreakGlassService({
+      pool: appPool,
+      authorization: new AuthorizationRepository(appPool),
+      users: new AppUserRepository(appPool),
+    })
+  }
+
+  async function grantHospitalPermission(
+    userId: string,
+    organisationId: string,
+    hospitalId: string,
+  ): Promise<void> {
+    const role = await createRole(
+      ownerPool,
+      organisationId,
+      `bg_${randomUUID().slice(0, 8)}`,
+      'hospital',
+    )
+    await ownerPool.query(
+      "insert into control.role_permission (role_id, permission_key) values ($1, 'break_glass.request')",
+      [role],
+    )
+    const membership = await createMembership(ownerPool, userId, organisationId, hospitalId)
+    await ownerPool.query(
+      'insert into control.membership_role (membership_id, role_id) values ($1, $2)',
+      [membership, role],
+    )
+  }
+
+  async function makeApprover(userId: string): Promise<void> {
+    const role = await findSystemRole(ownerPool, 'break_glass_approver')
+    await ownerPool.query(
+      'insert into control.platform_assignment (user_id, role_id) values ($1, $2)',
+      [userId, role],
+    )
+  }
+
+  test('grants emergency access to a permitted clinician', async () => {
+    const organisation = await createOrganisation(ownerPool, 'bg-emergency')
+    const hospital = await createHospital(ownerPool, organisation, 'bg-emergency-hospital', true)
+    const user = await createUser(ownerPool, 'bg-emergency-user', 'bg.emergency@example.test')
+    await grantHospitalPermission(user, organisation, hospital)
+
+    const grant = await service().requestEmergency(await contextFor(user), {
+      hospitalId: hospital,
+      reason: 'Covering an unstaffed ward',
+    })
+
+    expect(grant.status).toBe('active')
+    expect(grant.approvalMode).toBe('emergency')
+    expect(grant.approvedBy).toBeNull()
+    expect(grant.activatedBy).toBe(user)
+    expect(grant.endsAt.getTime()).toBeGreaterThan(grant.startsAt.getTime())
+
+    const audit = await ownerPool.query<{ count: number }>(
+      "select count(*)::int as count from audit.event where target_id = $1 and event_type = 'break_glass.activate'",
+      [grant.id],
+    )
+    expect(audit.rows[0]!.count).toBe(1)
+  })
+
+  test('denies emergency access without the permission', async () => {
+    const organisation = await createOrganisation(ownerPool, 'bg-denied')
+    const hospital = await createHospital(ownerPool, organisation, 'bg-denied-hospital', true)
+    const user = await createUser(ownerPool, 'bg-denied-user', 'bg.denied@example.test')
+    await createMembership(ownerPool, user, organisation, hospital)
+
+    await expect(
+      service().requestEmergency(await contextFor(user), {
+        hospitalId: hospital,
+        reason: 'No permission',
+      }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+
+    const rows = await ownerPool.query<{ count: number }>(
+      'select count(*)::int as count from control.break_glass_grant where user_id = $1',
+      [user],
+    )
+    expect(rows.rows[0]!.count).toBe(0)
+  })
+
+  test('requires a recent strong session', async () => {
+    const organisation = await createOrganisation(ownerPool, 'bg-assurance')
+    const hospital = await createHospital(ownerPool, organisation, 'bg-assurance-hospital', true)
+    const user = await createUser(ownerPool, 'bg-assurance-user', 'bg.assurance@example.test')
+    await grantHospitalPermission(user, organisation, hospital)
+
+    await expect(
+      service().requestEmergency(await contextFor(user, 1), {
+        hospitalId: hospital,
+        reason: 'Password only',
+      }),
+    ).rejects.toMatchObject({ code: 'STEP_UP_REQUIRED' })
+  })
+
+  test('rejects self-approval', async () => {
+    const organisation = await createOrganisation(ownerPool, 'bg-self')
+    const hospital = await createHospital(ownerPool, organisation, 'bg-self-hospital', true)
+    const approver = await createUser(ownerPool, 'bg-self-user', 'bg.self@example.test')
+    await makeApprover(approver)
+
+    await expect(
+      service().createPreApproved(await contextFor(approver), {
+        hospitalId: hospital,
+        userId: approver,
+        reason: 'Approving myself',
+      }),
+    ).rejects.toMatchObject({ code: 'BREAK_GLASS_INVALID' })
+  })
+
+  test('lets an approver reserve access and the subject activate it', async () => {
+    const organisation = await createOrganisation(ownerPool, 'bg-preapproved')
+    const hospital = await createHospital(ownerPool, organisation, 'bg-preapproved-hospital', true)
+    const approver = await createUser(ownerPool, 'bg-approver', 'bg.approver@example.test')
+    const subject = await createUser(ownerPool, 'bg-subject', 'bg.subject@example.test')
+    const bystander = await createUser(ownerPool, 'bg-bystander', 'bg.bystander@example.test')
+    await makeApprover(approver)
+    await createMembership(ownerPool, subject, organisation, hospital)
+    await createMembership(ownerPool, bystander, organisation, hospital)
+
+    const reserved = await service().createPreApproved(await contextFor(approver), {
+      hospitalId: hospital,
+      userId: subject,
+      reason: 'Planned overnight cover',
+    })
+    expect(reserved.status).toBe('approved')
+    expect(reserved.approvedBy).toBe(approver)
+    expect(reserved.activatedBy).toBeNull()
+
+    await expect(
+      service().activate(await contextFor(bystander), reserved.id),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+
+    const active = await service().activate(await contextFor(subject), reserved.id)
+    expect(active.status).toBe('active')
+    expect(active.activatedBy).toBe(subject)
+
+    const revoked = await service().revoke(
+      await contextFor(subject),
+      reserved.id,
+      'Cover no longer needed',
+    )
+    expect(revoked.status).toBe('revoked')
+    expect(revoked.revokedAt).not.toBeNull()
+
+    await expect(
+      service().revoke(await contextFor(subject), reserved.id, 'Again'),
+    ).rejects.toMatchObject({ code: 'BREAK_GLASS_CONFLICT' })
+  })
+
+  test('reviews access only after the window closes', async () => {
+    const organisation = await createOrganisation(ownerPool, 'bg-review')
+    const hospital = await createHospital(ownerPool, organisation, 'bg-review-hospital', true)
+    const subject = await createUser(ownerPool, 'bg-review-subject', 'bg.review.subject@example.test')
+    const approver = await createUser(ownerPool, 'bg-review-approver', 'bg.review.approver@example.test')
+    const reviewer = await createUser(ownerPool, 'bg-review-reviewer', 'bg.review.reviewer@example.test')
+    await makeApprover(reviewer)
+
+    const open = await ownerPool.query<{ id: string }>(
+      `insert into control.break_glass_grant
+         (organisation_id, hospital_id, user_id, approved_by, approval_mode, reason,
+          status, validity, approved_at, activated_at, activated_by)
+       values ($1, $2, $3, $4, 'pre_approved', 'Still active', 'active',
+               tstzrange(now() - interval '10 minutes', now() + interval '50 minutes'),
+               now() - interval '10 minutes', now() - interval '10 minutes', $3)
+       returning id`,
+      [organisation, hospital, subject, approver],
+    )
+    await expect(
+      service().review(await contextFor(reviewer), open.rows[0]!.id, 'upheld', null),
+    ).rejects.toMatchObject({ code: 'BREAK_GLASS_CONFLICT' })
+
+    const closed = await ownerPool.query<{ id: string }>(
+      `insert into control.break_glass_grant
+         (organisation_id, hospital_id, user_id, approved_by, approval_mode, reason,
+          status, validity, approved_at, activated_at, activated_by)
+       values ($1, $2, $3, $4, 'pre_approved', 'Already finished', 'active',
+               tstzrange(now() - interval '2 hours', now() - interval '1 hour'),
+               now() - interval '2 hours', now() - interval '2 hours', $3)
+       returning id`,
+      [organisation, hospital, subject, approver],
+    )
+    const review = await service().review(
+      await contextFor(reviewer),
+      closed.rows[0]!.id,
+      'upheld',
+      'Reviewed after the window',
+    )
+    expect(review.decision).toBe('upheld')
+    expect(review.reviewerId).toBe(reviewer)
+
+    await expect(
+      service().review(await contextFor(reviewer), closed.rows[0]!.id, 'upheld', null),
+    ).rejects.toMatchObject({ code: 'BREAK_GLASS_CONFLICT' })
+  })
+
+
+  test('rejects a subject on an emergency request', async () => {
+    const organisation = await createOrganisation(ownerPool, 'bg-route')
+    const hospital = await createHospital(ownerPool, organisation, 'bg-route-hospital', true)
+    const user = await createUser(ownerPool, 'bg-route-user', 'bg.route@example.test')
+    await grantHospitalPermission(user, organisation, hospital)
+    const sessions = new SessionService({
+      store: new SessionRepository(appPool),
+      clock: () => new Date(),
+    })
+    const issued = await sessions.mint({
+      userId: user,
+      identityIssuer: 'http://localhost:8080',
+      zitadelSessionId: null,
+      oidcSid: null,
+      acr: null,
+      idTokenHintCiphertext: null,
+      keyVersion: null,
+      amr: ['pwd', 'hwk'],
+      authTime: new Date(Date.now() - 60_000),
+      aal: 2,
+      ip: null,
+      userAgentHash: null,
+    })
+    const app = new Elysia()
+      .use(errors)
+      .use(
+        createBreakGlass({
+          grants: service(),
+          sessions,
+          users: new AppUserRepository(appPool),
+        }),
+      )
+
+    const response = await app.handle(
+      new Request('http://localhost/v1/break-glass/grants', {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${issued.token}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          hospitalId: hospital,
+          mode: 'emergency',
+          userId: user,
+          reason: 'Attempting to name a subject',
+        }),
+      }),
+    )
+    expect(response.status).toBe(400)
+    const body = (await response.json()) as { error: { code: string } }
+    expect(body.error.code).toBe('VALIDATION_FAILED')
+  })
+
+  test('refuses activation after the membership ends', async () => {
+    const organisation = await createOrganisation(ownerPool, 'bg-membership')
+    const hospital = await createHospital(ownerPool, organisation, 'bg-membership-hospital', true)
+    const approver = await createUser(ownerPool, 'bg-membership-approver', 'bg.membership.approver@example.test')
+    const subject = await createUser(ownerPool, 'bg-membership-subject', 'bg.membership.subject@example.test')
+    await makeApprover(approver)
+    const membership = await createMembership(ownerPool, subject, organisation, hospital)
+
+    const reserved = await service().createPreApproved(await contextFor(approver), {
+      hospitalId: hospital,
+      userId: subject,
+      reason: 'Planned cover',
+    })
+    await ownerPool.query(
+      "update control.membership set status = 'suspended', suspended_at = now() where id = $1",
+      [membership],
+    )
+
+    await expect(
+      service().activate(await contextFor(subject), reserved.id),
+    ).rejects.toMatchObject({ code: 'BREAK_GLASS_INVALID' })
+  })
+
+  test('rejects overlapping reserved grants in the database', async () => {
+    const organisation = await createOrganisation(ownerPool, 'bg-overlap')
+    const hospital = await createHospital(ownerPool, organisation, 'bg-overlap-hospital', true)
+    const subject = await createUser(ownerPool, 'bg-overlap-subject', 'bg.overlap@example.test')
+    const approver = await createUser(ownerPool, 'bg-overlap-approver', 'bg.overlap.approver@example.test')
+
+    const insert = (reason: string) =>
+      ownerPool.query(
+        `insert into control.break_glass_grant
+           (organisation_id, hospital_id, user_id, approved_by, approval_mode, reason,
+            status, validity, approved_at)
+         values ($1, $2, $3, $4, 'pre_approved', $5, 'approved',
+                 tstzrange(now() + interval '1 hour', now() + interval '2 hours'),
+                 now())`,
+        [organisation, hospital, subject, approver, reason],
+      )
+
+    await insert('First reservation')
+    await expect(insert('Second reservation')).rejects.toMatchObject({ code: '23P01' })
   })
 })
 

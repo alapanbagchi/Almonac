@@ -27,6 +27,7 @@ import {
   ZitadelManagementConfigError,
 } from './admin/zitadel-management-config'
 import { AuthConfigError, loadAuthConfig } from './auth/config'
+import { BreakGlassService } from './break-glass/break-glass-service'
 import { LoginAttemptRepository } from './auth/login-attempt-repository'
 import { LoginService } from './auth/login-service'
 import { createLogoutService } from './auth/logout-service'
@@ -49,6 +50,7 @@ const audit = new AuditWriter(pool)
 const users = new AppUserRepository(pool)
 const authorization = new AuthorizationRepository(pool)
 const sessions = new SessionService({ store: new SessionRepository(pool) })
+const breakGlass = new BreakGlassService({ pool, authorization, users })
 const oidc = createOidcProvider({
   issuer: authConfig.issuer,
   clientId: authConfig.clientId,
@@ -120,6 +122,7 @@ const app = createApp({
     sessions,
     users,
   },
+  breakGlass: { grants: breakGlass, sessions, users },
 })
 
 const server = app.listen(config.port)
