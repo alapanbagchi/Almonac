@@ -1,5 +1,7 @@
+import type { Pool } from 'pg'
 import { AppError } from '../shared/errors'
 import { hashToken, mintToken } from '../shared/tokens'
+import { withTransaction, type DatabaseQuery } from '../db/pool'
 import type { AuditSink } from '../audit/audit-writer'
 import type { AuthorizationRepository } from '../access/authorization-repository'
 import type { AdminRequestContext } from './admin-context'
@@ -9,6 +11,7 @@ import { asAdminError } from './admin-errors'
 
 export class HospitalAdminService {
   constructor(
+    private readonly pool: Pool,
     private readonly hospitals: HospitalRepository,
     private readonly organisations: OrganisationRepository,
     private readonly authorization: AuthorizationRepository,
@@ -26,14 +29,24 @@ export class HospitalAdminService {
     input: { name: string; slug: string; timezone: string },
   ): Promise<Hospital> {
     await this.requireOrganisationManage(context, organisationId)
-    let hospital: Hospital
-    try {
-      hospital = await this.hospitals.create({ organisationId, ...input })
-    } catch (error) {
-      throw asAdminError(error)
-    }
-    await this.auditChange(context, organisationId, hospital.id, 'hospital', hospital.id, 'hospital.created')
-    return hospital
+    return withTransaction(this.pool, async (db) => {
+      let hospital: Hospital
+      try {
+        hospital = await this.hospitals.create({ organisationId, ...input }, db)
+      } catch (error) {
+        throw asAdminError(error)
+      }
+      await this.auditChange(
+        context,
+        organisationId,
+        hospital.id,
+        'hospital',
+        hospital.id,
+        'hospital.created',
+        db,
+      )
+      return hospital
+    })
   }
 
   async listDomains(
@@ -52,24 +65,27 @@ export class HospitalAdminService {
     const hospital = await this.requireHospitalManage(context, hospitalId)
     const domain = normaliseDomain(rawDomain)
     const minted = mintToken()
-    let created: HospitalDomain
-    try {
-      created = await this.hospitals.addDomain({
-        hospitalId: hospital.id,
-        domain,
-        tokenHash: minted.tokenHash,
-      })
-    } catch (error) {
-      throw asAdminError(error)
-    }
-    await this.auditChange(
-      context,
-      hospital.organisationId,
-      hospital.id,
-      'hospital_domain',
-      created.id,
-      'hospital.domain_added',
-    )
+    const created = await withTransaction(this.pool, async (db) => {
+      let domainRecord: HospitalDomain
+      try {
+        domainRecord = await this.hospitals.addDomain(
+          { hospitalId: hospital.id, domain, tokenHash: minted.tokenHash },
+          db,
+        )
+      } catch (error) {
+        throw asAdminError(error)
+      }
+      await this.auditChange(
+        context,
+        hospital.organisationId,
+        hospital.id,
+        'hospital_domain',
+        domainRecord.id,
+        'hospital.domain_added',
+        db,
+      )
+      return domainRecord
+    })
     return { domain: created, token: minted.token }
   }
 
@@ -81,24 +97,25 @@ export class HospitalAdminService {
   ): Promise<HospitalDomain> {
     const hospital = await this.requireHospitalManage(context, hospitalId)
     if (token.length === 0 || token.length > 128) throw validation('Verification token is not valid.')
-    const verified = await this.hospitals.verifyDomain({
-      hospitalId: hospital.id,
-      domainId,
-      tokenHash: hashToken(token),
-      at: new Date(),
+    return withTransaction(this.pool, async (db) => {
+      const verified = await this.hospitals.verifyDomain(
+        { hospitalId: hospital.id, domainId, tokenHash: hashToken(token), at: new Date() },
+        db,
+      )
+      if (verified === null) {
+        throw new AppError('DOMAIN_VERIFICATION_FAILED', 422, 'Domain verification failed.')
+      }
+      await this.auditChange(
+        context,
+        hospital.organisationId,
+        hospital.id,
+        'hospital_domain',
+        verified.id,
+        'hospital.domain_verified',
+        db,
+      )
+      return verified
     })
-    if (verified === null) {
-      throw new AppError('DOMAIN_VERIFICATION_FAILED', 422, 'Domain verification failed.')
-    }
-    await this.auditChange(
-      context,
-      hospital.organisationId,
-      hospital.id,
-      'hospital_domain',
-      verified.id,
-      'hospital.domain_verified',
-    )
-    return verified
   }
 
   async setPrimaryDomain(
@@ -107,22 +124,25 @@ export class HospitalAdminService {
     domainId: string,
   ): Promise<Hospital> {
     const hospital = await this.requireHospitalManage(context, hospitalId)
-    let updated: Hospital | null
-    try {
-      updated = await this.hospitals.setPrimaryDomain({ hospitalId, domainId, at: new Date() })
-    } catch (error) {
-      throw asAdminError(error)
-    }
-    if (updated === null) throw notFound()
-    await this.auditChange(
-      context,
-      hospital.organisationId,
-      hospital.id,
-      'hospital',
-      hospital.id,
-      'hospital.primary_domain_set',
-    )
-    return updated
+    return withTransaction(this.pool, async (db) => {
+      let updated: Hospital | null
+      try {
+        updated = await this.hospitals.setPrimaryDomain({ hospitalId, domainId, at: new Date() }, db)
+      } catch (error) {
+        throw asAdminError(error)
+      }
+      if (updated === null) throw notFound()
+      await this.auditChange(
+        context,
+        hospital.organisationId,
+        hospital.id,
+        'hospital',
+        hospital.id,
+        'hospital.primary_domain_set',
+        db,
+      )
+      return updated
+    })
   }
 
   private async requireOrganisationManage(
@@ -160,6 +180,7 @@ export class HospitalAdminService {
     resourceType: string,
     resourceId: string,
     reasonCode: string,
+    db?: DatabaseQuery,
   ): Promise<void> {
     await this.audit.write({
       actorUserId: context.actor.id,
@@ -177,7 +198,7 @@ export class HospitalAdminService {
       ip: context.ip,
       userAgentHash: context.userAgentHash,
       metadata: { resource_type: resourceType, resource_id: resourceId },
-    })
+    }, db)
   }
 }
 

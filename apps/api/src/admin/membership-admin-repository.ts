@@ -166,14 +166,12 @@ export class MembershipAdminRepository {
     return result.rows[0] === undefined ? null : mapRole(result.rows[0])
   }
 
-  async assignRole(input: {
-    membershipId: string
-    roleId: string
-    assignedBy: string
-    at: Date
-  }): Promise<void> {
+  async assignRole(
+    input: { membershipId: string; roleId: string; assignedBy: string; at: Date },
+    db: DatabaseQuery = this.db,
+  ): Promise<void> {
     try {
-      await this.db.query(
+      await db.query(
         `insert into control.membership_role
            (membership_id, role_id, assigned_by, assigned_at, validity)
          values ($1, $2, $3, $4, tstzrange($4, null, '[)'))`,
@@ -185,14 +183,17 @@ export class MembershipAdminRepository {
     }
   }
 
-  async revokeRole(input: {
-    membershipId: string
-    roleId: string
-    revokedBy: string
-    at: Date
-    reason: string
-  }): Promise<boolean> {
-    const result = await this.db.query(
+  async revokeRole(
+    input: {
+      membershipId: string
+      roleId: string
+      revokedBy: string
+      at: Date
+      reason: string
+    },
+    db: DatabaseQuery = this.db,
+  ): Promise<boolean> {
+    const result = await db.query(
       `update control.membership_role
           set revoked_at = $3, revoked_by = $4, revoke_reason = $5,
               validity = tstzrange(lower(validity), $3, '[)')
@@ -206,8 +207,8 @@ export class MembershipAdminRepository {
     return result.rows.length > 0
   }
 
-  async suspend(id: string, at: Date): Promise<boolean> {
-    const result = await this.db.query(
+  async suspend(id: string, at: Date, db: DatabaseQuery = this.db): Promise<boolean> {
+    const result = await db.query(
       `update control.membership
           set status = 'suspended', suspended_at = $2
         where id = $1 and status = 'active'
@@ -217,13 +218,11 @@ export class MembershipAdminRepository {
     return result.rows.length > 0
   }
 
-  async revoke(input: {
-    id: string
-    at: Date
-    revokedBy: string
-    reason: string
-  }): Promise<boolean> {
-    const result = await this.db.query(
+  async revoke(
+    input: { id: string; at: Date; revokedBy: string; reason: string },
+    db: DatabaseQuery = this.db,
+  ): Promise<boolean> {
+    const result = await db.query(
       `update control.membership
           set status = 'revoked', revoked_at = $2, revoked_by = $3,
               revoke_reason = $4, validity = tstzrange(lower(validity), $2, '[)')

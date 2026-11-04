@@ -152,8 +152,8 @@ const app = createApp({
       authorization,
       provisioning,
     ),
-    hospitals: new HospitalAdminService(hospitals, organisations, authorization, audit),
-    memberships: new MembershipAdminService(memberships, authorization, audit),
+    hospitals: new HospitalAdminService(pool, hospitals, organisations, authorization, audit),
+    memberships: new MembershipAdminService(pool, memberships, authorization, audit),
     invitations: new InvitationService({
       pool,
       invitations,

@@ -66,14 +66,12 @@ const DOMAIN_SELECT = `
 export class HospitalRepository {
   constructor(private readonly db: DatabaseQuery) {}
 
-  async create(input: {
-    organisationId: string
-    name: string
-    slug: string
-    timezone: string
-  }): Promise<Hospital> {
+  async create(
+    input: { organisationId: string; name: string; slug: string; timezone: string },
+    db: DatabaseQuery = this.db,
+  ): Promise<Hospital> {
     try {
-      const result = await this.db.query(
+      const result = await db.query(
         `insert into control.hospital (organisation_id, name, slug, timezone)
          values ($1, $2, $3, $4)
          returning id, organisation_id, name, slug, timezone, status,
@@ -100,13 +98,12 @@ export class HospitalRepository {
     return result.rows.map(mapHospital)
   }
 
-  async addDomain(input: {
-    hospitalId: string
-    domain: string
-    tokenHash: Buffer
-  }): Promise<HospitalDomain> {
+  async addDomain(
+    input: { hospitalId: string; domain: string; tokenHash: Buffer },
+    db: DatabaseQuery = this.db,
+  ): Promise<HospitalDomain> {
     try {
-      const result = await this.db.query(
+      const result = await db.query(
         `insert into control.hospital_domain
            (hospital_id, domain, verification_token_hash)
          values ($1, $2, $3)
@@ -129,13 +126,11 @@ export class HospitalRepository {
     return result.rows.map(mapDomain)
   }
 
-  async verifyDomain(input: {
-    hospitalId: string
-    domainId: string
-    tokenHash: Buffer
-    at: Date
-  }): Promise<HospitalDomain | null> {
-    const result = await this.db.query(
+  async verifyDomain(
+    input: { hospitalId: string; domainId: string; tokenHash: Buffer; at: Date },
+    db: DatabaseQuery = this.db,
+  ): Promise<HospitalDomain | null> {
+    const result = await db.query(
       `update control.hospital_domain
           set verified_at = $4, verification_token_hash = null
         where id = $2
@@ -150,13 +145,12 @@ export class HospitalRepository {
     return result.rows[0] === undefined ? null : mapDomain(result.rows[0])
   }
 
-  async setPrimaryDomain(input: {
-    hospitalId: string
-    domainId: string
-    at: Date
-  }): Promise<Hospital | null> {
+  async setPrimaryDomain(
+    input: { hospitalId: string; domainId: string; at: Date },
+    db: DatabaseQuery = this.db,
+  ): Promise<Hospital | null> {
     try {
-      const result = await this.db.query(
+      const result = await db.query(
         `update control.hospital
             set primary_domain_id = $2, status = 'active'
           where id = $1

@@ -2672,8 +2672,8 @@ describe('admin routes', () => {
           authorization,
           new OrganisationProvisioningService(appPool, zitadel, audit),
         ),
-        hospitals: new HospitalAdminService(hospitals, organisations, authorization, audit),
-        memberships: new MembershipAdminService(memberships, authorization, audit),
+        hospitals: new HospitalAdminService(appPool, hospitals, organisations, authorization, audit),
+        memberships: new MembershipAdminService(appPool, memberships, authorization, audit),
         invitations: new InvitationService({
           pool: appPool,
           invitations,
@@ -2856,6 +2856,79 @@ describe('admin routes', () => {
       expect(body.error.code).toBe('DOMAIN_NOT_VERIFIED')
     } finally {
       await ownerPool.query('delete from control.platform_assignment where user_id = $1', [user])
+    }
+  })
+
+  test('keeps a hospital uncreated when its audit record cannot be written', async () => {
+    const organisation = await createOrganisation(ownerPool, 'hospital-audit-rollback')
+    const admin = await createUser(ownerPool, 'hospital-audit-admin', 'hospital-audit@example.test')
+    const platformRole = await findSystemRole(ownerPool, 'platform_admin')
+    await ownerPool.query(
+      'insert into control.platform_assignment (user_id, role_id) values ($1, $2)',
+      [admin, platformRole],
+    )
+
+    try {
+      const actor = await new AppUserRepository(appPool).findById(admin)
+      if (actor === null) throw new Error('missing test user')
+      const service = new HospitalAdminService(
+        appPool,
+        new HospitalRepository(appPool),
+        new OrganisationRepository(appPool),
+        new AuthorizationRepository(appPool),
+        { async write() { throw new Error('audit unavailable') } },
+      )
+
+      await expect(service.create(
+        { actor, sessionId: randomUUID(), requestId: 'request-audit', ip: null, userAgentHash: null },
+        organisation,
+        { name: 'Rollback Hospital', slug: 'rollback-hospital', timezone: 'UTC' },
+      )).rejects.toThrow('audit unavailable')
+
+      const created = await ownerPool.query<{ count: number }>(
+        'select count(*)::int as count from control.hospital where organisation_id = $1',
+        [organisation],
+      )
+      expect(created.rows[0]!.count).toBe(0)
+    } finally {
+      await ownerPool.query('delete from control.platform_assignment where user_id = $1', [admin])
+    }
+  })
+
+  test('keeps a membership active when its audit record cannot be written', async () => {
+    const organisation = await createOrganisation(ownerPool, 'membership-audit-rollback')
+    const admin = await createUser(ownerPool, 'membership-audit-admin', 'membership-audit@example.test')
+    const member = await createUser(ownerPool, 'membership-audit-member', 'member-audit@example.test')
+    const membership = await createMembership(ownerPool, member, organisation, null)
+    const platformRole = await findSystemRole(ownerPool, 'platform_admin')
+    await ownerPool.query(
+      'insert into control.platform_assignment (user_id, role_id) values ($1, $2)',
+      [admin, platformRole],
+    )
+
+    try {
+      const actor = await new AppUserRepository(appPool).findById(admin)
+      if (actor === null) throw new Error('missing test user')
+      const service = new MembershipAdminService(
+        appPool,
+        new MembershipAdminRepository(appPool),
+        new AuthorizationRepository(appPool),
+        { async write() { throw new Error('audit unavailable') } },
+      )
+
+      await expect(service.suspend(
+        { actor, sessionId: randomUUID(), requestId: 'request-audit', ip: null, userAgentHash: null },
+        membership,
+        'audit test',
+      )).rejects.toThrow('audit unavailable')
+
+      const current = await ownerPool.query<{ status: string }>(
+        'select status from control.membership where id = $1',
+        [membership],
+      )
+      expect(current.rows[0]!.status).toBe('active')
+    } finally {
+      await ownerPool.query('delete from control.platform_assignment where user_id = $1', [admin])
     }
   })
 })
