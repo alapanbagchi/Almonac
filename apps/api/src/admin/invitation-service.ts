@@ -1,4 +1,5 @@
 import type { Pool } from 'pg'
+import { normaliseEmail } from '../shared/email'
 import { AppError } from '../shared/errors'
 import type { Page, PageRequest } from '../shared/pagination'
 import { hashToken, mintToken } from '../shared/tokens'
@@ -80,6 +81,7 @@ export class InvitationService {
   }): Promise<Invitation> {
     const actor = context.actor
     const email = normaliseEmail(input.email)
+    if (email === null) throw new AppError('INVALID_EMAIL', 422, 'Email address is not valid.')
     const organisation = await this.dependencies.organisations.findById(input.organisationId)
     if (organisation === null) throw notFound('Organisation not found.')
     const hospital = input.hospitalId
@@ -457,14 +459,3 @@ export class InvitationService {
   }
 }
 
-function normaliseEmail(value: string): string {
-  const email = value.trim().toLowerCase()
-  if (
-    email.length < 3 ||
-    email.length > 320 ||
-    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
-  ) {
-    throw new AppError('INVALID_EMAIL', 422, 'Email address is not valid.')
-  }
-  return email
-}
