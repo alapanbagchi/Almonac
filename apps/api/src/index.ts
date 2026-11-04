@@ -35,6 +35,7 @@ import { createOidcProvider } from './auth/oidc-provider'
 import { PostgresLoginStore } from './auth/postgres-login-store'
 import { ConfigError, loadConfig } from './config'
 import { checkControlDatabase, createControlPool } from './db/pool'
+import { MAX_BODY_BYTES } from './plugins/security'
 
 const config = loadConfigOrExit(loadConfig, ConfigError, 'config')
 const authConfig = loadConfigOrExit(loadAuthConfig, AuthConfigError, 'auth config')
@@ -123,6 +124,7 @@ const app = createApp({
     users,
   },
   breakGlass: { grants: breakGlass, sessions, users },
+  serve: { maxRequestBodySize: MAX_BODY_BYTES },
 })
 
 const server = app.listen(config.port)

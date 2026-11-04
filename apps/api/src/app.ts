@@ -8,6 +8,7 @@ import { createBreakGlass } from './break-glass/break-glass-routes'
 import { createHealth, type ReadinessCheck } from './health'
 import { errors } from './plugins/errors'
 import { docs } from './plugins/openapi'
+import { security } from './plugins/security'
 
 export interface AppDependencies {
   readonly checkDatabase: ReadinessCheck
@@ -15,6 +16,7 @@ export interface AppDependencies {
   readonly auth?: AuthDependencies
   readonly admin?: AdminDependencies
   readonly breakGlass?: BreakGlassDependencies
+  readonly serve?: { readonly maxRequestBodySize?: number }
 }
 
 /**
@@ -28,9 +30,11 @@ export function createApp({
   auth,
   admin,
   breakGlass,
+  serve,
 }: AppDependencies) {
-  const app = new Elysia({ name: 'almonac.api' })
+  const app = new Elysia({ name: 'almonac.api', ...(serve === undefined ? {} : { serve }) })
     .use(errors)
+    .use(security)
     .use(docs)
     .use(createHealth(checkDatabase, readinessTimeoutMs))
 
