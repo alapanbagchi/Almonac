@@ -1,0 +1,227 @@
+import {
+  dateField,
+  hasSqlState,
+  isEmpty,
+  nullableDateField,
+  nullableStringField,
+  rowRecord,
+  stringField,
+  textArrayField,
+} from '../db/rows'
+import type { DatabaseQuery } from '../db/pool'
+import { ConflictError } from '../shared/errors'
+import { pageOf, type Page, type PageRequest } from '../shared/pagination'
+
+export type InvitationKind = 'new_user' | 'existing_user'
+export type InvitationStatus = 'pending' | 'accepted' | 'revoked' | 'expired'
+
+export interface Invitation {
+  readonly id: string
+  readonly email: string
+  readonly organisationId: string
+  readonly hospitalId: string | null
+  readonly kind: InvitationKind
+  readonly zitadelSub: string | null
+  readonly status: InvitationStatus
+  readonly expiresAt: Date
+  readonly createdAt: Date
+  readonly acceptedAt: Date | null
+  readonly acceptedByUserId: string | null
+  readonly invitedBy: string
+  readonly roleIds: readonly string[]
+}
+
+export interface NewInvitation {
+  readonly email: string
+  readonly organisationId: string
+  readonly hospitalId: string | null
+  readonly kind: InvitationKind
+  readonly zitadelSub: string | null
+  readonly tokenHash: Buffer
+  readonly invitedBy: string
+  readonly expiresAt: Date
+  readonly roleIds: readonly string[]
+}
+
+export interface InvitationScopeInput {
+  readonly organisationId: string
+  readonly hospitalId?: string | null
+}
+
+export interface InvitationRepository {
+  create(input: NewInvitation): Promise<Invitation>
+  findById(id: string): Promise<Invitation | null>
+  list(input: InvitationScopeInput, page: PageRequest): Promise<Page<Invitation>>
+  findPendingForScope(input: {
+    email: string
+    organisationId: string
+    hospitalId: string | null
+  }): Promise<Invitation | null>
+  findByTokenHashForUpdate(tokenHash: Buffer): Promise<Invitation | null>
+  revokePending(id: string, at: Date): Promise<boolean>
+  markAccepted(id: string, input: { acceptedByUserId: string; at: Date }): Promise<boolean>
+}
+
+const COLUMNS = `
+  id, email::text as email, organisation_id, hospital_id, kind, zitadel_sub, status,
+  expires_at, created_at, accepted_at, accepted_by_user_id, invited_by
+`
+
+const SELECT_COLUMNS = `${COLUMNS},
+  coalesce(
+    (select array_agg(invitation_role.role_id::text order by invitation_role.role_id)
+       from control.invitation_role as invitation_role
+      where invitation_role.invitation_id = invitation.id),
+    '{}'::text[]
+  ) as role_ids
+`
+
+/** One invitation, or null when the query found none. */
+function single(result: { readonly rows: readonly unknown[] }): Invitation | null {
+  return isEmpty(result) ? null : mapRow(result.rows[0])
+}
+
+/**
+ * Invitations over one connection: the pool for reads, the caller's
+ * transaction for writes so the invitation and its audit row commit together.
+ */
+export function createInvitationRepository(db: DatabaseQuery): InvitationRepository {
+  return {
+    async create(input) {
+      try {
+        const result = await db.query(
+          `insert into identity.invitation
+             (email, organisation_id, hospital_id, kind, zitadel_sub, token_hash,
+              invited_by, expires_at)
+           values ($1, $2, $3, $4, $5, $6, $7, $8)
+           returning ${COLUMNS}`,
+          [
+            input.email,
+            input.organisationId,
+            input.hospitalId,
+            input.kind,
+            input.zitadelSub,
+            input.tokenHash,
+            input.invitedBy,
+            input.expiresAt,
+          ],
+        )
+        const invitation = mapInvitation(rowRecord(result.rows[0]), [])
+        await db.query(
+          `insert into control.invitation_role (invitation_id, role_id, assigned_by)
+           select $1, role_id, $2 from unnest($3::uuid[]) as role_id`,
+          [invitation.id, input.invitedBy, input.roleIds],
+        )
+        return { ...invitation, roleIds: [...input.roleIds] }
+      } catch (error) {
+        // A concurrent invitation for the same address and scope wins the
+        // exclusion constraint; report the conflict the pre-check would have.
+        if (hasSqlState(error, '23P01')) {
+          throw new ConflictError('An invitation is already pending for this person.')
+        }
+        if (hasSqlState(error, '23505')) {
+          throw new ConflictError('The invitation token is already in use.')
+        }
+        throw error
+      }
+    },
+
+    async findById(id) {
+      const result = await db.query(
+        `select ${SELECT_COLUMNS} from identity.invitation as invitation where invitation.id = $1`,
+        [id],
+      )
+      return single(result)
+    },
+
+    async list(input, page) {
+      const result = await db.query(
+        `select ${SELECT_COLUMNS}
+           from identity.invitation as invitation
+          where invitation.organisation_id = $1
+            and ($2::uuid is null or invitation.hospital_id = $2)
+          order by invitation.created_at desc, invitation.id
+          limit $3 offset $4`,
+        [input.organisationId, input.hospitalId ?? null, page.limit + 1, page.offset],
+      )
+      return pageOf(result.rows.map(mapRow), page)
+    },
+
+    async findPendingForScope(input) {
+      const result = await db.query(
+        `select ${SELECT_COLUMNS}
+           from identity.invitation as invitation
+          where invitation.email = $1
+            and invitation.organisation_id = $2
+            and invitation.hospital_id is not distinct from $3::uuid
+            and invitation.status = 'pending'
+            and invitation.expires_at > now()
+          order by invitation.created_at desc
+          limit 1`,
+        [input.email, input.organisationId, input.hospitalId],
+      )
+      return single(result)
+    },
+
+    async findByTokenHashForUpdate(tokenHash) {
+      const result = await db.query(
+        `select ${SELECT_COLUMNS}
+           from identity.invitation as invitation
+          where invitation.token_hash = $1
+          for update`,
+        [tokenHash],
+      )
+      return single(result)
+    },
+
+    async revokePending(id, at) {
+      const result = await db.query(
+        `update identity.invitation
+            set status = 'revoked', revoked_at = $2
+          where id = $1 and status = 'pending' and expires_at > $2
+          returning id`,
+        [id, at],
+      )
+      return result.rows.length > 0
+    },
+
+    async markAccepted(id, input) {
+      const result = await db.query(
+        `update identity.invitation
+            set status = 'accepted',
+                accepted_at = $3,
+                accepted_by_user_id = $2
+          where id = $1
+            and status = 'pending'
+            and expires_at > $3
+          returning id`,
+        [id, input.acceptedByUserId, input.at],
+      )
+      return result.rows.length > 0
+    },
+  }
+}
+
+/** A select row carries its roles as an array aggregate. */
+function mapRow(value: unknown): Invitation {
+  const row = rowRecord(value)
+  return mapInvitation(row, textArrayField(row, 'role_ids'))
+}
+
+function mapInvitation(row: Record<string, unknown>, roleIds: readonly string[]): Invitation {
+  return {
+    id: stringField(row, 'id'),
+    email: stringField(row, 'email'),
+    organisationId: stringField(row, 'organisation_id'),
+    hospitalId: nullableStringField(row, 'hospital_id'),
+    kind: stringField(row, 'kind') as InvitationKind,
+    zitadelSub: nullableStringField(row, 'zitadel_sub'),
+    status: stringField(row, 'status') as InvitationStatus,
+    expiresAt: dateField(row, 'expires_at'),
+    createdAt: dateField(row, 'created_at'),
+    acceptedAt: nullableDateField(row, 'accepted_at'),
+    acceptedByUserId: nullableStringField(row, 'accepted_by_user_id'),
+    invitedBy: stringField(row, 'invited_by'),
+    roleIds,
+  }
+}
