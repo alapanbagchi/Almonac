@@ -8,6 +8,7 @@ const TOKEN = "A".repeat(43);
 const HOSPITAL_ADMIN_TOKEN = "D".repeat(43);
 const UNAVAILABLE_TOKEN = "C".repeat(43);
 const STEP_UP_TOKEN = "E".repeat(43);
+const GRANT_ID = "00000000-0000-4000-8000-000000000007";
 
 interface Attempt {
   returnTo: string;
@@ -21,6 +22,8 @@ const ORG_ID = "00000000-0000-4000-8000-000000000003";
 const HOSPITAL_ID = "00000000-0000-4000-8000-000000000004";
 const MEMBERSHIP_ID = "00000000-0000-4000-8000-000000000002";
 const ROLE_ID = "00000000-0000-4000-8000-000000000005";
+
+const grants: Record<string, unknown>[] = [];
 
 const SESSION = {
   user: { id: "00000000-0000-4000-8000-000000000001", email: "doctor@example.test", displayName: "Dev Doctor" },
@@ -43,6 +46,7 @@ const SESSION = {
     "hospital.manage",
     "membership.manage",
     "audit.read",
+    "break_glass.request",
   ],
 };
 
@@ -199,6 +203,66 @@ Bun.serve({
         return json(200, { status: "accepted" });
       }
       return failure(404, "NOT_FOUND");
+    }
+
+    if (pathname.startsWith("/v1/break-glass/")) {
+      if (!authorised(request)) return failure(401, "AUTH_FAILED");
+      const path = pathname.slice("/v1/break-glass/".length);
+
+      if (path === "grants" && request.method === "GET") return json(200, grants);
+      if (path === "grants" && request.method === "POST") {
+        if (request.headers.get("authorization") !== `Bearer ${STEP_UP_TOKEN}`) {
+          return failure(403, "STEP_UP_REQUIRED");
+        }
+        const body: unknown = await request.json();
+        const reason =
+          typeof body === "object" && body !== null && "reason" in body && typeof body.reason === "string"
+            ? body.reason
+            : "Emergency access";
+        const grant = {
+          id: GRANT_ID,
+          organisationId: ORG_ID,
+          hospitalId: HOSPITAL_ID,
+          userId: SESSION.user.id,
+          approvedBy: null,
+          approvalMode: "emergency",
+          reason,
+          accessLevel: "read_only",
+          status: "active",
+          startsAt: new Date().toISOString(),
+          endsAt: new Date(Date.now() + 3_600_000).toISOString(),
+          approvedAt: new Date().toISOString(),
+          activatedAt: new Date().toISOString(),
+          revokedAt: null,
+          expiredAt: null,
+          createdAt: new Date().toISOString(),
+        };
+        grants.push(grant);
+        return json(201, grant);
+      }
+
+      const match = /^grants\/([0-9a-f-]{36})\/(activate|revoke|review)$/.exec(path);
+      const grant = match === null ? undefined : grants.find((item) => item.id === match[1]);
+      if (match === null || grant === undefined) return failure(404, "NOT_FOUND");
+
+      if (match[2] === "review") {
+        return json(201, {
+          id: "00000000-0000-4000-8000-000000000008",
+          grantId: grant.id,
+          reviewerId: SESSION.user.id,
+          reviewedAt: new Date().toISOString(),
+          decision: "upheld",
+          notes: null,
+        });
+      }
+      if (match[2] === "revoke") {
+        grant.status = "revoked";
+        grant.revokedAt = new Date().toISOString();
+      } else {
+        grant.status = "active";
+        grant.activatedAt = new Date().toISOString();
+      }
+      return json(200, grant);
     }
 
     if (request.method !== "POST") return failure(404, "NOT_FOUND");
