@@ -50,8 +50,9 @@ and post-logout URI. `ZITADEL_REDIRECT_URI` points at the web callback
 `SEALING_KEY_VERSION` identifies it. The admin plane also needs
 `ZITADEL_SERVICE_USER_ID`, `ZITADEL_SERVICE_USER_KEY_ID` and
 `ZITADEL_SERVICE_USER_PRIVATE_KEY` for the management API, plus `SMTP_URL`,
-optional `SMTP_USER`/`SMTP_PASSWORD`, `MAIL_FROM` and `WEB_PUBLIC_ORIGIN`
-for invitation email. Production requires HTTPS. The API exits at startup when
+`SMTP_USER`/`SMTP_PASSWORD`, `MAIL_FROM`, `MAIL_FROM_NAME` and
+`WEB_PUBLIC_ORIGIN` for verification and invitation email. Production requires
+HTTPS, SMTP credentials, a non-loopback relay and STARTTLS on an `smtp` URL. The API exits at startup when
 a value is missing or malformed and prints only the variable name.
 
 ## Check

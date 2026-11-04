@@ -17,6 +17,7 @@ This directory holds the procedures that keep authentication and the identity pl
 | `runbooks/masterkey-escrow.md` | You create, retrieve or rotate the Zitadel masterkey. |
 | `runbooks/identity-incident.md` | A session, signing key, client secret or administrator account is suspected compromised. |
 | `runbooks/auth-outage.md` | Login fails for many users, or the API cannot verify a session. |
+| `runbooks/email-delivery.md` | Verification, invitation or Zitadel mail is not delivered, or the relay must change. |
 
 ## Rules
 

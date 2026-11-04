@@ -4,6 +4,7 @@
 - **Status:** Passed for the local stack, including the product API login, session and logout path. Production deployment is still gated by ADR-013.
 - **Scope:** Prove that the self-hosted Zitadel stack can issue the authorization code, ID token and claims that the API design in ADR-012 depends on.
 - **Environment:** Docker Compose, Zitadel v4.20.1, Zitadel login v4.20.1, PostgreSQL 17.10, Traefik v3.7.7, Mailpit v1.33.0 and Node 26.11.1.
+- **Mail note:** Mailpit was a spike-only mail catcher. The current local stack removed it; both senders use a real relay. See `docs/operations/runbooks/email-delivery.md`.
 
 The stack and all users were synthetic. No patient data, production credentials or real email addresses were used.
 
