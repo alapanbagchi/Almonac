@@ -68,16 +68,7 @@ export function createOidcProvider(options: OidcProviderOptions): OidcProvider {
 
     async verifyIdToken(idToken, nonceHash) {
       const metadata = await discovery.metadata()
-      verifier ??= {
-        keySetUri: metadata.jwksUri,
-        value: createIdTokenVerifier({
-          issuer: metadata.issuer,
-          clientId: options.clientId,
-          keySet: createRemoteJWKSet(new URL(metadata.jwksUri)),
-          ...(options.clock === undefined ? {} : { now: options.clock }),
-        }),
-      }
-      if (verifier.keySetUri !== metadata.jwksUri) {
+      if (verifier === null || verifier.keySetUri !== metadata.jwksUri) {
         verifier = {
           keySetUri: metadata.jwksUri,
           value: createIdTokenVerifier({
