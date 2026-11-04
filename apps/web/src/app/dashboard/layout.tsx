@@ -21,6 +21,12 @@ export default async function DashboardLayout({
     return <DashboardUnavailable />;
   }
   if (session === null) redirect("/login?returnTo=/dashboard");
+  if (
+    session.memberships.length === 0 &&
+    !session.permissions.includes("platform.manage")
+  ) {
+    redirect("/onboarding/organisation");
+  }
 
   const hospitals = toSessionHospitals(session);
   const user = toSessionUser(session);

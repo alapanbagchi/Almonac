@@ -21,19 +21,31 @@ export default async function Home() {
             <span className="text-[15px] font-medium tracking-[0.02em] text-foreground">Almonac</span>
           </Link>
 
-          <Link
-            href="/login"
-            className={buttonVariants({
-              size: "lg",
-              className: "group h-[52px] rounded-xl px-5 text-[15px] font-semibold",
-            })}
-          >
-            Sign in
-            <ArrowRight02
-              size={16}
-              className="transition-transform duration-300 ease-out group-hover:translate-x-1"
-            />
-          </Link>
+          <nav aria-label="Account" className="flex items-center gap-3">
+            <Link
+              href="/login"
+              className={buttonVariants({
+                variant: "outline",
+                size: "lg",
+                className: "h-[52px] rounded-xl px-5 text-[15px] font-semibold",
+              })}
+            >
+              Sign in
+            </Link>
+            <Link
+              href="/signup"
+              className={buttonVariants({
+                size: "lg",
+                className: "group h-[52px] rounded-xl px-5 text-[15px] font-semibold",
+              })}
+            >
+              Sign up
+              <ArrowRight02
+                size={16}
+                className="transition-transform duration-300 ease-out group-hover:translate-x-1"
+              />
+            </Link>
+          </nav>
         </div>
       </header>
 
