@@ -55,35 +55,36 @@ export class InvitationRepository {
     invitedBy: string
     expiresAt: Date
     roleIds: readonly string[]
-  }): Promise<Invitation> {
-    return withTransaction(this.pool, async (db) => {
-      const result = await db.query(
-        `insert into identity.invitation
-           (email, organisation_id, hospital_id, kind, zitadel_sub, token_hash,
-            invited_by, expires_at)
-         values ($1, $2, $3, $4, $5, $6, $7, $8)
-         returning ${COLUMNS}`,
-        [
-          input.email,
-          input.organisationId,
-          input.hospitalId,
-          input.kind,
-          input.zitadelSub,
-          input.tokenHash,
-          input.invitedBy,
-          input.expiresAt,
-        ],
+  }, db?: DatabaseQuery): Promise<Invitation> {
+    if (db === undefined) {
+      return withTransaction(this.pool, (tx) => this.create(input, tx))
+    }
+    const result = await db.query(
+      `insert into identity.invitation
+         (email, organisation_id, hospital_id, kind, zitadel_sub, token_hash,
+          invited_by, expires_at)
+       values ($1, $2, $3, $4, $5, $6, $7, $8)
+       returning ${COLUMNS}`,
+      [
+        input.email,
+        input.organisationId,
+        input.hospitalId,
+        input.kind,
+        input.zitadelSub,
+        input.tokenHash,
+        input.invitedBy,
+        input.expiresAt,
+      ],
+    )
+    const invitation = mapInvitation(result.rows[0], [])
+    for (const roleId of input.roleIds) {
+      await db.query(
+        `insert into control.invitation_role (invitation_id, role_id, assigned_by)
+         values ($1, $2, $3)`,
+        [invitation.id, roleId, input.invitedBy],
       )
-      const invitation = mapInvitation(result.rows[0], [])
-      for (const roleId of input.roleIds) {
-        await db.query(
-          `insert into control.invitation_role (invitation_id, role_id, assigned_by)
-           values ($1, $2, $3)`,
-          [invitation.id, roleId, input.invitedBy],
-        )
-      }
-      return { ...invitation, roleIds: [...input.roleIds] }
-    })
+    }
+    return { ...invitation, roleIds: [...input.roleIds] }
   }
 
   async findByTokenHash(tokenHash: Buffer): Promise<Invitation | null> {
@@ -140,8 +141,12 @@ export class InvitationRepository {
     return result.rows[0] === undefined ? null : mapRow(result.rows[0])
   }
 
-  async revokePending(id: string, at: Date): Promise<boolean> {
-    const result = await this.pool.query(
+  async revokePending(
+    id: string,
+    at: Date,
+    db: DatabaseQuery = this.pool,
+  ): Promise<boolean> {
+    const result = await db.query(
       `update identity.invitation
           set status = 'revoked', revoked_at = $2
         where id = $1 and status = 'pending' and expires_at > $2

@@ -13,7 +13,7 @@ import {
   AppUserEmailConflictError,
   AppUserRepository,
 } from '../../../src/identity/app-user-repository'
-import { AuditWriter } from '../../../src/audit/audit-writer'
+import { AuditWriter, type AuditSink } from '../../../src/audit/audit-writer'
 import { RateLimitRepository } from '../../../src/auth/rate-limit-repository'
 import { PendingRegistrationRepository } from '../../../src/identity/pending-registration-repository'
 import { hashToken } from '../../../src/shared/tokens'
@@ -2519,7 +2519,10 @@ describe('login completion store', () => {
 })
 
 describe('invitation service', () => {
-  function invitationService(sent: { token: string | null }): InvitationService {
+  function invitationService(
+    sent: { token: string | null },
+    audit: AuditSink = new AuditWriter(appPool),
+  ): InvitationService {
     const zitadel = new ZitadelManagementClient(
       'http://localhost:8080',
       { token: async () => 'service-token' },
@@ -2533,7 +2536,7 @@ describe('invitation service', () => {
       users: new AppUserRepository(appPool),
       authorization: new AuthorizationRepository(appPool),
       zitadel,
-      audit: new AuditWriter(appPool),
+      audit,
       mailer: {
         async send(input) {
           sent.token = input.token
@@ -2648,6 +2651,52 @@ describe('invitation service', () => {
     ).catch((error: unknown) => error)
     expect(replay).toBeInstanceOf(AppError)
     expect((replay as AppError).status).toBe(409)
+  })
+
+  test('rolls back an invitation whose audit record cannot be written', async () => {
+    const organisation = await createOrganisation(ownerPool, 'invitation-audit-rollback')
+    const inviterId = await createUser(ownerPool, 'audit-issuer', 'audit-issuer@example.test')
+    await createUser(ownerPool, 'audit-target', 'audit-target@example.test')
+    const role = await createRole(ownerPool, organisation, 'audit_manager', 'organisation')
+    await ownerPool.query(
+      "insert into control.role_permission (role_id, permission_key) values ($1, 'membership.manage')",
+      [role],
+    )
+    const membership = await createMembership(ownerPool, inviterId, organisation, null, -5, 60)
+    await ownerPool.query(
+      "insert into control.membership_role (membership_id, role_id, validity) values ($1, $2, tstzrange(now(), now() + interval '30 minutes'))",
+      [membership, role],
+    )
+    const inviter = await new AppUserRepository(ownerPool).findById(inviterId)
+    const sent: { token: string | null } = { token: null }
+    const service = invitationService(sent, {
+      async write() {
+        throw new Error('audit unavailable')
+      },
+    })
+
+    const error = await service.create(
+      {
+        actor: inviter!,
+        sessionId: randomUUID(),
+        requestId: 'request-audit-rollback',
+        ip: null,
+        userAgentHash: null,
+      },
+      {
+        email: 'audit-target@example.test',
+        organisationId: organisation,
+        roleIds: [role],
+      },
+    ).catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(Error)
+    expect((error as Error).message).toBe('audit unavailable')
+    const invitations = await ownerPool.query<{ count: number }>(
+      "select count(*)::int as count from identity.invitation where email = 'audit-target@example.test'",
+    )
+    expect(invitations.rows[0]!.count).toBe(0)
+    expect(sent.token).toBeNull()
   })
 })
 

@@ -6,7 +6,7 @@ import type { AuthorizationRepository, AccessTarget } from '../access/authorizat
 import type { AppUser, AppUserRepository } from '../identity/app-user-repository'
 import type { AdminRequestContext } from './admin-context'
 import type { AuditSink } from '../audit/audit-writer'
-import { withTransaction } from '../db/pool'
+import { withTransaction, type DatabaseQuery } from '../db/pool'
 import type { OrganisationRepository } from './organisation-repository'
 import type { HospitalRepository } from './hospital-repository'
 import {
@@ -48,6 +48,21 @@ export interface InvitationServiceDependencies {
   readonly clock?: () => Date
 }
 
+interface InvitationDraft {
+  readonly actor: AppUser
+  readonly email: string
+  readonly kind: InvitationKind
+  readonly zitadelSub: string | null
+  readonly organisationId: string
+  readonly hospitalId: string | null
+  readonly roleIds: readonly string[]
+}
+
+interface IssuedInvitation {
+  readonly invitation: Invitation
+  readonly token: string
+}
+
 export class InvitationService {
   private readonly clock: () => Date
 
@@ -85,28 +100,24 @@ export class InvitationService {
       hospitalId: hospital?.id ?? null,
     })
     if (pending !== null) {
-      const replaced = await this.replace(actor, pending, organisation.name, hospital?.name ?? null)
-      await this.auditChange(context, replaced, 'invitation.resend')
-      return replaced
+      return this.replace(context, pending, organisation.name, hospital?.name ?? null)
     }
 
     const existing = await this.dependencies.users.findByEmail(email)
     if (existing !== null) {
       if (existing.status !== 'active') throw conflict('This identity is not active.')
       await this.requireNoMembership(existing.id, organisation.id, hospital?.id ?? null)
-      const issued = await this.issue({
+      const issued = await this.issue(context, {
         actor,
         email,
         kind: 'existing_user',
         zitadelSub: existing.zitadelSubject,
         organisationId: organisation.id,
-        organisationName: organisation.name,
         hospitalId: hospital?.id ?? null,
-        hospitalName: hospital?.name ?? null,
         roleIds: input.roleIds,
       })
-      await this.auditChange(context, issued, 'invitation.created')
-      return issued
+      await this.deliver(context, issued, organisation.name, hospital?.name ?? null)
+      return issued.invitation
     }
 
     if (organisation.zitadelOrgId === null) {
@@ -123,19 +134,17 @@ export class InvitationService {
       throw asAdminError(error)
     }
     try {
-      const issued = await this.issue({
+      const issued = await this.issue(context, {
         actor,
         email,
         kind: 'new_user',
         zitadelSub: subject,
         organisationId: organisation.id,
-        organisationName: organisation.name,
         hospitalId: hospital?.id ?? null,
-        hospitalName: hospital?.name ?? null,
         roleIds: input.roleIds,
       })
-      await this.auditChange(context, issued, 'invitation.created')
-      return issued
+      await this.deliver(context, issued, organisation.name, hospital?.name ?? null)
+      return issued.invitation
     } catch (error) {
       try {
         await this.dependencies.zitadel.deactivateUser(organisation.zitadelOrgId, subject)
@@ -173,9 +182,7 @@ export class InvitationService {
     const hospital = invitation.hospitalId
       ? await this.dependencies.hospitals.findById(invitation.hospitalId)
       : null
-    const replaced = await this.replace(actor, invitation, organisation.name, hospital?.name ?? null)
-    await this.auditChange(context, replaced, 'invitation.resend')
-    return replaced
+    return this.replace(context, invitation, organisation.name, hospital?.name ?? null)
   }
 
   async revoke(context: AdminRequestContext, invitationId: string): Promise<void> {
@@ -186,9 +193,15 @@ export class InvitationService {
       organisationId: invitation.organisationId,
       hospitalId: invitation.hospitalId,
     })
-    const revoked = await this.dependencies.invitations.revokePending(invitationId, this.clock())
-    if (!revoked) throw conflict('Invitation is no longer pending.')
-    await this.auditChange(context, invitation, 'invitation.revoked')
+    await withTransaction(this.dependencies.pool, async (db) => {
+      const revoked = await this.dependencies.invitations.revokePending(
+        invitationId,
+        this.clock(),
+        db,
+      )
+      if (!revoked) throw conflict('Invitation is no longer pending.')
+      await this.auditChange(db, context, invitation, 'invitation.revoked')
+    })
   }
 
   async accept(context: AdminRequestContext, token: string): Promise<Invitation> {
@@ -254,57 +267,80 @@ export class InvitationService {
     })
   }
 
-  private async issue(input: {
-    actor: AppUser
-    email: string
-    kind: InvitationKind
-    zitadelSub: string | null
-    organisationId: string
-    organisationName: string
-    hospitalId: string | null
-    hospitalName: string | null
-    roleIds: readonly string[]
-  }): Promise<Invitation> {
+  private async issue(
+    context: AdminRequestContext,
+    draft: InvitationDraft,
+  ): Promise<IssuedInvitation> {
+    return withTransaction(this.dependencies.pool, async (db) => {
+      const issued = await this.persist(db, draft)
+      await this.auditChange(db, context, issued.invitation, 'invitation.created')
+      return issued
+    })
+  }
+
+  private async persist(
+    db: DatabaseQuery,
+    input: InvitationDraft,
+  ): Promise<IssuedInvitation> {
     const minted = mintToken()
     const expiresAt = new Date(this.clock().getTime() + INVITATION_TTL_MS)
-    const invitation = await this.dependencies.invitations.create({
-      email: input.email,
-      organisationId: input.organisationId,
-      hospitalId: input.hospitalId,
-      kind: input.kind,
-      zitadelSub: input.zitadelSub,
-      tokenHash: minted.tokenHash,
-      invitedBy: input.actor.id,
-      expiresAt,
-      roleIds: input.roleIds,
-    })
+    const invitation = await this.dependencies.invitations.create(
+      {
+        email: input.email,
+        organisationId: input.organisationId,
+        hospitalId: input.hospitalId,
+        kind: input.kind,
+        zitadelSub: input.zitadelSub,
+        tokenHash: minted.tokenHash,
+        invitedBy: input.actor.id,
+        expiresAt,
+        roleIds: input.roleIds,
+      },
+      db,
+    )
+    return { invitation, token: minted.token }
+  }
 
+  private async deliver(
+    context: AdminRequestContext,
+    issued: IssuedInvitation,
+    organisationName: string,
+    hospitalName: string | null,
+  ): Promise<void> {
     // Both kinds receive the local link. A new user cannot accept until their
     // provider account is usable, but the link keeps an explicit token path that
     // does not depend on a verified address.
     try {
       await this.dependencies.mailer.send({
-        to: input.email,
-        token: minted.token,
-        organisationName: input.organisationName,
-        hospitalName: input.hospitalName,
-        expiresAt,
+        to: issued.invitation.email,
+        token: issued.token,
+        organisationName,
+        hospitalName,
+        expiresAt: issued.invitation.expiresAt,
       })
     } catch (error) {
-      await this.dependencies.invitations.revokePending(invitation.id, this.clock())
+      try {
+        await withTransaction(this.dependencies.pool, async (db) => {
+          await this.dependencies.invitations.revokePending(
+            issued.invitation.id,
+            this.clock(),
+            db,
+          )
+          await this.auditChange(db, context, issued.invitation, 'invitation.revoked')
+        })
+      } catch {
+        // Keep the delivery failure. An unrevoked invitation still expires.
+      }
       throw error
     }
-    return invitation
   }
 
   private async replace(
-    actor: AppUser,
+    context: AdminRequestContext,
     invitation: Invitation,
     organisationName: string,
     hospitalName: string | null,
   ): Promise<Invitation> {
-    const revoked = await this.dependencies.invitations.revokePending(invitation.id, this.clock())
-    if (!revoked) throw conflict('Invitation is no longer pending.')
     if (invitation.kind === 'new_user' && invitation.zitadelSub !== null) {
       const organisation = await this.dependencies.organisations.findById(invitation.organisationId)
       if (organisation?.zitadelOrgId) {
@@ -318,41 +354,55 @@ export class InvitationService {
         }
       }
     }
-    return this.issue({
-      actor,
-      email: invitation.email,
-      kind: invitation.kind,
-      zitadelSub: invitation.zitadelSub,
-      organisationId: invitation.organisationId,
-      organisationName,
-      hospitalId: invitation.hospitalId,
-      hospitalName,
-      roleIds: invitation.roleIds,
+    const issued = await withTransaction(this.dependencies.pool, async (db) => {
+      const revoked = await this.dependencies.invitations.revokePending(
+        invitation.id,
+        this.clock(),
+        db,
+      )
+      if (!revoked) throw conflict('Invitation is no longer pending.')
+      const created = await this.persist(db, {
+        actor: context.actor,
+        email: invitation.email,
+        kind: invitation.kind,
+        zitadelSub: invitation.zitadelSub,
+        organisationId: invitation.organisationId,
+        hospitalId: invitation.hospitalId,
+        roleIds: invitation.roleIds,
+      })
+      await this.auditChange(db, context, created.invitation, 'invitation.resend')
+      return created
     })
+    await this.deliver(context, issued, organisationName, hospitalName)
+    return issued.invitation
   }
 
   private async auditChange(
+    db: DatabaseQuery,
     context: AdminRequestContext,
     invitation: Invitation,
     reasonCode: string,
   ): Promise<void> {
-    await this.dependencies.audit.write({
-      actorUserId: context.actor.id,
-      actorType: 'user',
-      sessionId: context.sessionId,
-      organisationId: invitation.organisationId,
-      hospitalId: invitation.hospitalId,
-      eventType: 'admin.change',
-      outcome: 'success',
-      targetType: 'invitation',
-      targetId: invitation.id,
-      requestId: context.requestId,
-      reason: reasonCode.replace(/\./g, ' ').replace(/_/g, ' '),
-      reasonCode,
-      ip: context.ip,
-      userAgentHash: context.userAgentHash,
-      metadata: { resource_type: 'invitation', resource_id: invitation.id },
-    })
+    await this.dependencies.audit.write(
+      {
+        actorUserId: context.actor.id,
+        actorType: 'user',
+        sessionId: context.sessionId,
+        organisationId: invitation.organisationId,
+        hospitalId: invitation.hospitalId,
+        eventType: 'admin.change',
+        outcome: 'success',
+        targetType: 'invitation',
+        targetId: invitation.id,
+        requestId: context.requestId,
+        reason: reasonCode.replace(/\./g, ' ').replace(/_/g, ' '),
+        reasonCode,
+        ip: context.ip,
+        userAgentHash: context.userAgentHash,
+        metadata: { resource_type: 'invitation', resource_id: invitation.id },
+      },
+      db,
+    )
   }
 
   private async requireManage(actorId: string, target: AccessTarget): Promise<void> {
