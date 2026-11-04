@@ -16,11 +16,6 @@ export interface CreateOrganisationInput {
   readonly slug: string
 }
 
-/** The one provider call provisioning needs, injectable so tests never reach Zitadel. */
-export interface OrganisationIdentity {
-  create(name: string): Promise<string>
-}
-
 const ROLE_TEMPLATES = ['org_admin', 'hospital_admin', 'clinician', 'auditor'] as const
 
 type ProvisionResult =
@@ -37,7 +32,6 @@ export async function createOrganisation(
   d: AdminDependencies,
   context: AdminRequestContext,
   input: CreateOrganisationInput,
-  identity: OrganisationIdentity,
 ): Promise<OrganisationResponse> {
   if (!(await d.isPlatformAdmin(context.actor.id))) throw forbidden()
 
@@ -55,7 +49,8 @@ export async function createOrganisation(
 
     let zitadelOrgId: string
     try {
-      zitadelOrgId = organisation.zitadelOrgId ?? (await identity.create(organisation.name))
+      zitadelOrgId =
+        organisation.zitadelOrgId ?? (await d.organisationIdentity.create(organisation.name))
     } catch (error) {
       await recordProvisioningFailure(d, context, organisation, db)
       return { ok: false, error } satisfies ProvisionResult

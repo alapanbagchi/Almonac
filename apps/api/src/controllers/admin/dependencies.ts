@@ -9,6 +9,11 @@ import type { SessionAuthenticator, UserLookup } from '../../guards/bearer'
  * the transaction client) inside the controller, so this object holds only
  * capabilities: policy, audit, identity, a reader and a transaction runner.
  */
+/** The one provider call organisation provisioning needs. */
+export interface OrganisationIdentity {
+  create(name: string): Promise<string>
+}
+
 export interface AdminDependencies {
   readonly db: DatabaseQuery
   readonly transaction: TransactionRunner
@@ -18,6 +23,7 @@ export interface AdminDependencies {
   readonly audit: AuditSink
   readonly sessions: SessionAuthenticator
   readonly users: UserLookup
+  readonly organisationIdentity: OrganisationIdentity
   /** Optional so existing wiring compiles; provisioning lag is emitted when present. */
   readonly metrics?: Metrics
 }

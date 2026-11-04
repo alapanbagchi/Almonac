@@ -54,6 +54,11 @@ const dependencies: AdminDependencies = {
   audit: { write: async () => undefined },
   sessions: { authenticate: async () => session, revoke: async () => true },
   users: { findById: async () => user },
+  organisationIdentity: {
+    create: async () => {
+      throw new Error('the identity provider must not be called')
+    },
+  },
 }
 
 /** A route registered after the guard, the way every slice router mounts it. */

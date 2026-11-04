@@ -142,6 +142,11 @@ function dependencies(options: {
     audit: options.audit ?? { write: async () => {} },
     sessions: { authenticate: async () => session, revoke: async () => true },
     users: { findById: async () => actor },
+    organisationIdentity: {
+      create: async () => {
+        throw new Error('the identity provider must not be called')
+      },
+    },
   }
 }
 

@@ -3,7 +3,7 @@ import { Elysia } from 'elysia'
 import { Pool } from 'pg'
 import type { AuditEvent, AuditSink } from '../../src/audit/audit-writer'
 import type { AdminDependencies } from '../../src/controllers/admin/dependencies'
-import type { OrganisationIdentity } from '../../src/controllers/admin/organisations/create-organisation'
+import type { OrganisationIdentity } from '../../src/controllers/admin/dependencies'
 import { withTransaction, type DatabaseQuery } from '../../src/db/pool'
 import type { AppUser } from '../../src/identity/app-user-repository'
 import type { WebSession } from '../../src/identity/session-repository'
@@ -206,6 +206,7 @@ function setup(database: FakeDatabase, overrides: Partial<AdminDependencies> = {
       audit: audit.sink,
       sessions,
       users,
+      organisationIdentity: noProvider,
       ...overrides,
     },
   }
@@ -218,7 +219,9 @@ const noProvider: OrganisationIdentity = {
 }
 
 function app(dependencies: AdminDependencies, identity: OrganisationIdentity = noProvider) {
-  return new Elysia().use(errors).use(organisationsRouter(dependencies, identity))
+  return new Elysia()
+    .use(errors)
+    .use(organisationsRouter({ ...dependencies, organisationIdentity: identity }))
 }
 
 function request(path: string, init: RequestInit = {}) {

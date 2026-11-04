@@ -87,6 +87,11 @@ function dependencies(overrides: Partial<AdminDependencies> = {}): AdminDependen
         return id === user.id ? user : null
       },
     },
+    organisationIdentity: {
+      create: async () => {
+        throw new Error('the identity provider must not be called')
+      },
+    },
     ...overrides,
   }
 }

@@ -1,6 +1,5 @@
 import { Elysia, t } from 'elysia'
 import type { AdminDependencies } from '../controllers/admin/dependencies'
-import type { OrganisationIdentity } from '../controllers/admin/organisations/create-organisation'
 import { createOrganisation } from '../controllers/admin/organisations/create-organisation'
 import { getOrganisation } from '../controllers/admin/organisations/get-organisation'
 import { listOrganisations } from '../controllers/admin/organisations/list-organisations'
@@ -32,7 +31,7 @@ const organisationSchema = t.Object({
 
 const organisationBody = t.Object({ name, slug })
 
-export function organisationsRouter(d: AdminDependencies, identity: OrganisationIdentity) {
+export function organisationsRouter(d: AdminDependencies) {
   return new Elysia({ name: 'admin.organisations', prefix: '/v1/admin' })
     .use(adminGuard(d))
     .post(
@@ -44,7 +43,7 @@ export function organisationsRouter(d: AdminDependencies, identity: Organisation
       },
       async (context) => {
         context.set.status = 201
-        return createOrganisation(d, adminContextOf(context), context.body, identity)
+        return createOrganisation(d, adminContextOf(context), context.body)
       },
     )
     .get(

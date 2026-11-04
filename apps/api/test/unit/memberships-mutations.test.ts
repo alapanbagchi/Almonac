@@ -146,6 +146,11 @@ function setup(
         return null
       },
     },
+    organisationIdentity: {
+      create: async () => {
+        throw new Error('the identity provider must not be called')
+      },
+    },
   }
 
   return {
