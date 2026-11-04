@@ -29,6 +29,9 @@ export class OrganisationProvisioningService {
     const startedAt = performance.now()
     const client = await this.pool.connect()
     try {
+      // Serialise provisioning for one slug across API instances. This is a
+      // session advisory lock on a dedicated connection, not an open
+      // transaction; the provider call is bounded by its request timeout.
       await client.query('select pg_advisory_lock(hashtext($1))', [input.slug])
       const db = { query: (text: string, values?: unknown[]) => client.query(text, values) }
       const organisations = new OrganisationRepository(db)
