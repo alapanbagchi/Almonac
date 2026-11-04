@@ -1,6 +1,7 @@
 import type { DatabaseQuery } from '../db/pool'
 import {
   dateField,
+  isEmpty,
   nullableDateField,
   nullableStringField,
   rowRecord,
@@ -105,7 +106,7 @@ export class PendingRegistrationRepository implements PendingRegistrationStore {
         returning ${COLUMNS}`,
       [tokenHash, leaseSeconds],
     )
-    if (result.rows[0] === undefined) return null
+    if (isEmpty(result)) return null
     const registration = mapRow(result.rows[0])
     if (registration.claimedAt === null || registration.claimId === null) {
       throw new Error('claimed registration has no claim identifier')

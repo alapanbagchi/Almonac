@@ -1,6 +1,6 @@
 import { Pool } from 'pg'
 import { safeName } from '../shared/log'
-import { booleanField, integerField, rowRecord, stringField } from './rows'
+import { booleanField, integerField, isEmpty, rowRecord, stringField } from './rows'
 
 /** ADR-002: a bounded control pool, five connections per API replica. */
 export const CONTROL_POOL_MAX = 5
@@ -104,7 +104,7 @@ interface ReadinessRow {
  */
 export async function checkControlDatabase(db: DatabaseQuery): Promise<void> {
   const result = await db.query(READINESS_QUERY)
-  const row = result.rows[0] === undefined ? undefined : readReadiness(rowRecord(result.rows[0]))
+  const row = isEmpty(result) ? undefined : readReadiness(rowRecord(result.rows[0]))
 
   if (
     row === undefined ||

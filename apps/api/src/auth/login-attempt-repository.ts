@@ -3,6 +3,7 @@ import {
   bufferField,
   dateField,
   integerField,
+  isEmpty,
   nullableBufferField,
   nullableDateField,
   nullableStringField,
@@ -93,7 +94,7 @@ export class LoginAttemptRepository implements LoginAttemptStore {
       [stateHash, at],
     )
 
-    return result.rows[0] === undefined ? null : mapRow(result.rows[0])
+    return isEmpty(result) ? null : mapRow(result.rows[0])
   }
 }
 
