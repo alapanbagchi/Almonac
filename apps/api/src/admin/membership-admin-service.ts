@@ -69,12 +69,7 @@ export class MembershipAdminService {
     roleId: string,
   ): Promise<void> {
     const membership = await this.requireMembership(context, membershipId)
-    const role = await this.memberships.findRole(membership.organisationId, roleId)
-    if (role === null) throw new AppError('RULE_VIOLATION', 422, 'Role is not available.')
-    const expectedScope = membership.hospitalId === null ? 'organisation' : 'hospital'
-    if (role.scope !== expectedScope) {
-      throw new AppError('RULE_VIOLATION', 422, 'Role scope does not match the membership.')
-    }
+    const role = await this.assignableRole(membership, roleId)
     await this.preventEscalation(context, membership, role)
     await withTransaction(this.pool, async (db) => {
       try {
@@ -95,8 +90,7 @@ export class MembershipAdminService {
     roleId: string,
   ): Promise<void> {
     const membership = await this.requireMembership(context, membershipId)
-    const role = await this.memberships.findRole(membership.organisationId, roleId)
-    if (role === null) throw new AppError('RULE_VIOLATION', 422, 'Role is not available.')
+    const role = await this.assignableRole(membership, roleId)
     if (role.permissions.includes('organisation.manage') && membership.hospitalId === null) {
       await this.protectLastOrganisationAdmin(membership)
     }
@@ -124,6 +118,20 @@ export class MembershipAdminService {
     if (membership === null) throw notFound('Membership not found.')
     await this.requireManage(context, membership.organisationId, membership.hospitalId)
     return membership
+  }
+
+  /** The role must exist in the organisation and match the membership's scope. */
+  private async assignableRole(
+    membership: MembershipSummary,
+    roleId: string,
+  ): Promise<OrganisationRole> {
+    const role = await this.memberships.findRole(membership.organisationId, roleId)
+    if (role === null) throw new AppError('RULE_VIOLATION', 422, 'Role is not available.')
+    const expectedScope = membership.hospitalId === null ? 'organisation' : 'hospital'
+    if (role.scope !== expectedScope) {
+      throw new AppError('RULE_VIOLATION', 422, 'Role scope does not match the membership.')
+    }
+    return role
   }
 
   private requireManage(
@@ -162,6 +170,20 @@ export class MembershipAdminService {
     }
   }
 
+  /** Attribution every membership and role event carries: who, where, and from which request. */
+  private attributed(context: AdminRequestContext, membership: MembershipSummary) {
+    return {
+      actorUserId: context.actor.id,
+      actorType: 'user' as const,
+      sessionId: context.sessionId,
+      organisationId: membership.organisationId,
+      hospitalId: membership.hospitalId,
+      requestId: context.requestId,
+      ip: context.ip,
+      userAgentHash: context.userAgentHash,
+    }
+  }
+
   private async auditChange(
     context: AdminRequestContext,
     membership: MembershipSummary,
@@ -172,25 +194,14 @@ export class MembershipAdminService {
     db?: DatabaseQuery,
   ): Promise<void> {
     await this.audit.write({
-      actorUserId: context.actor.id,
-      actorType: 'user',
-      sessionId: context.sessionId,
-      organisationId: membership.organisationId,
-      hospitalId: membership.hospitalId,
+      ...this.attributed(context, membership),
       eventType: 'membership.change',
       outcome: 'success',
       targetType: 'membership',
       targetId: membership.id,
-      requestId: context.requestId,
       reason,
       reasonCode,
-      ip: context.ip,
-      userAgentHash: context.userAgentHash,
-      metadata: {
-        membership_id: membership.id,
-        from_status: fromStatus,
-        to_status: toStatus,
-      },
+      metadata: { membership_id: membership.id, from_status: fromStatus, to_status: toStatus },
     }, db)
   }
 
@@ -202,20 +213,13 @@ export class MembershipAdminService {
     db?: DatabaseQuery,
   ): Promise<void> {
     await this.audit.write({
-      actorUserId: context.actor.id,
-      actorType: 'user',
-      sessionId: context.sessionId,
-      organisationId: membership.organisationId,
-      hospitalId: membership.hospitalId,
+      ...this.attributed(context, membership),
       eventType: 'role.assign',
       outcome: 'success',
       targetType: 'membership',
       targetId: membership.id,
-      requestId: context.requestId,
       reason: reasonCode === 'role.assigned' ? 'role assigned' : 'role revoked',
       reasonCode,
-      ip: context.ip,
-      userAgentHash: context.userAgentHash,
       metadata: { membership_id: membership.id, role_id: roleId },
     }, db)
   }
