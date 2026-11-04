@@ -70,6 +70,18 @@ const MEMBERSHIP_SELECT = `
   left join control.role as role on role.id = membership_role.role_id
 `
 
+const ROLE_SELECT = `
+  select role.id, role.key, role.name, role.scope,
+         coalesce(
+           array_agg(role_permission.permission_key order by role_permission.permission_key)
+             filter (where role_permission.permission_key is not null),
+           '{}'::text[]
+         ) as permissions
+    from control.role as role
+    left join control.role_permission as role_permission
+      on role_permission.role_id = role.id
+`
+
 export class MembershipAdminRepository {
   constructor(private readonly db: DatabaseQuery) {}
 
@@ -135,35 +147,23 @@ export class MembershipAdminRepository {
 
   async listRoles(organisationId: string): Promise<OrganisationRole[]> {
     const result = await this.db.query(
-      `select role.id, role.key, role.name, role.scope,
-              coalesce(
-                array_agg(role_permission.permission_key order by role_permission.permission_key)
-                  filter (where role_permission.permission_key is not null),
-                '{}'::text[]
-              ) as permissions
-         from control.role as role
-         left join control.role_permission as role_permission
-           on role_permission.role_id = role.id
+      `${ROLE_SELECT}
         where role.organisation_id = $1
         group by role.id, role.key, role.name, role.scope
         order by role.scope, role.key`,
       [organisationId],
     )
-    return result.rows.map((row) => {
-      const value = rowRecord(row)
-      return {
-        id: stringField(value, 'id'),
-        key: stringField(value, 'key'),
-        name: stringField(value, 'name'),
-        scope: stringField(value, 'scope') as 'organisation' | 'hospital',
-        permissions: textArrayField(value, 'permissions'),
-      }
-    })
+    return result.rows.map(mapRole)
   }
 
   async findRole(organisationId: string, roleId: string): Promise<OrganisationRole | null> {
-    const roles = await this.listRoles(organisationId)
-    return roles.find((role) => role.id === roleId) ?? null
+    const result = await this.db.query(
+      `${ROLE_SELECT}
+        where role.organisation_id = $1 and role.id = $2
+        group by role.id, role.key, role.name, role.scope`,
+      [organisationId, roleId],
+    )
+    return result.rows[0] === undefined ? null : mapRole(result.rows[0])
   }
 
   async assignRole(input: {
@@ -272,6 +272,17 @@ export class MembershipAdminRepository {
       [input.userId, input.organisationId, input.hospitalId ?? null],
     )
     return result.rows[0] === undefined ? null : mapMembership(result.rows[0])
+  }
+}
+
+function mapRole(value: unknown): OrganisationRole {
+  const row = rowRecord(value)
+  return {
+    id: stringField(row, 'id'),
+    key: stringField(row, 'key'),
+    name: stringField(row, 'name'),
+    scope: stringField(row, 'scope') as 'organisation' | 'hospital',
+    permissions: textArrayField(row, 'permissions'),
   }
 }
 
