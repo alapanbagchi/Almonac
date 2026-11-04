@@ -1,9 +1,17 @@
 import Link from "next/link";
+import { connection } from "next/server";
 
 import { ArrowRight02 } from "@/components/animate-ui/icons/hugeicons/arrow-right-02";
 import { buttonVariants } from "@/components/ui/button";
 
-export default function Home() {
+// A nonce CSP needs request-time rendering: a static page is built before
+// any request headers exist, so its scripts cannot carry a nonce.
+export const instant = false;
+
+export default async function Home() {
+  // Blocking on the request is what produces per-request scripts with a nonce.
+  await connection();
+
   return (
     <div className="flex min-h-svh flex-col bg-background">
       <header className="border-b border-border">

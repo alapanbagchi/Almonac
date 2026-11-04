@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { connection } from "next/server";
 import { Suspense } from "react";
 
 import { ArrowRight02 } from "@/components/animate-ui/icons/hugeicons/arrow-right-02";
@@ -17,7 +18,14 @@ interface LoginPageProps {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }
 
-export default function LoginPage({ searchParams }: LoginPageProps) {
+// The sign-in screen must render per request so its scripts carry the CSP
+// nonce. See src/proxy.ts.
+export const instant = false;
+
+export default async function LoginPage({ searchParams }: LoginPageProps) {
+  // Blocking on the request is what produces per-request scripts with a nonce.
+  await connection();
+
   return (
     <Suspense fallback={<LoginPanel />}>
       <LoginContent searchParams={searchParams} />

@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { connection } from 'next/server';
 import { Mail01 } from '@/components/animate-ui/icons/hugeicons/mail-01';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -51,7 +52,13 @@ function Section({ kicker, title, children }: { kicker: string; title: string; c
   );
 }
 
-export default function DesignPage() {
+// A nonce CSP needs request-time rendering; see src/proxy.ts.
+export const instant = false;
+
+export default async function DesignPage() {
+  // Blocking on the request is what produces per-request scripts with a nonce.
+  await connection();
+
   return (
     <div className="min-h-full bg-background pb-20">
       <header className="border-b border-border bg-card">
