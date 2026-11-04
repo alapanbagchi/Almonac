@@ -1,5 +1,6 @@
 import { Pool } from 'pg'
 import { safeName } from '../shared/log'
+import { booleanField, integerField, rowRecord, stringField } from './rows'
 
 /** ADR-002: a bounded control pool, five connections per API replica. */
 export const CONTROL_POOL_MAX = 5
@@ -102,7 +103,8 @@ interface ReadinessRow {
  * A connection that can rewrite audit events is never ready.
  */
 export async function checkControlDatabase(db: DatabaseQuery): Promise<void> {
-  const row = readReadiness(await db.query(READINESS_QUERY))
+  const result = await db.query(READINESS_QUERY)
+  const row = result.rows[0] === undefined ? undefined : readReadiness(rowRecord(result.rows[0]))
 
   if (
     row === undefined ||
@@ -117,33 +119,13 @@ export async function checkControlDatabase(db: DatabaseQuery): Promise<void> {
   }
 }
 
-function readReadiness(result: unknown): ReadinessRow | undefined {
-  if (typeof result !== 'object' || result === null) return undefined
-
-  const rows = (result as { rows?: unknown }).rows
-  if (!Array.isArray(rows) || rows.length !== 1) return undefined
-
-  const row = rows[0] as unknown
-  if (typeof row !== 'object' || row === null) return undefined
-
-  const values = row as Record<string, unknown>
-  if (
-    typeof values.runtime_role !== 'string' ||
-    typeof values.version !== 'number' ||
-    typeof values.can_insert !== 'boolean' ||
-    typeof values.can_update !== 'boolean' ||
-    typeof values.can_delete !== 'boolean' ||
-    typeof values.can_truncate !== 'boolean'
-  ) {
-    return undefined
-  }
-
+function readReadiness(row: Record<string, unknown>): ReadinessRow {
   return {
-    runtimeRole: values.runtime_role,
-    version: values.version,
-    canInsert: values.can_insert,
-    canUpdate: values.can_update,
-    canDelete: values.can_delete,
-    canTruncate: values.can_truncate,
+    runtimeRole: stringField(row, 'runtime_role'),
+    version: integerField(row, 'version'),
+    canInsert: booleanField(row, 'can_insert'),
+    canUpdate: booleanField(row, 'can_update'),
+    canDelete: booleanField(row, 'can_delete'),
+    canTruncate: booleanField(row, 'can_truncate'),
   }
 }

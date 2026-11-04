@@ -25,6 +25,10 @@ const KIND = {
     label: 'an integer',
     check: (value: unknown): value is number => typeof value === 'number' && Number.isInteger(value),
   },
+  boolean: {
+    label: 'a boolean',
+    check: (value: unknown): value is boolean => typeof value === 'boolean',
+  },
   textArray: {
     label: 'a text array',
     check: (value: unknown): value is string[] =>
@@ -74,6 +78,10 @@ export function integerField(row: Record<string, unknown>, key: string): number 
 
 export function nullableIntegerField(row: Record<string, unknown>, key: string): number | null {
   return nullableField(row, key, KIND.integer)
+}
+
+export function booleanField(row: Record<string, unknown>, key: string): boolean {
+  return field(row, key, KIND.boolean)
 }
 
 export function textArrayField(row: Record<string, unknown>, key: string): string[] {
