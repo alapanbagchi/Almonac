@@ -5,6 +5,9 @@ import { t } from 'elysia'
  * Repositories fetch one row beyond the requested page so the route can tell
  * the caller whether another page exists without a second count query.
  */
+export const DEFAULT_PAGE_LIMIT = 50
+export const MAX_PAGE_LIMIT = 100
+
 export const paginationFields = {
   limit: t.Optional(t.String({ pattern: '^[0-9]{1,3}$' })),
   offset: t.Optional(t.String({ pattern: '^[0-9]{1,6}$' })),
@@ -22,9 +25,14 @@ export interface Page<T> {
 
 export function pageRequest(query: { limit?: string; offset?: string }): PageRequest {
   return {
-    limit: bounded(query.limit, 50, 1, 100),
+    limit: bounded(query.limit, DEFAULT_PAGE_LIMIT, 1, MAX_PAGE_LIMIT),
     offset: bounded(query.offset, 0, 0, 1_000_000),
   }
+}
+
+/** The audit log pages by cursor; its limit obeys the same bounds. */
+export function auditLimit(value: string | undefined): number {
+  return bounded(value, DEFAULT_PAGE_LIMIT, 1, MAX_PAGE_LIMIT)
 }
 
 export function pageOf<T>(rows: readonly T[], request: PageRequest): Page<T> {

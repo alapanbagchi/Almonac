@@ -15,6 +15,30 @@ export interface AdminRequestContext {
   readonly userAgentHash: Buffer | null
 }
 
+/**
+ * A route handler for an admin route: Elysia's own route definition supplies
+ * the surrounding type, and the handler declares what it reads from the
+ * request. The parent router's `.derive` adds `adminContext`.
+ */
+export interface AdminHandlerContext {
+  params: Record<string, string>
+  query: Record<string, string | undefined>
+  body: unknown
+  adminContext?: AdminRequestContext
+  set: { status?: number | string }
+}
+
+/** Keeps a route group's Elysia type: the handlers are already unannotated. */
+export function routeGroup<T>(routes: T): T {
+  return routes
+}
+
+/** The bearer session resolved by the parent router. */
+export function adminContextOf(context: AdminHandlerContext) {
+  if (context.adminContext === undefined) throw new Error('admin context is not resolved')
+  return context.adminContext
+}
+
 export interface AdminDependencies {
   readonly organisations: OrganisationAdminService
   readonly hospitals: HospitalAdminService

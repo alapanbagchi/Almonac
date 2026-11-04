@@ -9,7 +9,6 @@ export const slug = t.String({
   pattern: '^[a-z0-9]([a-z0-9-]*[a-z0-9])?$',
 })
 export const reason = t.String({ minLength: 1, maxLength: 500 })
-export const listLimit = t.Optional(t.String({ pattern: '^[0-9]{1,3}$' }))
 
 export const organisationBody = t.Object({ name, slug })
 export const hospitalBody = t.Object({
@@ -30,6 +29,14 @@ export const invitationBody = t.Object({
 export const acceptBody = t.Object({ token: t.String({ minLength: 32, maxLength: 128 }) })
 
 export const okSchema = t.Object({ ok: t.Boolean() })
+
+export const roleSchema = t.Object({
+  id: t.String(),
+  key: t.String(),
+  name: t.String(),
+  scope: t.String(),
+  permissions: t.Array(t.String()),
+})
 
 export const organisationSchema = t.Object({
   id: t.String(),
@@ -132,9 +139,3 @@ export const routeDetail = (summary: string) => ({
   tags: ['Administration'],
   security: [{ bearerAuth: [] }],
 })
-
-export function limitOf(value: string | undefined): number {
-  if (value === undefined) return 50
-  const limit = Number(value)
-  return Number.isInteger(limit) && limit >= 1 && limit <= 100 ? limit : 50
-}
