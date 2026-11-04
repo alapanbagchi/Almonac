@@ -78,25 +78,12 @@ export class InvitationRepository {
       ],
     )
     const invitation = mapInvitation(result.rows[0], [])
-    for (const roleId of input.roleIds) {
-      await db.query(
-        `insert into control.invitation_role (invitation_id, role_id, assigned_by)
-         values ($1, $2, $3)`,
-        [invitation.id, roleId, input.invitedBy],
-      )
-    }
+    await db.query(
+      `insert into control.invitation_role (invitation_id, role_id, assigned_by)
+       select $1, role_id, $2 from unnest($3::uuid[]) as role_id`,
+      [invitation.id, input.invitedBy, input.roleIds],
+    )
     return { ...invitation, roleIds: [...input.roleIds] }
-  }
-
-  async findByTokenHash(tokenHash: Buffer): Promise<Invitation | null> {
-    return withTransaction(this.pool, (db) => this.findByTokenHashForUpdate(db, tokenHash))
-  }
-
-  async findByTokenHashForUpdate(
-    db: DatabaseQuery,
-    tokenHash: Buffer,
-  ): Promise<Invitation | null> {
-    return findInvitationByTokenHashForUpdate(db, tokenHash)
   }
 
   async findById(id: string): Promise<Invitation | null> {
@@ -156,34 +143,6 @@ export class InvitationRepository {
       [id, at],
     )
     return result.rows.length > 0
-  }
-
-  async revokePendingForScope(input: {
-    email: string
-    organisationId: string
-    hospitalId: string | null
-    at: Date
-  }): Promise<number> {
-    const result = await this.pool.query(
-      `update identity.invitation
-          set status = 'revoked', revoked_at = $4
-        where email = $1
-          and organisation_id = $2
-          and hospital_id is not distinct from $3::uuid
-          and status = 'pending'
-          and expires_at > $4
-        returning id`,
-      [input.email, input.organisationId, input.hospitalId, input.at],
-    )
-    return result.rows.length
-  }
-
-  async markAccepted(input: {
-    id: string
-    acceptedByUserId: string
-    at: Date
-  }): Promise<boolean> {
-    return this.markAcceptedWith(this.pool, input)
   }
 
   async markAcceptedWith(
