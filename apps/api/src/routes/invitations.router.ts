@@ -30,10 +30,11 @@ const invitationSchema = t.Object({
   roleIds: t.Array(uuid),
 })
 
-const invitationBody = t.Object({
+export const invitationBody = t.Object({
   email: t.String({ minLength: 3, maxLength: 320 }),
   displayName: t.Optional(t.String({ minLength: 1, maxLength: 200 })),
-  hospitalId: t.Optional(uuid),
+  // The web form sends null for an organisation-wide invitation.
+  hospitalId: t.Optional(nullable(uuid)),
   roleIds: t.Array(uuid, { minItems: 1, maxItems: 16 }),
 })
 
