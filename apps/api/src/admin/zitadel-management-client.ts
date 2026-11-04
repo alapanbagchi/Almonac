@@ -21,13 +21,13 @@ export function createServiceUserTokenProvider(
   fetchImpl: typeof fetch = fetch,
 ): AccessTokenProvider {
   let cached: { value: string; expiresAt: number } | null = null
+  const privateKey = importPKCS8(key.privateKeyPem, 'RS256')
 
   return {
     async token() {
       const now = Math.floor(Date.now() / 1000)
       if (cached !== null && cached.expiresAt > now + 30) return cached.value
 
-      const privateKey = await importPKCS8(key.privateKeyPem, 'RS256')
       const assertion = await new SignJWT({})
         .setProtectedHeader({ alg: 'RS256', kid: key.keyId })
         .setIssuer(key.userId)
@@ -35,18 +35,24 @@ export function createServiceUserTokenProvider(
         .setAudience(key.issuer)
         .setIssuedAt(now)
         .setExpirationTime(now + 300)
-        .sign(privateKey)
+        .sign(await privateKey)
 
-      const response = await fetchImpl(new URL('/oauth/v2/token', key.issuer), {
-        method: 'POST',
-        headers: { 'content-type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-          assertion,
-          scope: 'openid urn:zitadel:iam:org:project:id:zitadel:aud',
-        }),
-        redirect: 'error',
-      })
+      let response: Response
+      try {
+        response = await fetchImpl(new URL('/oauth/v2/token', key.issuer), {
+          method: 'POST',
+          headers: { 'content-type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({
+            grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+            assertion,
+            scope: 'openid urn:zitadel:iam:org:project:id:zitadel:aud',
+          }),
+          redirect: 'error',
+          signal: AbortSignal.timeout(10_000),
+        })
+      } catch {
+        throw new ZitadelUnavailableError()
+      }
 
       if (!response.ok) {
         throw new ZitadelUnavailableError('service token request failed')
