@@ -38,9 +38,13 @@ export function adminContext(
  * Authenticate once per admin route group. Permission is not checked here:
  * three of six slices only know the scope after they load the row, so the
  * decision stays in the controller that can see it.
+ *
+ * Scope is 'plugin': a locally scoped derive would not reach the routes a
+ * consuming router registers after .use(adminGuard(d)), leaving them
+ * unauthenticated while still type-checking.
  */
 export function adminGuard(d: AdminDependencies) {
-  return new Elysia({ name: 'guards.admin' }).derive(async (context) => ({
+  return new Elysia({ name: 'guards.admin' }).derive('plugin', async (context) => ({
     adminContext: adminContext(
       await authenticateBearer(context.headers.authorization, d.sessions, d.users),
       context.request,
