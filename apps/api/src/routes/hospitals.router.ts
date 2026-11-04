@@ -51,7 +51,7 @@ const verifyDomainBody = t.Object({ token: t.String({ minLength: 1, maxLength: 1
 /** Hospitals and the verified domains that address them. */
 export function hospitalsRouter(d: AdminDependencies) {
   return new Elysia({ name: 'admin.hospitals', prefix: '/v1/admin' })
-    .use(adminGuard(d).as('plugin'))
+    .use(adminGuard(d))
     .get(
       '/organisations/:organisationId/hospitals',
       {
