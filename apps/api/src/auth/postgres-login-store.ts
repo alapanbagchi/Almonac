@@ -100,10 +100,7 @@ export class PostgresLoginStore implements LoginCompletionStore {
         throw new LoginRejectedError('identity_mismatch', user.id)
       }
 
-      const sessions = new SessionService({
-        store: new SessionRepository(db),
-        clock: () => input.now,
-      })
+      const sessions = this.sessions(db, input.now)
       const current = await sessions.findByToken(input.sessionToken)
       if (current === null || current.userId !== user.id) {
         throw new LoginRejectedError('session_mismatch', user.id)
@@ -154,10 +151,7 @@ export class PostgresLoginStore implements LoginCompletionStore {
     user: AppUser,
     input: LoginCompletionInput,
   ): Promise<LoginCompletion> {
-    const sessions = new SessionService({
-      store: new SessionRepository(db),
-      clock: () => input.now,
-    })
+    const sessions = this.sessions(db, input.now)
     const issued = await sessions.mint({
       userId: user.id,
       identityIssuer: input.identity.issuer,
@@ -196,6 +190,11 @@ export class PostgresLoginStore implements LoginCompletionStore {
       sessionId: issued.session.id,
       userId: user.id,
     }
+  }
+
+  /** Sessions read and written on the caller's transaction. */
+  private sessions(db: DatabaseQuery, now: Date): SessionService {
+    return new SessionService({ store: new SessionRepository(db), clock: () => now })
   }
 
   private async pendingInvitations(
@@ -287,4 +286,3 @@ export class PostgresLoginStore implements LoginCompletionStore {
     })
   }
 }
-
