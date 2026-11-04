@@ -3,7 +3,7 @@ import { generateKeyPairSync } from 'node:crypto'
 import {
   createServiceUserTokenProvider,
   ZitadelUnavailableError,
-} from '../../src/admin/zitadel-management-client'
+} from '../../src/adapters/zitadel/client'
 
 const { privateKey } = generateKeyPairSync('rsa', {
   modulusLength: 2048,

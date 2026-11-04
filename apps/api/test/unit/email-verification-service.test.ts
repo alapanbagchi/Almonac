@@ -3,7 +3,7 @@ import {
   ZitadelConflictError,
   ZitadelRejectedError,
   ZitadelUnavailableError,
-} from '../../src/admin/zitadel-management-client'
+} from '../../src/adapters/zitadel/client'
 import type { AuditEvent } from '../../src/audit/audit-writer'
 import { EmailVerificationService } from '../../src/auth/email-verification-service'
 import type { LoginRequestContext } from '../../src/auth/login-service'

@@ -5,7 +5,7 @@ import {
   type LoginClient,
   type SessionCredentials,
 } from '../../src/auth/zitadel-session-client'
-import { ZitadelRejectedError } from '../../src/admin/zitadel-management-client'
+import { ZitadelRejectedError } from '../../src/adapters/zitadel/client'
 import type { LoginRequestContext } from '../../src/auth/login-service'
 
 const STATE = 'a'.repeat(43)

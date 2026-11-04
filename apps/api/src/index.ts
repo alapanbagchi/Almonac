@@ -15,19 +15,19 @@ import { InvitationRepository } from './admin/invitation-repository'
 import { InvitationService } from './admin/invitation-service'
 import { MembershipAdminRepository } from './admin/membership-admin-repository'
 import { MembershipAdminService } from './admin/membership-admin-service'
-import { loadMailConfig, MailConfigError } from './admin/mail-config'
+import { loadMailConfig, MailConfigError } from './adapters/smtp/config'
 import { OrganisationAdminService } from './admin/organisation-admin-service'
 import { OrganisationProvisioningService } from './admin/organisation-provisioning-service'
 import { OrganisationRepository } from './admin/organisation-repository'
-import { createSmtpMailer, createVerificationMailer } from './admin/smtp-mailer'
+import { createSmtpMailer, createVerificationMailer } from './adapters/smtp/mailer'
 import {
   ZitadelManagementClient,
   createServiceUserTokenProvider,
-} from './admin/zitadel-management-client'
+} from './adapters/zitadel/client'
 import {
   loadZitadelManagementConfig,
   ZitadelManagementConfigError,
-} from './admin/zitadel-management-config'
+} from './adapters/zitadel/config'
 import { AuthConfigError, loadAuthConfig } from './auth/config'
 import { BreakGlassService } from './break-glass/break-glass-service'
 import { LoginAttemptRepository } from './auth/login-attempt-repository'

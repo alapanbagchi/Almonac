@@ -6,7 +6,7 @@ import type { HospitalRepository } from './hospital-repository'
 import type { InvitationRepository } from './invitation-repository'
 import type { MembershipAdminRepository } from './membership-admin-repository'
 import type { OrganisationRepository } from './organisation-repository'
-import type { ZitadelManagementClient } from './zitadel-management-client'
+import type { ZitadelManagementClient } from '../adapters/zitadel/client'
 
 export const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000
 

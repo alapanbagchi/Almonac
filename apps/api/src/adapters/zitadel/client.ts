@@ -1,5 +1,5 @@
 import { SignJWT, importPKCS8 } from 'jose'
-import { readJsonBody } from '../shared/http-body'
+import { readJsonBody } from '../../shared/http-body'
 
 export interface ServiceUserKey {
   readonly issuer: string

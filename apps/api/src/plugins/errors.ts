@@ -5,7 +5,7 @@ import {
   ZitadelConflictError,
   ZitadelRejectedError,
   ZitadelUnavailableError,
-} from '../admin/zitadel-management-client'
+} from '../adapters/zitadel/client'
 import { safeName } from '../shared/log'
 import { requestIdOf } from '../shared/request'
 

@@ -1,5 +1,20 @@
 import nodemailer from 'nodemailer'
-import type { InvitationMailer } from './invitation-types'
+
+/** What an invitation mail needs; the invitation slice supplies these values. */
+export interface InvitationMail {
+  send(input: {
+    to: string
+    token: string
+    organisationName: string
+    hospitalName: string | null
+    expiresAt: Date
+  }): Promise<void>
+}
+
+/** The sign-up mail proves the address before any identity exists. */
+export interface VerificationMail {
+  send(input: { to: string; token: string; expiresAt: Date }): Promise<void>
+}
 
 export interface SmtpMailerOptions {
   readonly smtpUrl: string
@@ -42,7 +57,7 @@ function sender(options: SmtpMailerOptions): { name: string; address: string } {
  * the token in the fragment, so it is not sent in the HTTP request line or the
  * Referer header. The database stores only the SHA-256 hash.
  */
-export function createSmtpMailer(options: SmtpMailerOptions): InvitationMailer {
+export function createSmtpMailer(options: SmtpMailerOptions): InvitationMail {
   const transport = transportFor(options)
   return {
     async send(input) {
@@ -73,9 +88,7 @@ export function createSmtpMailer(options: SmtpMailerOptions): InvitationMailer {
  * The token is in the fragment, so it never reaches an HTTP request line or a
  * Referer header; the database stores only its SHA-256 hash.
  */
-export function createVerificationMailer(options: SmtpMailerOptions): {
-  send(input: { to: string; token: string; expiresAt: Date }): Promise<void>
-} {
+export function createVerificationMailer(options: SmtpMailerOptions): VerificationMail {
   const transport = transportFor(options)
   return {
     async send(input) {

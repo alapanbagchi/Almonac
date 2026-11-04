@@ -1,7 +1,7 @@
 import {
   ZitadelRejectedError,
   ZitadelUnavailableError,
-} from '../admin/zitadel-management-client'
+} from '../adapters/zitadel/client'
 import { AppError } from '../shared/errors'
 import { normaliseEmail } from '../shared/email'
 import { isSessionToken } from '../shared/tokens'
