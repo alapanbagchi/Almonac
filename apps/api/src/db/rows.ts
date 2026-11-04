@@ -11,81 +11,72 @@ export function rowRecord(value: unknown): Record<string, unknown> {
 
 type FieldCheck<T> = (value: unknown) => value is T
 
-function fieldValue<T>(
-  row: Record<string, unknown>,
-  key: string,
-  label: string,
-  check: FieldCheck<T>,
-): T {
+interface Kind<T> {
+  readonly label: string
+  readonly check: FieldCheck<T>
+}
+
+const KIND = {
+  string: { label: 'text', check: (value: unknown): value is string => typeof value === 'string' },
+  date: {
+    label: 'a timestamp',
+    check: (value: unknown): value is Date => value instanceof Date && !Number.isNaN(value.getTime()),
+  },
+  buffer: { label: 'bytea', check: (value: unknown): value is Buffer => Buffer.isBuffer(value) },
+  integer: {
+    label: 'an integer',
+    check: (value: unknown): value is number => typeof value === 'number' && Number.isInteger(value),
+  },
+  textArray: {
+    label: 'a text array',
+    check: (value: unknown): value is string[] =>
+      Array.isArray(value) && value.every((item) => typeof item === 'string'),
+  },
+} as const satisfies Record<string, Kind<unknown>>
+
+function field<T>(row: Record<string, unknown>, key: string, kind: Kind<T>): T {
   const value = row[key]
-  if (!check(value)) throw new Error(`database field ${key} is not ${label}`)
+  if (!kind.check(value)) throw new Error(`database field ${key} is not ${kind.label}`)
   return value
 }
 
-function nullableFieldValue<T>(
-  row: Record<string, unknown>,
-  key: string,
-  label: string,
-  check: FieldCheck<T>,
-): T | null {
-  const value = row[key]
-  if (value === null) return null
-  if (!check(value)) throw new Error(`database field ${key} is not ${label}`)
-  return value
+function nullableField<T>(row: Record<string, unknown>, key: string, kind: Kind<T>): T | null {
+  if (row[key] === null) return null
+  return field(row, key, kind)
 }
-
-const isString = (value: unknown): value is string => typeof value === 'string'
-const isDate = (value: unknown): value is Date =>
-  value instanceof Date && !Number.isNaN(value.getTime())
-const isInteger = (value: unknown): value is number =>
-  typeof value === 'number' && Number.isInteger(value)
-const isTextArray = (value: unknown): value is string[] =>
-  Array.isArray(value) && value.every((item) => typeof item === 'string')
 
 export function stringField(row: Record<string, unknown>, key: string): string {
-  return fieldValue(row, key, 'text', isString)
+  return field(row, key, KIND.string)
 }
 
-export function nullableStringField(
-  row: Record<string, unknown>,
-  key: string,
-): string | null {
-  return nullableFieldValue(row, key, 'text', isString)
+export function nullableStringField(row: Record<string, unknown>, key: string): string | null {
+  return nullableField(row, key, KIND.string)
 }
 
 export function dateField(row: Record<string, unknown>, key: string): Date {
-  return fieldValue(row, key, 'a timestamp', isDate)
+  return field(row, key, KIND.date)
 }
 
-export function nullableDateField(
-  row: Record<string, unknown>,
-  key: string,
-): Date | null {
-  return nullableFieldValue(row, key, 'a timestamp', isDate)
+export function nullableDateField(row: Record<string, unknown>, key: string): Date | null {
+  return nullableField(row, key, KIND.date)
 }
 
 export function bufferField(row: Record<string, unknown>, key: string): Buffer {
-  return fieldValue(row, key, 'bytea', (value) => Buffer.isBuffer(value))
+  return field(row, key, KIND.buffer)
 }
 
-export function nullableBufferField(
-  row: Record<string, unknown>,
-  key: string,
-): Buffer | null {
-  return nullableFieldValue(row, key, 'bytea', (value) => Buffer.isBuffer(value))
+export function nullableBufferField(row: Record<string, unknown>, key: string): Buffer | null {
+  return nullableField(row, key, KIND.buffer)
 }
 
 export function integerField(row: Record<string, unknown>, key: string): number {
-  return fieldValue(row, key, 'an integer', isInteger)
+  return field(row, key, KIND.integer)
 }
 
-export function nullableIntegerField(
-  row: Record<string, unknown>,
-  key: string,
-): number | null {
-  return nullableFieldValue(row, key, 'an integer', isInteger)
+export function nullableIntegerField(row: Record<string, unknown>, key: string): number | null {
+  return nullableField(row, key, KIND.integer)
 }
 
 export function textArrayField(row: Record<string, unknown>, key: string): string[] {
-  return fieldValue(row, key, 'a text array', isTextArray)
+  return field(row, key, KIND.textArray)
 }
