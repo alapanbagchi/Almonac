@@ -2,7 +2,7 @@ import {
   ZitadelConflictError,
   ZitadelRejectedError,
   ZitadelUnavailableError,
-} from '../../admin/zitadel-management-client'
+} from '../../adapters/zitadel/client'
 import { AppError } from '../../shared/errors'
 import { hashToken, isSessionToken } from '../../shared/tokens'
 import { createPendingRegistrationRepository } from '../../repositories/pending-registration-repository'

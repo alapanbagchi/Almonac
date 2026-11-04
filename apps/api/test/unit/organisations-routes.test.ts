@@ -9,7 +9,7 @@ import type { AppUser } from '../../src/identity/app-user-repository'
 import type { WebSession } from '../../src/identity/session-repository'
 import { errors } from '../../src/plugins/errors'
 import { organisationsRouter } from '../../src/routes/organisations.router'
-import { ZitadelUnavailableError } from '../../src/admin/zitadel-management-client'
+import { ZitadelUnavailableError } from '../../src/adapters/zitadel/client'
 import type { Authorize } from '../../src/shared/authorize'
 import { forbidden } from '../../src/shared/errors'
 
@@ -210,7 +210,13 @@ function setup(database: FakeDatabase, overrides: Partial<AdminDependencies> = {
   }
 }
 
-function app(dependencies: AdminDependencies, identity?: OrganisationIdentity) {
+const noProvider: OrganisationIdentity = {
+  create: async () => {
+    throw new Error('the provider must not be reached')
+  },
+}
+
+function app(dependencies: AdminDependencies, identity: OrganisationIdentity = noProvider) {
   return new Elysia().use(errors).use(organisationsRouter(dependencies, identity))
 }
 

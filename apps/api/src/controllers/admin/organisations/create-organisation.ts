@@ -10,11 +10,6 @@ import {
   createOrganisationRepository,
   type Organisation,
 } from '../../../repositories/organisation-repository'
-import {
-  ZitadelManagementClient,
-  createServiceUserTokenProvider,
-} from '../../../admin/zitadel-management-client'
-import { loadZitadelManagementConfig } from '../../../admin/zitadel-management-config'
 import { organisationResponse, type OrganisationResponse } from './responses'
 
 export interface CreateOrganisationInput {
@@ -43,12 +38,11 @@ export async function createOrganisation(
   d: AdminDependencies,
   context: AdminRequestContext,
   input: CreateOrganisationInput,
-  identity?: OrganisationIdentity,
+  identity: OrganisationIdentity,
 ): Promise<OrganisationResponse> {
   if (!(await d.isPlatformAdmin(context.actor.id))) throw forbidden()
 
   const startedAt = performance.now()
-  const target = identity ?? managementIdentity()
   const result = await withTransaction(d.pool, async (db) => {
     const organisations = createOrganisationRepository(db)
     await organisations.lockSlug(input.slug)
@@ -62,7 +56,7 @@ export async function createOrganisation(
 
     let zitadelOrgId: string
     try {
-      zitadelOrgId = organisation.zitadelOrgId ?? (await target.create(organisation.name))
+      zitadelOrgId = organisation.zitadelOrgId ?? (await identity.create(organisation.name))
     } catch (error) {
       await recordProvisioningFailure(d, context, organisation, db)
       return { ok: false, error } satisfies ProvisionResult
@@ -128,22 +122,4 @@ async function recordProvisioningFailure(
     },
     db,
   )
-}
-
-/**
- * Resolved after the platform check, so a refused caller never touches provider
- * configuration. AdminDependencies carries capabilities, not a provider client.
- */
-function managementIdentity(): OrganisationIdentity {
-  const config = loadZitadelManagementConfig(process.env)
-  const client = new ZitadelManagementClient(
-    config.issuer,
-    createServiceUserTokenProvider({
-      issuer: config.issuer,
-      userId: config.serviceUserId,
-      keyId: config.keyId,
-      privateKeyPem: config.privateKeyPem,
-    }),
-  )
-  return { create: (name) => client.createOrganisation(name) }
 }

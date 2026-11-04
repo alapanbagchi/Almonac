@@ -3,7 +3,7 @@ import { MfaRequiredError } from '../../src/auth/zitadel-session-client'
 import {
   ZitadelRejectedError,
   ZitadelUnavailableError,
-} from '../../src/admin/zitadel-management-client'
+} from '../../src/adapters/zitadel/client'
 import { passwordLogin } from '../../src/controllers/auth/password-login'
 import type { AuthDependencies } from '../../src/controllers/auth/dependencies'
 import { AppError } from '../../src/shared/errors'

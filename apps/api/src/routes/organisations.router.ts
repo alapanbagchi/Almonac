@@ -4,9 +4,7 @@ import type { OrganisationIdentity } from '../controllers/admin/organisations/cr
 import { createOrganisation } from '../controllers/admin/organisations/create-organisation'
 import { getOrganisation } from '../controllers/admin/organisations/get-organisation'
 import { listOrganisations } from '../controllers/admin/organisations/list-organisations'
-import { adminContext, adminContextOf } from '../guards/admin-context'
-import { authenticateBearer } from '../guards/bearer'
-import { requestIdOf, type RequestServer } from '../shared/request'
+import { adminContextOf, adminGuard } from '../guards/admin-context'
 import { pageQuery, pageSchema } from '../shared/pagination'
 import {
   instant,
@@ -34,28 +32,9 @@ const organisationSchema = t.Object({
 
 const organisationBody = t.Object({ name, slug })
 
-/**
- * adminGuard's derive does not reach a consumer's routes in Elysia 2, so the
- * router registers the same authentication derivation on itself.
- */
-function authenticate(d: AdminDependencies) {
-  return async (context: {
-    headers: Record<string, string | undefined>
-    request: Request
-    server: unknown
-  }) => ({
-    adminContext: adminContext(
-      await authenticateBearer(context.headers.authorization, d.sessions, d.users),
-      context.request,
-      context.server as RequestServer | null,
-      requestIdOf(context),
-    ),
-  })
-}
-
-export function organisationsRouter(d: AdminDependencies, identity?: OrganisationIdentity) {
+export function organisationsRouter(d: AdminDependencies, identity: OrganisationIdentity) {
   return new Elysia({ name: 'admin.organisations', prefix: '/v1/admin' })
-    .derive(authenticate(d))
+    .use(adminGuard(d))
     .post(
       '/organisations',
       {

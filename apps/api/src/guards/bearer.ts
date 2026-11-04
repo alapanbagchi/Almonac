@@ -1,7 +1,7 @@
 import { AppError } from '../shared/errors'
 import { isSessionToken } from '../shared/tokens'
-import type { AppUser } from '../identity/app-user-repository'
-import type { WebSession } from '../identity/session-repository'
+import type { AppUser } from '../repositories/app-user-repository'
+import type { WebSession } from '../repositories/session-repository'
 
 export interface UserLookup {
   findById(id: string): Promise<AppUser | null>

@@ -1,7 +1,7 @@
 import {
   ZitadelRejectedError,
   ZitadelUnavailableError,
-} from '../../admin/zitadel-management-client'
+} from '../../adapters/zitadel/client'
 import {
   InvalidAuthRequestError,
   MfaRequiredError,

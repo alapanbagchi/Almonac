@@ -30,11 +30,10 @@ const membershipSchema = t.Object({
 })
 
 export function membershipsRouter(d: AdminDependencies) {
-  // The guard derives on its own instance, so the routes are registered there
-  // and a named wrapper supplies the router's deduplication key.
-  const guarded = adminGuard(d)
+  return new Elysia({ name: 'admin.memberships', prefix: '/v1/admin' })
+    .use(adminGuard(d))
     .get(
-      '/v1/admin/organisations/:organisationId/memberships',
+      '/organisations/:organisationId/memberships',
       {
         params: t.Object({ organisationId: uuid }),
         query: scopedPageQuery,
@@ -42,11 +41,10 @@ export function membershipsRouter(d: AdminDependencies) {
         detail: routeDetail('List memberships'),
       },
       async (context) => {
-        const admin = adminContextOf(context)
         const hospitalId = context.query.hospitalId ?? null
         return listMemberships(
           d,
-          admin,
+          adminContextOf(context),
           context.params.organisationId,
           hospitalId,
           pageRequest(pageValues(context)),
@@ -54,7 +52,7 @@ export function membershipsRouter(d: AdminDependencies) {
       },
     )
     .post(
-      '/v1/admin/memberships/:membershipId/suspend',
+      '/memberships/:membershipId/suspend',
       {
         params: membershipParams,
         body: reasonBody,
@@ -62,10 +60,15 @@ export function membershipsRouter(d: AdminDependencies) {
         detail: routeDetail('Suspend a membership'),
       },
       async (context) =>
-        suspendMembership(d, adminContextOf(context), context.params.membershipId, context.body.reason),
+        suspendMembership(
+          d,
+          adminContextOf(context),
+          context.params.membershipId,
+          context.body.reason,
+        ),
     )
     .post(
-      '/v1/admin/memberships/:membershipId/revoke',
+      '/memberships/:membershipId/revoke',
       {
         params: membershipParams,
         body: reasonBody,
@@ -73,10 +76,15 @@ export function membershipsRouter(d: AdminDependencies) {
         detail: routeDetail('Revoke a membership'),
       },
       async (context) =>
-        revokeMembership(d, adminContextOf(context), context.params.membershipId, context.body.reason),
+        revokeMembership(
+          d,
+          adminContextOf(context),
+          context.params.membershipId,
+          context.body.reason,
+        ),
     )
     .post(
-      '/v1/admin/memberships/:membershipId/roles',
+      '/memberships/:membershipId/roles',
       {
         params: membershipParams,
         body: roleBody,
@@ -84,18 +92,26 @@ export function membershipsRouter(d: AdminDependencies) {
         detail: routeDetail('Assign a role'),
       },
       async (context) =>
-        assignRole(d, adminContextOf(context), context.params.membershipId, context.body.roleId),
+        assignRole(
+          d,
+          adminContextOf(context),
+          context.params.membershipId,
+          context.body.roleId,
+        ),
     )
     .delete(
-      '/v1/admin/memberships/:membershipId/roles/:roleId',
+      '/memberships/:membershipId/roles/:roleId',
       {
         params: t.Object({ membershipId: uuid, roleId: uuid }),
         response: { 200: okSchema },
         detail: routeDetail('Remove a role'),
       },
       async (context) =>
-        revokeRole(d, adminContextOf(context), context.params.membershipId, context.params.roleId),
+        revokeRole(
+          d,
+          adminContextOf(context),
+          context.params.membershipId,
+          context.params.roleId,
+        ),
     )
-
-  return new Elysia({ name: 'admin.memberships' }).use(guarded)
 }

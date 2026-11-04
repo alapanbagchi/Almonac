@@ -14,23 +14,22 @@ const roleSchema = t.Object({
 })
 
 export function rolesRouter(d: AdminDependencies) {
-  // Same guard placement as the memberships router: routes on the derived instance.
-  const guarded = adminGuard(d).get(
-    '/v1/admin/organisations/:organisationId/roles',
-    {
-      params: t.Object({ organisationId: uuid }),
-      query: pageQuery,
-      response: { 200: pageSchema(roleSchema) },
-      detail: routeDetail('List assignable roles'),
-    },
-    async (context) =>
-      listRoles(
-        d,
-        adminContextOf(context),
-        context.params.organisationId,
-        pageRequest(pageValues(context)),
-      ),
-  )
-
-  return new Elysia({ name: 'admin.roles' }).use(guarded)
+  return new Elysia({ name: 'admin.roles', prefix: '/v1/admin' })
+    .use(adminGuard(d))
+    .get(
+      '/organisations/:organisationId/roles',
+      {
+        params: t.Object({ organisationId: uuid }),
+        query: pageQuery,
+        response: { 200: pageSchema(roleSchema) },
+        detail: routeDetail('List assignable roles'),
+      },
+      async (context) =>
+        listRoles(
+          d,
+          adminContextOf(context),
+          context.params.organisationId,
+          pageRequest(pageValues(context)),
+        ),
+    )
 }
