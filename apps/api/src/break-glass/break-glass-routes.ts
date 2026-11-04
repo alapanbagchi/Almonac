@@ -1,7 +1,6 @@
 import { Elysia, t } from 'elysia'
 import type { AppUser } from '../identity/app-user-repository'
 import type { WebSession } from '../identity/session-repository'
-import { AppError } from '../shared/errors'
 import { authenticateBearer, type SessionAuthenticator, type UserLookup } from '../auth/bearer'
 import { requestContext, type RequestServer } from '../auth/request-context'
 import { requestIdOf } from '../shared/request'
@@ -58,20 +57,13 @@ export function createBreakGlass(dependencies: BreakGlassDependencies) {
       },
       async (context) => {
         const actor = await contextOf(context)
-        if (context.body.mode === 'emergency' && context.body.userId !== undefined) {
-          throw new AppError(
-            'VALIDATION_FAILED',
-            400,
-            'userId is only valid for pre-approved access.',
-          )
-        }
         const grant =
           context.body.mode === 'pre_approved'
             ? await dependencies.grants.createPreApproved(actor, {
                 hospitalId: context.body.hospitalId,
                 reason: context.body.reason,
                 durationMinutes: context.body.durationMinutes,
-                userId: requireSubject(context.body.userId),
+                userId: context.body.userId,
               })
             : await dependencies.grants.requestEmergency(actor, {
                 hospitalId: context.body.hospitalId,
@@ -162,17 +154,6 @@ function breakGlassContext(
     ip: base.ip,
     userAgentHash: base.userAgentHash,
   }
-}
-
-function requireSubject(userId: string | undefined): string {
-  if (userId === undefined) {
-    throw new AppError(
-      'VALIDATION_FAILED',
-      400,
-      'userId is required for pre-approved emergency access.',
-    )
-  }
-  return userId
 }
 
 function grantResponse(grant: BreakGlassGrant) {

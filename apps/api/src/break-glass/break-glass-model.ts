@@ -4,13 +4,27 @@ const uuidPattern = '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4
 
 export const uuid = t.String({ pattern: uuidPattern, maxLength: 36 })
 
-export const breakGlassGrantBody = t.Object({
-  hospitalId: uuid,
-  mode: t.Union([t.Literal('emergency'), t.Literal('pre_approved')]),
-  reason: t.String({ minLength: 1, maxLength: 500 }),
-  durationMinutes: t.Optional(t.Number({ minimum: 1, maximum: 240 })),
-  userId: t.Optional(uuid),
-})
+export const breakGlassGrantBody = t.Union([
+  t.Object(
+    {
+      hospitalId: uuid,
+      mode: t.Literal('emergency'),
+      reason: t.String({ minLength: 1, maxLength: 500 }),
+      durationMinutes: t.Optional(t.Number({ minimum: 1, maximum: 240 })),
+    },
+    { additionalProperties: false },
+  ),
+  t.Object(
+    {
+      hospitalId: uuid,
+      mode: t.Literal('pre_approved'),
+      reason: t.String({ minLength: 1, maxLength: 500 }),
+      durationMinutes: t.Optional(t.Number({ minimum: 1, maximum: 240 })),
+      userId: uuid,
+    },
+    { additionalProperties: false },
+  ),
+])
 
 export const revokeBody = t.Object({ reason: t.String({ minLength: 1, maxLength: 500 }) })
 
