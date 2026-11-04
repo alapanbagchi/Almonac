@@ -7,9 +7,15 @@ const PORT = 3101;
 const TOKEN = "A".repeat(43);
 const HOSPITAL_ADMIN_TOKEN = "D".repeat(43);
 const UNAVAILABLE_TOKEN = "C".repeat(43);
+const STEP_UP_TOKEN = "E".repeat(43);
+
+interface Attempt {
+  returnTo: string;
+  stepUp: boolean;
+}
 
 /** Login attempts in flight, keyed by state, so parallel tests do not collide. */
-const attempts = new Map<string, string>();
+const attempts = new Map<string, Attempt>();
 
 const ORG_ID = "00000000-0000-4000-8000-000000000003";
 const HOSPITAL_ID = "00000000-0000-4000-8000-000000000004";
@@ -126,7 +132,11 @@ function failure(status: number, code: string): Response {
 
 function authorised(request: Request): boolean {
   const authorization = request.headers.get("authorization");
-  return authorization === `Bearer ${TOKEN}` || authorization === `Bearer ${HOSPITAL_ADMIN_TOKEN}`;
+  return (
+    authorization === `Bearer ${TOKEN}` ||
+    authorization === `Bearer ${HOSPITAL_ADMIN_TOKEN}` ||
+    authorization === `Bearer ${STEP_UP_TOKEN}`
+  );
 }
 
 Bun.serve({
@@ -141,7 +151,9 @@ Bun.serve({
       if (authorization === `Bearer ${HOSPITAL_ADMIN_TOKEN}`) {
         return json(200, HOSPITAL_ADMIN_SESSION);
       }
-      return authorization === `Bearer ${TOKEN}` ? json(200, SESSION) : failure(401, "AUTH_FAILED");
+      return authorization === `Bearer ${TOKEN}` || authorization === `Bearer ${STEP_UP_TOKEN}`
+        ? json(200, SESSION)
+        : failure(401, "AUTH_FAILED");
     }
     if (pathname === "/v1/auth/logout") return json(200, { endSessionUrl: null });
 
@@ -191,14 +203,16 @@ Bun.serve({
 
     if (request.method !== "POST") return failure(404, "NOT_FOUND");
 
-    if (pathname === "/v1/auth/login-attempts") {
+    if (pathname === "/v1/auth/login-attempts" || pathname === "/v1/auth/step-up-attempts") {
+      const stepUp = pathname.endsWith("step-up-attempts");
+      if (stepUp && !authorised(request)) return failure(401, "AUTH_FAILED");
       const body: unknown = await request.json();
       const returnTo =
         typeof body === "object" && body !== null && "returnTo" in body && typeof body.returnTo === "string"
           ? body.returnTo
           : "/dashboard";
       const state = crypto.randomUUID().replaceAll("-", "").padEnd(43, "x");
-      attempts.set(state, returnTo);
+      attempts.set(state, { returnTo, stepUp });
       return json(201, {
         authorizationUrl: `http://localhost:3100/api/auth/callback?code=test-code&state=${state}`,
         expiresAt: new Date(Date.now() + 600_000).toISOString(),
@@ -212,19 +226,20 @@ Bun.serve({
         typeof body === "object" && body !== null && "state" in body && typeof body.state === "string"
           ? body.state
           : "";
-      const returnTo = attempts.get(state);
+      const attempt = attempts.get(state);
       const valid =
         typeof body === "object" &&
         body !== null &&
         "code" in body &&
         body.code === "test-code" &&
-        returnTo !== undefined;
-      if (!valid || returnTo === undefined) return failure(401, "AUTH_FAILED");
+        attempt !== undefined &&
+        (!attempt.stepUp || authorised(request));
+      if (!valid || attempt === undefined) return failure(401, "AUTH_FAILED");
       attempts.delete(state);
       return json(200, {
-        token: TOKEN,
+        token: attempt.stepUp ? STEP_UP_TOKEN : TOKEN,
         expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
-        returnTo,
+        returnTo: attempt.returnTo,
       });
     }
 
