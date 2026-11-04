@@ -61,7 +61,7 @@ export function ProfileDropdown({
                   <span>{item.label}</span>
                 </Link>
               ))}
-              <form action="/api/auth/logout" method="post" onSubmit={onNavigate}>
+              <form action="/api/auth/logout" method="post">
                 <button
                   type="submit"
                   className={rowClass + " w-full text-destructive hover:bg-destructive/10 hover:pl-4"}
