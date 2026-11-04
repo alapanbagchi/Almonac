@@ -21,9 +21,12 @@ export class AuthorizationRepository {
          join control.role as role on role.id = assignment.role_id
          join control.role_permission as role_permission
            on role_permission.role_id = role.id
+         join control.permission as permission
+           on permission.key = role_permission.permission_key
          where assignment.user_id = $1
            and role_permission.permission_key = $2
            and role.scope = 'platform'
+           and not permission.is_clinical
        ) as allowed`,
       [userId, permission],
     )
@@ -48,12 +51,18 @@ export class AuthorizationRepository {
           and membership_role.validity @> $4::timestamptz
          join control.role_permission as role_permission
            on role_permission.role_id = membership_role.role_id
+         join control.permission as permission
+           on permission.key = role_permission.permission_key
          where membership.user_id = $1
            and membership.status = 'active'
            and membership.validity @> $4::timestamptz
            and role_permission.permission_key = $2
            and (
              membership.organisation_id = $3
+             and (
+               membership.hospital_id is not null
+               or not permission.is_clinical
+             )
              and (
                membership.hospital_id is null
                or membership.hospital_id = $5
@@ -77,7 +86,10 @@ export class AuthorizationRepository {
              from control.platform_assignment as assignment
              join control.role_permission as role_permission
                on role_permission.role_id = assignment.role_id
+             join control.permission as permission
+               on permission.key = role_permission.permission_key
             where assignment.user_id = $1
+              and not permission.is_clinical
            union
            select role_permission.permission_key
              from control.membership as membership
@@ -87,10 +99,16 @@ export class AuthorizationRepository {
               and membership_role.validity @> $4::timestamptz
              join control.role_permission as role_permission
                on role_permission.role_id = membership_role.role_id
+             join control.permission as permission
+               on permission.key = role_permission.permission_key
             where membership.user_id = $1
               and membership.status = 'active'
               and membership.validity @> $4::timestamptz
               and membership.organisation_id = $2
+              and (
+                membership.hospital_id is not null
+                or not permission.is_clinical
+              )
               and (
                 membership.hospital_id is null
                 or membership.hospital_id = $3

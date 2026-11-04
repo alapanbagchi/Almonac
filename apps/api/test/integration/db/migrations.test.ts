@@ -361,7 +361,7 @@ describe('control database schema', () => {
       'select version from control.schema_metadata where id = 1',
     )
 
-    expect(result.rows[0]?.version).toBe(8)
+    expect(result.rows[0]?.version).toBe(9)
   })
 })
 
@@ -729,6 +729,12 @@ describe('access model', () => {
         'insert into control.role_permission (role_id, permission_key) values ($1, $2)',
         [organisationRole, 'hospital.manage'],
       )
+      await rejects(
+        client,
+        'insert into control.role_permission (role_id, permission_key) values ($1, $2)',
+        [organisationRole, 'clinical.read'],
+        '23514',
+      )
 
       const hospitalRole = await createRole(
         client,
@@ -741,6 +747,10 @@ describe('access model', () => {
         'insert into control.role_permission (role_id, permission_key) values ($1, $2)',
         [hospitalRole, 'organisation.manage'],
         '23514',
+      )
+      await client.query(
+        'insert into control.role_permission (role_id, permission_key) values ($1, $2)',
+        [hospitalRole, 'clinical.read'],
       )
 
       const user = await createUser(
@@ -760,6 +770,12 @@ describe('access model', () => {
         [user, organisationRole],
         '23514',
       )
+      await rejects(
+        client,
+        'insert into control.role_permission (role_id, permission_key) values ($1, $2)',
+        [platformRole, 'clinical.read'],
+        '23514',
+      )
 
       const templateVersion = await createTemplateVersion(
         client,
@@ -771,6 +787,12 @@ describe('access model', () => {
         client,
         'insert into control.role_template_permission (template_version_id, permission_key) values ($1, $2)',
         [templateVersion, 'platform.manage'],
+        '23514',
+      )
+      await rejects(
+        client,
+        'insert into control.role_template_permission (template_version_id, permission_key) values ($1, $2)',
+        [templateVersion, 'clinical.read'],
         '23514',
       )
 
@@ -785,6 +807,10 @@ describe('access model', () => {
         'insert into control.role_template_permission (template_version_id, permission_key) values ($1, $2)',
         [hospitalTemplateVersion, 'organisation.manage'],
         '23514',
+      )
+      await client.query(
+        'insert into control.role_template_permission (template_version_id, permission_key) values ($1, $2)',
+        [hospitalTemplateVersion, 'clinical.read'],
       )
       await rejects(
         client,
@@ -801,6 +827,96 @@ describe('access model', () => {
     })
   })
 
+
+  test('requires a hospital membership for clinical permissions', async () => {
+    await withTransaction(ownerPool, async (client) => {
+      const organisation = await createOrganisation(client, 'authorization-scope')
+      const hospital = await createHospital(
+        client,
+        organisation,
+        'authorization-scope-hospital',
+        true,
+      )
+      const organisationRole = await createRole(
+        client,
+        organisation,
+        'scope_coordinator',
+        'organisation',
+      )
+      await client.query(
+        'insert into control.role_permission (role_id, permission_key) values ($1, $2), ($1, $3)',
+        [organisationRole, 'hospital.manage', 'membership.manage'],
+      )
+      const coordinator = await createUser(
+        client,
+        'subject-scope-coordinator',
+        'scope-coordinator@example.test',
+      )
+      const coordinatorMembership = await createMembership(
+        client,
+        coordinator,
+        organisation,
+        null,
+      )
+      await client.query(
+        'insert into control.membership_role (membership_id, role_id) values ($1, $2)',
+        [coordinatorMembership, organisationRole],
+      )
+
+      const authorization = new AuthorizationRepository(client)
+      const target = { organisationId: organisation, hospitalId: hospital }
+      const at = new Date(Date.now() + 1_000)
+
+      expect(
+        await authorization.hasPermission(coordinator, 'hospital.manage', target, at),
+      ).toBe(true)
+      expect(
+        await authorization.hasPermission(coordinator, 'clinical.read', target, at),
+      ).toBe(false)
+      expect(await authorization.listPermissions(coordinator, target, at)).toEqual([
+        'hospital.manage',
+        'membership.manage',
+      ])
+
+      const hospitalRole = await createRole(
+        client,
+        organisation,
+        'scope_clinician',
+        'hospital',
+      )
+      await client.query(
+        "insert into control.role_permission (role_id, permission_key) values ($1, 'clinical.read')",
+        [hospitalRole],
+      )
+      const clinician = await createUser(
+        client,
+        'subject-scope-clinician',
+        'scope-clinician@example.test',
+      )
+      const clinicianMembership = await createMembership(
+        client,
+        clinician,
+        organisation,
+        hospital,
+      )
+      await client.query(
+        'insert into control.membership_role (membership_id, role_id) values ($1, $2)',
+        [clinicianMembership, hospitalRole],
+      )
+
+      expect(
+        await authorization.hasPermission(clinician, 'clinical.read', target, at),
+      ).toBe(true)
+      expect(
+        await authorization.hasPermission(
+          clinician,
+          'clinical.read',
+          { organisationId: organisation, hospitalId: null },
+          at,
+        ),
+      ).toBe(false)
+    })
+  })
 
   test('instantiates a role from the newest template version as the runtime', async () => {
     const suffix = randomBytes(4).toString('hex')
@@ -2093,9 +2209,9 @@ describe('login completion store', () => {
   test('accepts an invitation and mints a session in one transaction', async () => {
     const organisation = await createOrganisation(ownerPool, 'login-store')
     const inviter = await createUser(ownerPool, 'login-inviter', 'inviter@example.test')
-    const role = await createRole(ownerPool, organisation, 'login_clinician', 'organisation')
+    const role = await createRole(ownerPool, organisation, 'login_coordinator', 'organisation')
     await ownerPool.query(
-      "insert into control.role_permission (role_id, permission_key) values ($1, 'clinical.read')",
+      "insert into control.role_permission (role_id, permission_key) values ($1, 'organisation.manage')",
       [role],
     )
     const invitation = await createInvitation(
@@ -2164,8 +2280,8 @@ describe('login completion store', () => {
     )
     expect(access.memberships).toHaveLength(1)
     expect(access.memberships[0]!.organisationId).toBe(organisation)
-    expect(access.memberships[0]!.roles).toEqual(['login_clinician'])
-    expect(access.permissions).toEqual(['clinical.read'])
+    expect(access.memberships[0]!.roles).toEqual(['login_coordinator'])
+    expect(access.permissions).toEqual(['organisation.manage'])
   })
 
   test('rotates the session and records a step-up', async () => {
