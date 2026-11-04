@@ -69,12 +69,10 @@ export class MembershipAdminService {
   ): Promise<void> {
     const membership = await this.requireMembership(context, membershipId)
     const role = await this.memberships.findRole(membership.organisationId, roleId)
-    if (role === null) throw new AppError('ROLE_NOT_FOUND', 422, 'Role is not available.')
-    if (membership.hospitalId === null && role.scope !== 'organisation') {
-      throw new AppError('ROLE_SCOPE_MISMATCH', 422, 'Role scope does not match the membership.')
-    }
-    if (membership.hospitalId !== null && role.scope !== 'hospital') {
-      throw new AppError('ROLE_SCOPE_MISMATCH', 422, 'Role scope does not match the membership.')
+    if (role === null) throw new AppError('RULE_VIOLATION', 422, 'Role is not available.')
+    const expectedScope = membership.hospitalId === null ? 'organisation' : 'hospital'
+    if (role.scope !== expectedScope) {
+      throw new AppError('RULE_VIOLATION', 422, 'Role scope does not match the membership.')
     }
     await this.preventEscalation(context, membership, role)
     await withTransaction(this.pool, async (db) => {
@@ -97,7 +95,7 @@ export class MembershipAdminService {
   ): Promise<void> {
     const membership = await this.requireMembership(context, membershipId)
     const role = await this.memberships.findRole(membership.organisationId, roleId)
-    if (role === null) throw new AppError('ROLE_NOT_FOUND', 422, 'Role is not available.')
+    if (role === null) throw new AppError('RULE_VIOLATION', 422, 'Role is not available.')
     if (role.permissions.includes('organisation.manage') && membership.hospitalId === null) {
       await this.protectLastOrganisationAdmin(membership)
     }
@@ -154,7 +152,7 @@ export class MembershipAdminService {
       }),
     )
     if (role.permissions.some((permission) => !held.has(permission))) {
-      throw new AppError('PERMISSION_ESCALATION', 403, 'You cannot grant a role above your own rights.')
+      throw new AppError('FORBIDDEN', 403, 'You cannot grant a role above your own rights.')
     }
   }
 
@@ -162,7 +160,7 @@ export class MembershipAdminService {
     if (membership.hospitalId !== null) return
     const count = await this.memberships.countActiveOrganisationAdmins(membership.organisationId)
     if (count <= 1) {
-      throw new AppError('LAST_ORGANISATION_ADMIN', 409, 'The last organisation administrator cannot be removed.')
+      throw new AppError('CONFLICT', 409, 'The last organisation administrator cannot be removed.')
     }
   }
 

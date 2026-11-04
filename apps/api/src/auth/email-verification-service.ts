@@ -118,7 +118,7 @@ export class EmailVerificationService {
 
 function providerError(error: unknown): unknown {
   if (error instanceof ZitadelConflictError) {
-    return new AppError('EMAIL_TAKEN', 409, 'An account already uses this email address.')
+    return new AppError('CONFLICT', 409, 'An account already uses this email address.')
   }
   if (error instanceof ZitadelRejectedError) {
     return new AppError(

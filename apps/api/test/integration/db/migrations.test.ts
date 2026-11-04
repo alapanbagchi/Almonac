@@ -2748,7 +2748,7 @@ describe('admin routes', () => {
     const response = await app.handle(new Request('http://localhost/v1/admin/organisations'))
     expect(response.status).toBe(401)
     const body = await response.json() as { error: { code: string } }
-    expect(body.error.code).toBe('AUTH_REQUIRED')
+    expect(body.error.code).toBe('UNAUTHENTICATED')
     expect(response.headers.get('x-request-id')).not.toBeNull()
   })
 
@@ -2993,7 +2993,7 @@ describe('admin routes', () => {
 
       expect(response.status).toBe(422)
       const body = await response.json() as { error: { code: string } }
-      expect(body.error.code).toBe('DOMAIN_NOT_VERIFIED')
+      expect(body.error.code).toBe('RULE_VIOLATION')
     } finally {
       await ownerPool.query('delete from control.platform_assignment where user_id = $1', [user])
     }
@@ -3201,7 +3201,7 @@ describe('break-glass service', () => {
         userId: approver,
         reason: 'Approving myself',
       }),
-    ).rejects.toMatchObject({ code: 'BREAK_GLASS_INVALID' })
+    ).rejects.toMatchObject({ code: 'RULE_VIOLATION' })
   })
 
   test('lets an approver reserve access and the subject activate it', async () => {
@@ -3241,7 +3241,7 @@ describe('break-glass service', () => {
 
     await expect(
       service().revoke(await contextFor(subject), reserved.id, 'Again'),
-    ).rejects.toMatchObject({ code: 'BREAK_GLASS_CONFLICT' })
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
   })
 
   test('reviews access only after the window closes', async () => {
@@ -3264,7 +3264,7 @@ describe('break-glass service', () => {
     )
     await expect(
       service().review(await contextFor(reviewer), open.rows[0]!.id, 'upheld', null),
-    ).rejects.toMatchObject({ code: 'BREAK_GLASS_CONFLICT' })
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
 
     const closed = await ownerPool.query<{ id: string }>(
       `insert into control.break_glass_grant
@@ -3287,7 +3287,7 @@ describe('break-glass service', () => {
 
     await expect(
       service().review(await contextFor(reviewer), closed.rows[0]!.id, 'upheld', null),
-    ).rejects.toMatchObject({ code: 'BREAK_GLASS_CONFLICT' })
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
   })
 
 
@@ -3364,7 +3364,7 @@ describe('break-glass service', () => {
 
     await expect(
       service().activate(await contextFor(subject), reserved.id),
-    ).rejects.toMatchObject({ code: 'BREAK_GLASS_INVALID' })
+    ).rejects.toMatchObject({ code: 'RULE_VIOLATION' })
   })
 
   test('rejects overlapping reserved grants in the database', async () => {
@@ -3564,7 +3564,7 @@ describe('onboarding service', () => {
 
     await expect(
       service().create(context(user), { name: 'Second', slug: 'onboard-second' }),
-    ).rejects.toMatchObject({ code: 'ONBOARDING_COMPLETE', status: 409 })
+    ).rejects.toMatchObject({ code: 'CONFLICT', status: 409 })
   })
 
   test('checks access before provisioning an organisation', async () => {
@@ -3585,7 +3585,7 @@ describe('onboarding service', () => {
 
     await expect(
       guarded.create(context(user), { name: 'Second', slug: 'onboard-precheck-two' }),
-    ).rejects.toMatchObject({ code: 'ONBOARDING_COMPLETE', status: 409 })
+    ).rejects.toMatchObject({ code: 'CONFLICT', status: 409 })
     expect(provisions).toBe(0)
   })
 
@@ -3596,7 +3596,7 @@ describe('onboarding service', () => {
 
     await expect(
       service().create(context(second), { name: 'Shared', slug: 'onboard-shared' }),
-    ).rejects.toMatchObject({ code: 'SLUG_TAKEN', status: 409 })
+    ).rejects.toMatchObject({ code: 'CONFLICT', status: 409 })
   })
 
   test('rejects a reserved or malformed slug', async () => {
@@ -3604,10 +3604,10 @@ describe('onboarding service', () => {
 
     await expect(
       service().create(context(user), { name: 'Admin', slug: 'admin' }),
-    ).rejects.toMatchObject({ code: 'INVALID_SLUG', status: 422 })
+    ).rejects.toMatchObject({ code: 'RULE_VIOLATION', status: 422 })
     await expect(
       service().create(context(user), { name: 'Bad', slug: 'not valid' }),
-    ).rejects.toMatchObject({ code: 'INVALID_SLUG', status: 422 })
+    ).rejects.toMatchObject({ code: 'RULE_VIOLATION', status: 422 })
   })
 })
 

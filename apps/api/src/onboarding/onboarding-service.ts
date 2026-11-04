@@ -52,11 +52,11 @@ export class OnboardingService {
   async create(context: OnboardingContext, input: OnboardingInput): Promise<Organisation> {
     const name = input.name.trim().replace(/\s+/g, ' ')
     if (name.length < 1 || name.length > 200) {
-      throw new AppError('INVALID_NAME', 422, 'Organisation name is not valid.')
+      throw new AppError('RULE_VIOLATION', 422, 'Organisation name is not valid.')
     }
     const slug = input.slug.trim().toLowerCase()
     if (!SLUG_PATTERN.test(slug) || RESERVED_SLUGS.has(slug)) {
-      throw new AppError('INVALID_SLUG', 422, 'Organisation address is not valid.')
+      throw new AppError('RULE_VIOLATION', 422, 'Organisation address is not valid.')
     }
 
     // Reject an account that already has access before calling the identity
@@ -76,7 +76,7 @@ export class OnboardingService {
         [claimed.id],
       )
       if (readCount(members.rows[0]) > 0) {
-        throw new AppError('SLUG_TAKEN', 409, 'Organisation address is already in use.')
+        throw new AppError('CONFLICT', 409, 'Organisation address is already in use.')
       }
       if (claimed.status !== 'active') {
         throw new AppError(
@@ -156,7 +156,7 @@ async function hasActiveMembership(db: DatabaseQuery, userId: string): Promise<b
 }
 
 function onboardingComplete(): AppError {
-  return new AppError('ONBOARDING_COMPLETE', 409, 'Your account already has access.')
+  return new AppError('CONFLICT', 409, 'Your account already has access.')
 }
 
 function readCount(value: unknown): number {

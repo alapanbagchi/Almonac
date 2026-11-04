@@ -250,7 +250,7 @@ describe('auth routes', () => {
           throw new Error('unused')
         },
         async complete() {
-          throw new AppError('AUTH_FAILED', 401, 'Authentication failed.')
+          throw new AppError('UNAUTHENTICATED', 401, 'Authentication failed.')
         },
       },
     }).handle(post('/v1/auth/callback', { code: 'code-1', state: 's'.repeat(43) }))

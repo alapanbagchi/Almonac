@@ -80,7 +80,7 @@ export class PasswordLoginService {
     }
     if (error instanceof ZitadelRejectedError) {
       await this.login.recordFailure('invalid_credentials', context)
-      throw new AppError('AUTH_FAILED', 401, 'Authentication failed.')
+      throw new AppError('UNAUTHENTICATED', 401, 'Authentication failed.')
     }
     if (error instanceof ZitadelUnavailableError) {
       await this.login.recordFailure('identity_unavailable', context)

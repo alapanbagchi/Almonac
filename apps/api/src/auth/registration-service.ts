@@ -71,7 +71,7 @@ export class RegistrationService {
     }
     if ((await this.users.findByEmail(email)) !== null) {
       throw new AppError(
-        'EMAIL_TAKEN',
+        'CONFLICT',
         409,
         'An account already uses this email address.',
       )

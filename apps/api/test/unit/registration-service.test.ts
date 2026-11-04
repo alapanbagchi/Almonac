@@ -110,7 +110,7 @@ describe('registration service', () => {
         { fullName: 'Ada Lovelace', email: 'ada@example.test', password: 'Correct1!' },
         context,
       ),
-    ).rejects.toMatchObject({ code: 'EMAIL_TAKEN', status: 409 })
+    ).rejects.toMatchObject({ code: 'CONFLICT', status: 409 })
     expect(pending).toHaveLength(0)
     expect(hashes).toBe(0)
   })

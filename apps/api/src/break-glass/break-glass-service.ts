@@ -444,9 +444,9 @@ function notFound(message = 'Break-glass grant not found.'): AppError {
 }
 
 function conflict(message: string): AppError {
-  return new AppError('BREAK_GLASS_CONFLICT', 409, message)
+  return new AppError('CONFLICT', 409, message)
 }
 
 function invalid(message: string): AppError {
-  return new AppError('BREAK_GLASS_INVALID', 422, message)
+  return new AppError('RULE_VIOLATION', 422, message)
 }

@@ -333,5 +333,5 @@ export class LoginService {
 }
 
 function authFailed(): AppError {
-  return new AppError('AUTH_FAILED', 401, 'Authentication failed.')
+  return new AppError('UNAUTHENTICATED', 401, 'Authentication failed.')
 }

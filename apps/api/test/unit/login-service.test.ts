@@ -242,7 +242,7 @@ describe('login service', () => {
     expect(audit.events).toHaveLength(0)
 
     await expect(login.complete('code-1', state, context)).rejects.toMatchObject({
-      code: 'AUTH_FAILED',
+      code: 'UNAUTHENTICATED',
       status: 401,
     })
     expect(audit.events.at(-1)?.eventType).toBe('auth.login_failed')
@@ -255,7 +255,7 @@ describe('login service', () => {
 
     await login.complete('code-1', state, context)
     await expect(login.complete('code-1', state, context)).rejects.toMatchObject({
-      code: 'AUTH_FAILED',
+      code: 'UNAUTHENTICATED',
     })
 
     expect(metrics.counts).toEqual([
@@ -271,7 +271,7 @@ describe('login service', () => {
   test('rejects a malformed state before touching the database', async () => {
     const { login, attempts } = service()
     await expect(login.complete('code', 'short', context)).rejects.toMatchObject({
-      code: 'AUTH_FAILED',
+      code: 'UNAUTHENTICATED',
     })
     expect(attempts.rows).toHaveLength(0)
   })
@@ -283,7 +283,7 @@ describe('login service', () => {
     attempts.rows[0]!.purpose = 'step_up'
     attempts.rows[0]!.userId = 'user-1'
     await expect(login.complete('code', state, context)).rejects.toMatchObject({
-      code: 'AUTH_FAILED',
+      code: 'UNAUTHENTICATED',
     })
     expect(audit.events.at(-1)?.reasonCode).toBe('missing_session')
   })
@@ -326,7 +326,7 @@ describe('login service', () => {
     const start = await login.startStepUp('user-1', '/settings', context)
     const state = new URL(start.authorizationUrl).searchParams.get('state')!
     await expect(login.complete('code-1', state, context)).rejects.toMatchObject({
-      code: 'AUTH_FAILED',
+      code: 'UNAUTHENTICATED',
     })
     expect(completion.stepUpCalls).toBe(0)
     expect(completion.calls).toBe(0)
@@ -367,7 +367,7 @@ describe('login service', () => {
     oidc.unavailable = false
     oidc.reject = true
     await expect(login.complete('code', secondState, context)).rejects.toMatchObject({
-      code: 'AUTH_FAILED',
+      code: 'UNAUTHENTICATED',
       status: 401,
     })
   })
@@ -379,7 +379,7 @@ describe('login service', () => {
     audit.fail = true
     oidc.reject = true
     await expect(login.complete('code', state, context)).rejects.toMatchObject({
-      code: 'AUTH_FAILED',
+      code: 'UNAUTHENTICATED',
     })
     expect(audit.events).toHaveLength(0)
   })

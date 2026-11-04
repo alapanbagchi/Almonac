@@ -194,7 +194,7 @@ describe('email verification service', () => {
     )
 
     await expect(service.verify(token, context)).rejects.toMatchObject({
-      code: 'EMAIL_TAKEN',
+      code: 'CONFLICT',
       status: 409,
     })
     expect(released).toBe(false)

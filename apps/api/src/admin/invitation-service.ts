@@ -124,7 +124,7 @@ export class InvitationService {
     }
 
     if (organisation.zitadelOrgId === null) {
-      throw new AppError('ORGANISATION_NOT_PROVISIONED', 422, 'Organisation is not provisioned.')
+      throw new AppError('RULE_VIOLATION', 422, 'The organisation is not provisioned yet.')
     }
     const displayName = input.displayName?.trim() || email.split('@')[0] || email
     let subject: string
@@ -179,7 +179,7 @@ export class InvitationService {
       hospitalId: invitation.hospitalId,
     })
     if (invitation.status !== 'pending' || invitation.expiresAt <= this.clock()) {
-      throw new AppError('INVITATION_NOT_PENDING', 409, 'Invitation is no longer pending.')
+      throw conflict('Invitation is no longer pending.')
     }
     const organisation = await this.dependencies.organisations.findById(invitation.organisationId)
     if (organisation === null) throw notFound('Organisation not found.')
@@ -215,10 +215,10 @@ export class InvitationService {
       const invitation = await findInvitationByTokenHashForUpdate(db, tokenHash)
       if (invitation === null) throw notFound('Invitation not found.')
       if (invitation.status !== 'pending') throw conflict('Invitation is no longer pending.')
+      // An elapsed invitation and a revoked one are the same state to the
+      // invitee: the link no longer works and someone must issue a new one.
       const now = this.clock()
-      if (invitation.expiresAt <= now) {
-        throw new AppError('INVITATION_EXPIRED', 410, 'Invitation has expired.')
-      }
+      if (invitation.expiresAt <= now) throw conflict('Invitation has expired.')
       if (invitation.kind === 'existing_user' && invitation.zitadelSub !== user.zitadelSubject) {
         throw forbidden()
       }
@@ -435,7 +435,7 @@ export class InvitationService {
     roleIds: readonly string[],
   ): Promise<OrganisationRole[]> {
     if (roleIds.length === 0) {
-      throw new AppError('ROLE_REQUIRED', 422, 'At least one role is required.')
+      throw new AppError('RULE_VIOLATION', 422, 'At least one role is required.')
     }
     const available = new Map(
       (await this.dependencies.memberships.findRoles(organisationId, roleIds)).map((role) => [
@@ -447,13 +447,13 @@ export class InvitationService {
     for (const roleId of roleIds) {
       const role = available.get(roleId)
       if (role === undefined) {
-        throw new AppError('ROLE_NOT_FOUND', 422, 'Role is not available in this organisation.')
+        throw new AppError('RULE_VIOLATION', 422, 'Role is not available in this organisation.')
       }
       selected.push(role)
     }
     const expectedScope = hospitalId === null ? 'organisation' : 'hospital'
     if (selected.some((role) => role.scope !== expectedScope)) {
-      throw new AppError('ROLE_SCOPE_MISMATCH', 422, 'Role scope does not match the invitation.')
+      throw new AppError('RULE_VIOLATION', 422, 'Role scope does not match the invitation.')
     }
     return selected
   }

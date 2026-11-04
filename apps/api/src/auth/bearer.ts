@@ -39,24 +39,25 @@ export async function authenticateBearer(
   users: UserLookup,
 ): Promise<AuthenticatedRequest> {
   const token = readBearerToken(header)
-  if (token === null) throw authRequired()
+  if (token === null) throw unauthenticated()
 
   const session = await sessions.authenticate(token)
-  if (session === null) throw authFailed()
+  if (session === null) throw unauthenticated()
 
   const user = await users.findById(session.userId)
   if (user === null || user.status !== 'active') {
     await sessions.revoke(token, 'user_inactive').catch(() => false)
-    throw authFailed()
+    throw unauthenticated()
   }
 
   return { token, session, user }
 }
 
-function authRequired(): AppError {
-  return new AppError('AUTH_REQUIRED', 401, 'Authentication is required.')
-}
-
-function authFailed(): AppError {
-  return new AppError('AUTH_FAILED', 401, 'Authentication failed.')
+/**
+ * A missing or no-longer-valid session is one case: the caller must sign in
+ * again. Distinguishing the two would tell an unauthenticated caller whether a
+ * token ever existed.
+ */
+function unauthenticated(): AppError {
+  return new AppError('UNAUTHENTICATED', 401, 'Authentication is required.')
 }

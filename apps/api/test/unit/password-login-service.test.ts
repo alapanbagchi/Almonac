@@ -85,7 +85,7 @@ describe('password login service', () => {
     )
 
     await expect(service.start('doctor@example.test', 'wrong', '/', context)).rejects.toMatchObject({
-      code: 'AUTH_FAILED',
+      code: 'UNAUTHENTICATED',
       status: 401,
     })
     expect(recorded).toEqual(['invalid_credentials'])
