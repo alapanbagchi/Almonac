@@ -3,6 +3,7 @@ import { pageOf, type Page, type PageRequest } from '../shared/pagination'
 import {
   dateField,
   hasSqlState,
+  isEmpty,
   nullableDateField,
   nullableStringField,
   rowRecord,
@@ -28,10 +29,11 @@ export class OrganisationSlugConflictError extends Error {
   }
 }
 
-const SELECT = `
-  select id, zitadel_org_id, name, slug, status, provisioned_at, created_at
-  from control.organisation
+const COLUMNS = `
+  id, zitadel_org_id, name, slug, status, provisioned_at, created_at
 `
+
+const SELECT = `select ${COLUMNS} from control.organisation`
 
 /**
  * Organisation persistence. Provisioning policy, audit and Zitadel calls live
@@ -45,7 +47,7 @@ export class OrganisationRepository {
       const result = await this.db.query(
         `insert into control.organisation (name, slug)
          values ($1, $2)
-         returning id, zitadel_org_id, name, slug, status, provisioned_at, created_at`,
+         returning ${COLUMNS}`,
         [name, slug],
       )
       return mapOrganisation(result.rows[0])
@@ -57,12 +59,12 @@ export class OrganisationRepository {
 
   async findById(id: string): Promise<Organisation | null> {
     const result = await this.db.query(`${SELECT} where id = $1`, [id])
-    return result.rows[0] === undefined ? null : mapOrganisation(result.rows[0])
+    return isEmpty(result) ? null : mapOrganisation(result.rows[0])
   }
 
   async findBySlug(slug: string): Promise<Organisation | null> {
     const result = await this.db.query(`${SELECT} where slug = $1`, [slug])
-    return result.rows[0] === undefined ? null : mapOrganisation(result.rows[0])
+    return isEmpty(result) ? null : mapOrganisation(result.rows[0])
   }
 
   async listAll(page: PageRequest): Promise<Page<Organisation>> {
@@ -92,10 +94,10 @@ export class OrganisationRepository {
       `update control.organisation
           set zitadel_org_id = $2, provisioned_at = $3, status = 'active'
         where id = $1
-        returning id, zitadel_org_id, name, slug, status, provisioned_at, created_at`,
+        returning ${COLUMNS}`,
       [id, zitadelOrgId, at],
     )
-    if (result.rows[0] === undefined) throw new Error('organisation not found')
+    if (isEmpty(result)) throw new Error('organisation not found')
     return mapOrganisation(result.rows[0])
   }
 }

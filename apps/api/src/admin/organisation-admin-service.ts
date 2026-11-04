@@ -19,10 +19,9 @@ export class OrganisationAdminService {
   }
 
   async list(context: AdminRequestContext, page: PageRequest): Promise<Page<Organisation>> {
-    if (await isPlatformAdmin(this.authorization, context.actor.id)) {
-      return this.organisations.listAll(page)
-    }
-    return this.organisations.listForUser(context.actor.id, page)
+    return (await isPlatformAdmin(this.authorization, context.actor.id))
+      ? this.organisations.listAll(page)
+      : this.organisations.listForUser(context.actor.id, page)
   }
 
   async get(context: AdminRequestContext, organisationId: string): Promise<Organisation> {
