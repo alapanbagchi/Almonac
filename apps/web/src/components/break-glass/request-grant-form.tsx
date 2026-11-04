@@ -11,10 +11,10 @@ import { breakGlassRequest, BreakGlassRequestError } from "@/lib/break-glass/cli
 
 function message(error: unknown): string {
   if (error instanceof BreakGlassRequestError) {
-    if (error.code === "BREAK_GLASS_CONFLICT") {
+    if (error.code === "CONFLICT") {
       return "An open emergency grant already exists for this hospital.";
     }
-    if (error.code === "BREAK_GLASS_INVALID") {
+    if (error.code === "RULE_VIOLATION") {
       return "The request does not meet the break-glass rules. Check the reason and duration.";
     }
     if (error.code === "FORBIDDEN") {

@@ -6,10 +6,12 @@ import { useRouter } from "next/navigation";
 import { SubmitButton } from "@/components/form/submit-button";
 import { breakGlassRequest, BreakGlassRequestError } from "@/lib/break-glass/client";
 
+// The API answers with the codes documented in apps/api/AGENTS.md; the
+// specific reason travels in the message and is not shown to the browser.
 function failureMessage(error: unknown): string {
   if (error instanceof BreakGlassRequestError) {
-    if (error.code === "BREAK_GLASS_CONFLICT") return "This grant already changed. Reload the page.";
-    if (error.code === "BREAK_GLASS_INVALID") return "The grant does not allow that action now.";
+    if (error.code === "CONFLICT") return "This grant already changed. Reload the page.";
+    if (error.code === "RULE_VIOLATION") return "The grant does not allow that action now.";
     if (error.code === "FORBIDDEN") return "Your account cannot change this grant.";
   }
   return "The action could not be completed.";

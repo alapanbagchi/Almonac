@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 function errorMessage(error: unknown): string {
-  if (error instanceof Error && error.message === "SLUG_TAKEN") {
+  if (error instanceof Error && error.message === "CONFLICT") {
     return "That slug is already in use.";
   }
   return "The organisation could not be created.";

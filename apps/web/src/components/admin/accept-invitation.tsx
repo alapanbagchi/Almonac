@@ -30,8 +30,8 @@ export function AcceptInvitation() {
         setState({
           status: "error",
           message:
-            code === "INVITATION_EXPIRED"
-              ? "This invitation has expired. Ask an administrator to resend it."
+            code === "CONFLICT"
+              ? "This invitation has expired or was already used. Ask an administrator to resend it."
               : code === "FORBIDDEN"
                 ? "This invitation was issued to a different account."
                 : "The invitation could not be accepted.",

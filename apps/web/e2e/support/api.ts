@@ -295,7 +295,7 @@ Bun.serve({
         typeof body === "object" && body !== null && "email" in body && typeof body.email === "string"
           ? body.email
           : "";
-      if (email === "taken@example.test") return failure(409, "EMAIL_TAKEN");
+      if (email === "taken@example.test") return failure(409, "CONFLICT");
       return json(202, { status: "verification_sent" });
     }
 

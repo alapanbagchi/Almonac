@@ -37,7 +37,7 @@ export async function readCredentials<T extends z.ZodType>(
 
 export function credentialFailure(error: unknown): Response {
   if (error instanceof AuthApiError) {
-    if (error.code === "EMAIL_TAKEN") {
+    if (error.code === "CONFLICT") {
       return authError(409, error.code, "An account with this email already exists.");
     }
     if (error.code === "MFA_REQUIRED") {
@@ -50,7 +50,8 @@ export function credentialFailure(error: unknown): Response {
       error.code === "VALIDATION_FAILED" ||
       error.code === "INVALID_EMAIL" ||
       error.code === "INVALID_NAME" ||
-      error.code === "INVALID_PASSWORD"
+      error.code === "INVALID_PASSWORD" ||
+      error.code === "RULE_VIOLATION"
     ) {
       return authError(400, error.code, "Check the form and try again.");
     }

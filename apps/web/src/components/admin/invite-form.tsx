@@ -47,7 +47,7 @@ export function InviteForm({
       router.refresh();
     } catch (failure) {
       setError(
-        failure instanceof Error && failure.message === "IDENTITY_CONFLICT"
+        failure instanceof Error && failure.message === "CONFLICT"
           ? "That person cannot be invited. Check the email and existing membership."
           : "The invitation could not be sent.",
       );

@@ -35,7 +35,7 @@ export async function POST(request: Request): Promise<Response> {
       if (error.code === "EMAIL_VERIFICATION_INVALID") {
         return authError(422, error.code, "This verification link is not valid or has expired.");
       }
-      if (error.code === "EMAIL_TAKEN") {
+      if (error.code === "CONFLICT") {
         return authError(409, error.code, "An account with this email already exists.");
       }
       if (error.code === "RATE_LIMITED") {
