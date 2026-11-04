@@ -8,6 +8,8 @@ import {
 
 export interface AuditEntry {
   readonly id: string
+  /** Opaque pagination token for the next page; not part of the response body. */
+  readonly cursor: string
   readonly occurredAt: Date
   readonly actorType: 'user' | 'system' | 'service' | 'break_glass'
   readonly actorUserId: string | null
@@ -24,7 +26,8 @@ export interface AuditEntry {
 }
 
 export interface AuditCursor {
-  readonly occurredAt: Date
+  /** UTC timestamp with microsecond precision, as produced by PostgreSQL. */
+  readonly occurredAt: string
   readonly id: string
 }
 
@@ -42,7 +45,10 @@ export class AuditReadRepository {
     cursor?: AuditCursor | null
   }): Promise<AuditEntry[]> {
     const result = await this.db.query(
-      `select id::text as id, occurred_at, actor_type, actor_user_id,
+      `select id::text as id,
+              occurred_at,
+              to_char(occurred_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as occurred_at_cursor,
+              actor_type, actor_user_id,
               session_id, organisation_id, hospital_id, event_type, outcome,
               target_type, target_id, request_id, reason_code, metadata
          from audit.event
@@ -68,8 +74,11 @@ export class AuditReadRepository {
 
 function mapEntry(value: unknown): AuditEntry {
   const row = rowRecord(value)
+  const id = stringField(row, 'id')
+  const occurredAt = stringField(row, 'occurred_at_cursor')
   return {
-    id: stringField(row, 'id'),
+    id,
+    cursor: `${occurredAt}:${id}`,
     occurredAt: dateField(row, 'occurred_at'),
     actorType: stringField(row, 'actor_type') as AuditEntry['actorType'],
     actorUserId: nullableStringField(row, 'actor_user_id'),

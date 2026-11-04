@@ -1,9 +1,9 @@
 import { Elysia, t } from 'elysia'
 import type { AdminDependencies } from './admin-context'
 import { adminContext } from './admin-context'
+import { parseAuditCursor } from './audit-cursor'
 import {
   acceptBody,
-  auditId,
   auditSchema,
   domainBody,
   domainSchema,
@@ -394,8 +394,7 @@ export function createAdmin(dependencies: AdminDependencies) {
         query: t.Object({
           hospitalId: t.Optional(uuid),
           limit: listLimit,
-          before: t.Optional(t.String({ maxLength: 40 })),
-          beforeId: t.Optional(auditId),
+          cursor: t.Optional(t.String({ maxLength: 60 })),
         }),
         response: {
           200: t.Object({ entries: t.Array(auditSchema), nextCursor: t.Union([t.String(), t.Null()]) }),
@@ -407,15 +406,12 @@ export function createAdmin(dependencies: AdminDependencies) {
           organisationId: context.params.organisationId,
           hospitalId: context.query.hospitalId ?? null,
           limit: limitOf(context.query.limit),
-          cursor:
-            context.query.before !== undefined && context.query.beforeId !== undefined
-              ? { occurredAt: new Date(context.query.before), id: context.query.beforeId }
-              : null,
+          cursor: parseAuditCursor(context.query.cursor),
         })
         const last = entries.at(-1)
         return {
           entries: entries.map(auditResponse),
-          nextCursor: last === undefined ? null : `${last.occurredAt.toISOString()}:${last.id}`,
+          nextCursor: last?.cursor ?? null,
         }
       },
     )

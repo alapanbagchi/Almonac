@@ -2,8 +2,6 @@ import { t } from 'elysia'
 
 const uuidPattern = '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
 export const uuid = t.String({ pattern: uuidPattern, maxLength: 36 })
-// Audit ids are bigint. Keep the accepted range below the signed 64-bit limit.
-export const auditId = t.String({ pattern: '^[1-9][0-9]{0,17}$', maxLength: 18 })
 export const name = t.String({ minLength: 1, maxLength: 200 })
 export const slug = t.String({
   minLength: 1,

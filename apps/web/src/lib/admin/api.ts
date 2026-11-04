@@ -217,15 +217,7 @@ export function createAdminApi({
       organisationId: string,
       cursor?: string,
     ): Promise<{ entries: AuditEntry[]; nextCursor: string | null }> => {
-      let query = "";
-      if (cursor !== undefined) {
-        const separator = cursor.lastIndexOf(":");
-        const occurredAt = cursor.slice(0, separator);
-        const id = cursor.slice(separator + 1);
-        if (separator > 0 && id !== "") {
-          query = `?before=${encodeURIComponent(occurredAt)}&beforeId=${encodeURIComponent(id)}`;
-        }
-      }
+      const query = cursor === undefined ? "" : `?cursor=${encodeURIComponent(cursor)}`;
       return call(
         token,
         "GET",

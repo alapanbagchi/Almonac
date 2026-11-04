@@ -38,6 +38,7 @@ import { OrganisationProvisioningService } from '../../../src/admin/organisation
 import { HospitalAdminService } from '../../../src/admin/hospital-admin-service'
 import { MembershipAdminService } from '../../../src/admin/membership-admin-service'
 import { AuditAdminService } from '../../../src/admin/audit-admin-service'
+import { parseAuditCursor } from '../../../src/admin/audit-cursor'
 import { AuditReadRepository } from '../../../src/admin/audit-read-repository'
 import { SessionService } from '../../../src/identity/session-service'
 import { BreakGlassService, type BreakGlassContext } from '../../../src/break-glass/break-glass-service'
@@ -2119,6 +2120,30 @@ describe('audit writer', () => {
       [actorId],
     )
     expect(count.rows[0]!.count).toBe(2)
+  })
+
+  test('paginates audit entries without losing microseconds', async () => {
+    const organisationId = await createOrganisation(ownerPool, 'audit-cursor')
+    await ownerPool.query(
+      `insert into audit.event (occurred_at, actor_type, event_type, outcome, organisation_id)
+       values (date_trunc('second', now()) + interval '0.123456 seconds', 'system', 'auth.login', 'success', $1),
+              (date_trunc('second', now()) + interval '0.123999 seconds', 'system', 'auth.login', 'success', $1)`,
+      [organisationId],
+    )
+    const repository = new AuditReadRepository(appPool)
+    const first = await repository.list({ organisationId, limit: 1 })
+
+    expect(first).toHaveLength(1)
+    expect(first[0]!.cursor).toMatch(/\.123999Z:\d+$/)
+
+    const next = await repository.list({
+      organisationId,
+      limit: 1,
+      cursor: parseAuditCursor(first[0]!.cursor),
+    })
+
+    expect(next).toHaveLength(1)
+    expect(next[0]!.cursor).toMatch(/\.123456Z:\d+$/)
   })
 
   test('fails closed on an unknown event, missing reason and forbidden metadata', async () => {
