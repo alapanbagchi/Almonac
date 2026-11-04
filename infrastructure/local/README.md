@@ -84,9 +84,33 @@ DATABASE_URL=postgresql://almonac:<password>@127.0.0.1:5433/almonac_control
 TEST_DATABASE_URL=postgresql://almonac:<password>@127.0.0.1:5433/almonac_control_test
 ```
 
-Then, from `apps/api`:
+Add the authentication and administration variables:
+
+| Variable | Local value |
+| --- | --- |
+| `ZITADEL_ISSUER` | `http://localhost:8080` |
+| `ZITADEL_CLIENT_ID` | OIDC application client ID |
+| `ZITADEL_CLIENT_SECRET` | OIDC application client secret |
+| `ZITADEL_REDIRECT_URI` | `http://localhost:3000/api/auth/callback` |
+| `ZITADEL_POST_LOGOUT_URI` | `http://localhost:3000` |
+| `SEALING_KEY` | 32 random bytes, base64url |
+| `SEALING_KEY_VERSION` | `1` |
+| `ZITADEL_SERVICE_USER_ID` | machine user ID |
+| `ZITADEL_SERVICE_USER_KEY_ID` | machine key ID |
+| `ZITADEL_SERVICE_USER_PRIVATE_KEY` | machine key, PKCS#8 PEM |
+| `SMTP_URL` | `smtp://localhost:1025` |
+| `MAIL_FROM` | `no-reply@almonac.local` |
+| `WEB_PUBLIC_ORIGIN` | `http://localhost:3000` |
+
+The local Zitadel instance must contain an Almonac project, a web OIDC
+application with that redirect URI, and a machine user with `IAM_OWNER`. The
+product does not create these objects. Local provisioning is manual. Reset the
+stack only when you can provision them again.
+
+Then start the API:
 
 ```sh
+cd apps/api
 bun install
 bun run db:migrate
 bun run dev
@@ -96,6 +120,22 @@ Check readiness:
 
 ```sh
 curl http://localhost:3001/health/ready
+```
+
+Start the web app in a second terminal:
+
+```sh
+cd apps/web
+npm install
+npm run dev
+```
+
+Create `apps/web/.env.local`:
+
+```sh
+API_URL=http://localhost:3001
+AUTH_PUBLIC_ORIGIN=http://localhost:3000
+AUTH_IDP_ORIGIN=http://localhost:8080
 ```
 
 Run the tests:
@@ -115,11 +155,13 @@ version is current and the runtime role cannot update or delete audit events.
 
 ## Sign in
 
-Open http://localhost:8080/ui/v2/login/ and sign in as `admin@almonac.local`.
-Use the password in `ZITADEL_ADMIN_PASSWORD`.
+Open http://localhost:3000/login. The page sends you to the Zitadel hosted login.
+Sign in with an account that has an invitation or a membership.
 
-The admin can open the console at http://localhost:8080/ui/console/. This is for
-local development only. The production console is not public (ADR-013).
+The first Zitadel administrator, `admin@almonac.local`, can open the console at
+http://localhost:8080/ui/console/ with the password in
+`ZITADEL_ADMIN_PASSWORD`. The console is for local development only. The
+production console is not public (ADR-013).
 
 ## Email
 
