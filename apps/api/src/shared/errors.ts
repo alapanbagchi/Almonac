@@ -7,6 +7,11 @@ export interface ErrorEnvelope {
   }
 }
 
+export interface AppErrorOptions extends ErrorOptions {
+  /** Response headers this failure requires, such as Retry-After. */
+  headers?: Readonly<Record<string, string>>
+}
+
 /**
  * A failure the API knows how to answer with.
  *
@@ -14,13 +19,16 @@ export interface ErrorEnvelope {
  * Messages are public, so they must never contain SQL, stack traces or PHI.
  */
 export class AppError extends Error {
+  readonly headers: Readonly<Record<string, string>>
+
   constructor(
     readonly code: string,
     readonly status: number,
     message: string,
-    options?: ErrorOptions,
+    options?: AppErrorOptions,
   ) {
     super(message, options)
     this.name = 'AppError'
+    this.headers = options?.headers ?? {}
   }
 }

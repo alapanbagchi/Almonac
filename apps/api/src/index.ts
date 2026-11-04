@@ -30,6 +30,8 @@ import { AuthConfigError, loadAuthConfig } from './auth/config'
 import { BreakGlassService } from './break-glass/break-glass-service'
 import { LoginAttemptRepository } from './auth/login-attempt-repository'
 import { LoginService } from './auth/login-service'
+import { RateLimitRepository } from './auth/rate-limit-repository'
+import { RateLimiter } from './auth/rate-limiter'
 import { createLogoutService } from './auth/logout-service'
 import { createOidcProvider } from './auth/oidc-provider'
 import { PostgresLoginStore } from './auth/postgres-login-store'
@@ -92,6 +94,7 @@ const app = createApp({
       oidc,
       sealingKey: authConfig.sealingKey,
     }),
+    rateLimit: new RateLimiter({ store: new RateLimitRepository(pool) }),
   },
   admin: {
     organisations: new OrganisationAdminService(

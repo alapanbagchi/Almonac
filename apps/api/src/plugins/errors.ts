@@ -30,6 +30,9 @@ export const errors = new Elysia({ name: 'plugins.errors' })
 
     if (error instanceof AppError) {
       set.status = error.status
+      for (const [name, value] of Object.entries(error.headers)) {
+        set.headers[name] = value
+      }
       return envelope(error.code, error.message, requestId)
     }
 

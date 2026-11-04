@@ -112,6 +112,14 @@ The idle timeout is 15 minutes and the absolute lifetime is 8 hours. The
 cookie uses the absolute expiry. A step-up keeps the same absolute expiry and
 rotates the token, so the previous token stops working immediately.
 
+The unauthenticated auth routes are rate limited in the control database, so
+every API replica shares one budget. A client address gets 30 login attempts,
+30 callbacks and 10 step-ups per minute. A rejected call returns 429
+`RATE_LIMITED` with `Retry-After`. `identity.rate_limit` stores a SHA-256
+digest of the route and address, never the address itself; an operations job
+must delete rows whose window has passed. The API limits the address Bun
+reports, so a proxy in front of it must preserve the client address.
+
 Break-glass requires a recent session with at least two authentication factors
 (`aal` 2) and an authentication time within five minutes. The ID-token verifier
 maps Zitadel's `hwk`, `swk`, `webauthn`, `passkey`, `mfa`, `otp` and `pin` AMR
@@ -154,7 +162,8 @@ assignment-history or break-glass records, change a session's identity or
 absolute expiry, or undo a revocation. It can only select from and insert into
 `audit.event`, and it may insert but not change a break-glass review. It
 cannot change the schema version, the role catalogue, template versions, the
-audit event catalogue, platform assignments or create audit partitions.
+audit event catalogue, platform assignments or create audit partitions. It
+may insert into and update rate-limit counters but not delete them.
 Privileges are granted per object; the migrations set no default table privileges
 and revoke the default function grant from `PUBLIC` globally, so a new function
 is executable only by its owner until a migration grants the runtime role

@@ -14,6 +14,7 @@ import {
   AppUserRepository,
 } from '../../../src/identity/app-user-repository'
 import { AuditWriter } from '../../../src/audit/audit-writer'
+import { RateLimitRepository } from '../../../src/auth/rate-limit-repository'
 import { SessionRepository } from '../../../src/identity/session-repository'
 import { AccessRepository } from '../../../src/identity/access-repository'
 import { PostgresLoginStore } from '../../../src/auth/postgres-login-store'
@@ -320,6 +321,7 @@ describe('control database schema', () => {
       'identity.login_attempt',
       'identity.web_session',
       'identity.invitation',
+      'identity.rate_limit',
       'control.organisation',
       'control.hospital',
       'control.hospital_domain',
@@ -355,7 +357,7 @@ describe('control database schema', () => {
       'select version from control.schema_metadata where id = 1',
     )
 
-    expect(result.rows[0]?.version).toBe(6)
+    expect(result.rows[0]?.version).toBe(7)
   })
 })
 
@@ -371,6 +373,8 @@ describe('runtime privileges', () => {
       can_delete_membership_role: boolean
       can_delete_invitation_role: boolean
       can_insert_break_glass_review: boolean
+      can_update_rate_limit: boolean
+      can_delete_rate_limit: boolean
     }>(
       `select
          current_user as runtime_role,
@@ -381,7 +385,9 @@ describe('runtime privileges', () => {
          has_table_privilege('audit.event', 'TRUNCATE') as can_truncate_audit,
          has_table_privilege('control.membership_role', 'DELETE') as can_delete_membership_role,
          has_table_privilege('control.invitation_role', 'DELETE') as can_delete_invitation_role,
-         has_table_privilege('control.break_glass_review', 'INSERT') as can_insert_break_glass_review`,
+         has_table_privilege('control.break_glass_review', 'INSERT') as can_insert_break_glass_review,
+         has_table_privilege('identity.rate_limit', 'UPDATE') as can_update_rate_limit,
+         has_table_privilege('identity.rate_limit', 'DELETE') as can_delete_rate_limit`,
     )
     const row = result.rows[0]!
 
@@ -394,6 +400,8 @@ describe('runtime privileges', () => {
     expect(row.can_delete_membership_role).toBe(false)
     expect(row.can_delete_invitation_role).toBe(false)
     expect(row.can_insert_break_glass_review).toBe(true)
+    expect(row.can_update_rate_limit).toBe(true)
+    expect(row.can_delete_rate_limit).toBe(false)
   })
 
   test('keeps the runtime role when reset and drops it with set role none', async () => {
@@ -2960,5 +2968,38 @@ describe('session access repository', () => {
     expect(access.permissions).toEqual(['platform.manage'])
 
     await ownerPool.query('delete from control.platform_assignment where user_id = $1', [user])
+  })
+})
+describe('rate limit repository', () => {
+  test('counts hits and resets in the next window', async () => {
+    const counters = new RateLimitRepository(appPool)
+    const key = randomBytes(32)
+    const at = new Date('2026-01-01T10:00:30.000Z')
+
+    expect((await counters.hit(key, 60, at)).count).toBe(1)
+    expect((await counters.hit(key, 60, at)).count).toBe(2)
+    const next = await counters.hit(key, 60, new Date('2026-01-01T10:01:05.000Z'))
+    expect(next.count).toBe(1)
+    expect(next.windowStart.toISOString()).toBe('2026-01-01T10:01:00.000Z')
+
+    await ownerPool.query('delete from identity.rate_limit where key_hash = $1', [key])
+  })
+
+  test('counts concurrent requests without losing an increment', async () => {
+    const counters = new RateLimitRepository(appPool)
+    const key = randomBytes(32)
+    const at = new Date()
+
+    const windows = await Promise.all(
+      Array.from({ length: 25 }, () => counters.hit(key, 60, at)),
+    )
+
+    expect(Math.max(...windows.map((window) => window.count))).toBe(25)
+    const stored = await ownerPool.query<{ count: number }>(
+      'select count from identity.rate_limit where key_hash = $1',
+      [key],
+    )
+    expect(stored.rows[0]!.count).toBe(25)
+    await ownerPool.query('delete from identity.rate_limit where key_hash = $1', [key])
   })
 })

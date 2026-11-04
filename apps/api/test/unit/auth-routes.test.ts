@@ -157,6 +157,27 @@ describe('auth routes', () => {
     expect(body.error?.code).toBe('VALIDATION_FAILED')
   })
 
+  test('answers a rate-limited login attempt with retry instructions', async () => {
+    const response = await app({
+      rateLimit: {
+        async check() {
+          throw new AppError(
+            'RATE_LIMITED',
+            429,
+            'Too many requests. Try again shortly.',
+            { headers: { 'retry-after': '42' } },
+          )
+        },
+      },
+    }).handle(post('/v1/auth/login-attempts', { returnTo: '/dashboard' }))
+
+    expect(response.status).toBe(429)
+    expect(response.headers.get('retry-after')).toBe('42')
+    expect(response.headers.get('cache-control')).toBe('no-store')
+    const body = (await response.json()) as { error?: { code?: string } }
+    expect(body.error?.code).toBe('RATE_LIMITED')
+  })
+
   test('starts a step-up only for an authenticated session', async () => {
     const missing = await app().handle(
       post('/v1/auth/step-up-attempts', { returnTo: '/dashboard' }),

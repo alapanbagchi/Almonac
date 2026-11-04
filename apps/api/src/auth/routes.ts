@@ -13,7 +13,13 @@ import type {
   LoginStart,
 } from './login-service'
 import type { LogoutContext, LogoutResult } from './logout-service'
-import { requestContext, requestIdOf, type RequestServer } from './request-context'
+import type { AuthRateLimit } from './rate-limiter'
+import {
+  clientIp,
+  requestContext,
+  requestIdOf,
+  type RequestServer,
+} from './request-context'
 
 export interface LoginFlow {
   start(returnTo: unknown, context: LoginRequestContext): Promise<LoginStart>
@@ -44,6 +50,7 @@ export interface AuthDependencies {
   readonly users: UserLookup
   readonly access: AccessReader
   readonly logout: LogoutFlow
+  readonly rateLimit?: AuthRateLimit
 }
 
 const loginAttemptBody = t.Object({
@@ -138,6 +145,7 @@ export function createAuth(dependencies: AuthDependencies) {
       },
       async (context) => {
         const { body, request, server, set } = context
+        await dependencies.rateLimit?.check('login', clientIp(request, server))
         const start = await dependencies.login.start(
           body.returnTo,
           requestContext(request, server, requestIdOf(context)),
@@ -158,6 +166,7 @@ export function createAuth(dependencies: AuthDependencies) {
       },
       async (context) => {
         const { body, headers, request, server, set } = context
+        await dependencies.rateLimit?.check('step_up', clientIp(request, server))
         const authenticated = await current(
           headers.authorization,
           request,
@@ -185,6 +194,7 @@ export function createAuth(dependencies: AuthDependencies) {
       },
       async (context) => {
         const { body, headers, request, server } = context
+        await dependencies.rateLimit?.check('callback', clientIp(request, server))
         const completion = await dependencies.login.complete(
           body.code,
           body.state,
