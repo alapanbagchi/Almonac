@@ -4,12 +4,18 @@ import { AuditWriter } from '../audit/audit-writer'
 import { NO_METRICS, type Metrics } from '../shared/metrics'
 import { asAdminError } from './admin-errors'
 import { OrganisationRepository, type Organisation } from './organisation-repository'
-import type { ZitadelManagementClient } from './zitadel-management-client'
+/** The one identity-provider call provisioning makes. */
+export interface OrganisationIdentity {
+  createOrganisation(name: string): Promise<string>
+}
+
+/** Every organisation gets the full local role catalogue, once provisioning succeeds. */
+const ROLE_TEMPLATES = ['org_admin', 'hospital_admin', 'clinician', 'auditor'] as const
 
 export class OrganisationProvisioningService {
   constructor(
     private readonly pool: Pool,
-    private readonly zitadel: ZitadelManagementClient,
+    private readonly zitadel: OrganisationIdentity,
     private readonly audit: AuditSink,
     private readonly metrics: Metrics = NO_METRICS,
   ) {}
@@ -31,6 +37,7 @@ export class OrganisationProvisioningService {
       const existing = await organisations.findBySlug(input.slug)
       const organisation =
         existing ?? (await organisations.createPending(input.name, input.slug))
+      await ensureRoleCatalogue(client, organisation.id)
       if (organisation.status === 'active') return organisation
 
       try {
@@ -90,6 +97,15 @@ export class OrganisationProvisioningService {
       await releaseLock(client, input.slug)
       client.release()
     }
+  }
+}
+
+async function ensureRoleCatalogue(client: PoolClient, organisationId: string): Promise<void> {
+  for (const template of ROLE_TEMPLATES) {
+    await client.query('select control.instantiate_role_template($1, $2)', [
+      organisationId,
+      template,
+    ])
   }
 }
 

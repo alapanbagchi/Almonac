@@ -6,7 +6,7 @@ export interface VerifiedIdentity {
   readonly issuer: string
   readonly subject: string
   readonly email: string
-  readonly emailVerifiedAt: Date
+  readonly emailVerifiedAt: Date | null
   readonly displayName: string
   readonly authTime: Date
   readonly amr: readonly string[]
@@ -76,7 +76,9 @@ export function createIdTokenVerifier(
 
       const subject = boundedText(payload.sub, 1, 255)
       const email = boundedText(payload.email, 3, 320).toLowerCase()
-      if (payload.email_verified !== true) throw new InvalidIdTokenError()
+      // Self-registration starts unverified. The account exists, but an
+      // unverified address cannot claim an invitation or prove ownership.
+      const emailVerified = payload.email_verified === true
 
       const authTime = numericDate(payload.auth_time)
       if (authTime.getTime() > now().getTime() + tolerance * 1_000) {
@@ -92,7 +94,7 @@ export function createIdTokenVerifier(
         issuer: options.issuer,
         subject,
         email,
-        emailVerifiedAt: now(),
+        emailVerifiedAt: emailVerified ? now() : null,
         displayName,
         authTime,
         amr,

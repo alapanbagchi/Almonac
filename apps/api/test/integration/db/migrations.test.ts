@@ -15,6 +15,8 @@ import {
 } from '../../../src/identity/app-user-repository'
 import { AuditWriter } from '../../../src/audit/audit-writer'
 import { RateLimitRepository } from '../../../src/auth/rate-limit-repository'
+import { PendingRegistrationRepository } from '../../../src/identity/pending-registration-repository'
+import { hashToken } from '../../../src/shared/tokens'
 import { SessionRepository } from '../../../src/identity/session-repository'
 import { AccessRepository } from '../../../src/identity/access-repository'
 import { PostgresLoginStore } from '../../../src/auth/postgres-login-store'
@@ -27,6 +29,7 @@ import { OrganisationRepository } from '../../../src/admin/organisation-reposito
 import { HospitalRepository } from '../../../src/admin/hospital-repository'
 import { ZitadelManagementClient } from '../../../src/admin/zitadel-management-client'
 import { AppError } from '../../../src/shared/errors'
+import { OnboardingService } from '../../../src/onboarding/onboarding-service'
 import { Elysia } from 'elysia'
 import { createAdmin } from '../../../src/admin/routes'
 import { errors } from '../../../src/plugins/errors'
@@ -322,6 +325,7 @@ describe('control database schema', () => {
       'identity.web_session',
       'identity.invitation',
       'identity.rate_limit',
+      'identity.pending_registration',
       'control.organisation',
       'control.hospital',
       'control.hospital_domain',
@@ -357,7 +361,7 @@ describe('control database schema', () => {
       'select version from control.schema_metadata where id = 1',
     )
 
-    expect(result.rows[0]?.version).toBe(7)
+    expect(result.rows[0]?.version).toBe(8)
   })
 })
 
@@ -851,6 +855,45 @@ describe('access model', () => {
     ).rejects.toMatchObject({ code: '23503' })
 
     await ownerPool.query('delete from control.role where id = $1', [roleId])
+  })
+
+  test('instantiates the role catalogue when an organisation is provisioned', async () => {
+    const suffix = randomBytes(4).toString('hex')
+    const slug = `provision-${suffix}`
+    const provisioning = new OrganisationProvisioningService(
+      ownerPool,
+      { createOrganisation: async () => `zitadel-${slug}` },
+      { write: async () => {} },
+    )
+
+    const created = await provisioning.provision({
+      name: `Provision ${suffix}`,
+      slug,
+    })
+    expect(created.status).toBe('active')
+
+    // A retry against the active organisation must not duplicate the catalogue.
+    const retried = await provisioning.provision({
+      name: `Provision ${suffix}`,
+      slug,
+    })
+    expect(retried.id).toBe(created.id)
+
+    const roles = await ownerPool.query<{ key: string }>(
+      'select key from control.role where organisation_id = $1 order by key',
+      [created.id],
+    )
+    expect(roles.rows.map((row) => row.key)).toEqual([
+      'auditor',
+      'clinician',
+      'hospital_admin',
+      'org_admin',
+    ])
+
+    // The rollback at the end of the suite cannot drop referenced templates.
+    await ownerPool.query('delete from control.role where organisation_id = $1', [
+      created.id,
+    ])
   })
 
   test('scopes external identities by issuer', async () => {
@@ -1774,7 +1817,7 @@ describe('access model', () => {
     ])
     expect(links.rows[0]!.count).toBe(13)
     expect(versions.rows[0]!.count).toBe(4)
-    expect(events.rows[0]!.count).toBe(11)
+    expect(events.rows[0]!.count).toBe(13)
   })
 })
 
@@ -3001,5 +3044,264 @@ describe('rate limit repository', () => {
     )
     expect(stored.rows[0]!.count).toBe(25)
     await ownerPool.query('delete from identity.rate_limit where key_hash = $1', [key])
+  })
+})
+
+describe('onboarding service', () => {
+  function provisioner() {
+    return {
+      async provision(input: { name: string; slug: string }) {
+        const existing = await ownerPool.query<{ id: string }>(
+          'select id from control.organisation where slug = $1',
+          [input.slug],
+        )
+        const id = existing.rows[0]?.id ?? (await createOrganisation(ownerPool, input.slug))
+        const organisation = await new OrganisationRepository(ownerPool).findById(id)
+        if (organisation === null) throw new Error('missing organisation')
+        return organisation
+      },
+    }
+  }
+
+  function service() {
+    return new OnboardingService(
+      appPool,
+      provisioner(),
+      new MembershipAdminRepository(appPool),
+      new AuditWriter(appPool),
+    )
+  }
+
+  const slugs = ['north-clinic', 'onboard-first', 'onboard-second', 'onboard-shared']
+
+  afterAll(async () => {
+    await ownerPool.query(
+      `delete from control.membership_role
+        where membership_id in (
+          select membership.id from control.membership as membership
+           join control.organisation as organisation on organisation.id = membership.organisation_id
+          where organisation.slug = any($1::text[])
+        )`,
+      [slugs],
+    )
+    await ownerPool.query(
+      `delete from control.membership
+        where organisation_id in (select id from control.organisation where slug = any($1::text[]))`,
+      [slugs],
+    )
+    await ownerPool.query(
+      `delete from control.role
+        where organisation_id in (select id from control.organisation where slug = any($1::text[]))`,
+      [slugs],
+    )
+  })
+
+  const context = (userId: string) => ({
+    userId,
+    sessionId: null,
+    requestId: 'onboarding-request',
+    ip: null,
+    userAgentHash: null,
+  })
+
+  test('creates the first organisation with an active administrator', async () => {
+    const user = await createUser(ownerPool, 'onboard-one', 'onboard.one@example.test')
+
+    const organisation = await service().create(context(user), {
+      name: 'North Clinic',
+      slug: 'north-clinic',
+    })
+
+    expect(organisation.slug).toBe('north-clinic')
+    expect(organisation.status).toBe('active')
+
+    const membership = await ownerPool.query<{ id: string; home: string | null; role: string }>(
+      `select membership.id, app_user.home_organisation_id as home, role.key as role
+         from control.membership
+         join control.membership_role on membership_role.membership_id = membership.id
+         join control.role on role.id = membership_role.role_id
+         join identity.app_user as app_user on app_user.id = membership.user_id
+        where membership.user_id = $1 and membership.status = 'active'`,
+      [user],
+    )
+    expect(membership.rows).toHaveLength(1)
+    expect(membership.rows[0]!.role).toBe('org_admin')
+    expect(membership.rows[0]!.home).toBe(organisation.id)
+
+    const audit = await ownerPool.query<{ count: number }>(
+      `select count(*)::int as count from audit.event
+        where actor_user_id = $1 and event_type = 'membership.change'
+          and reason_code = 'membership.onboard'`,
+      [user],
+    )
+    expect(audit.rows[0]!.count).toBe(1)
+  })
+
+  test('refuses a second organisation for the same account', async () => {
+    const user = await createUser(ownerPool, 'onboard-twice', 'onboard.twice@example.test')
+    await service().create(context(user), { name: 'First', slug: 'onboard-first' })
+
+    await expect(
+      service().create(context(user), { name: 'Second', slug: 'onboard-second' }),
+    ).rejects.toMatchObject({ code: 'ONBOARDING_COMPLETE', status: 409 })
+  })
+
+  test('refuses an organisation that already has a member', async () => {
+    const first = await createUser(ownerPool, 'onboard-owner', 'onboard.owner@example.test')
+    const second = await createUser(ownerPool, 'onboard-claim', 'onboard.claim@example.test')
+    await service().create(context(first), { name: 'Shared', slug: 'onboard-shared' })
+
+    await expect(
+      service().create(context(second), { name: 'Shared', slug: 'onboard-shared' }),
+    ).rejects.toMatchObject({ code: 'SLUG_TAKEN', status: 409 })
+  })
+
+  test('rejects a reserved or malformed slug', async () => {
+    const user = await createUser(ownerPool, 'onboard-slug', 'onboard.slug@example.test')
+
+    await expect(
+      service().create(context(user), { name: 'Admin', slug: 'admin' }),
+    ).rejects.toMatchObject({ code: 'INVALID_SLUG', status: 422 })
+    await expect(
+      service().create(context(user), { name: 'Bad', slug: 'not valid' }),
+    ).rejects.toMatchObject({ code: 'INVALID_SLUG', status: 422 })
+  })
+})
+
+describe('unverified registration', () => {
+  test('does not auto-accept an invitation for an unverified address', async () => {
+    const organisation = await createOrganisation(ownerPool, 'unverified-login')
+    const inviter = await createUser(ownerPool, 'unverified-inviter', 'unverified.inviter@example.test')
+    const role = await createRole(ownerPool, organisation, 'unverified_role', 'organisation')
+    const invitation = await createInvitation(
+      ownerPool,
+      'unverified.invitee@example.test',
+      organisation,
+      null,
+      inviter,
+    )
+    await ownerPool.query(
+      'insert into control.invitation_role (invitation_id, role_id) values ($1, $2)',
+      [invitation, role],
+    )
+
+    const now = new Date(Date.now() + 1_000)
+    const result = await new PostgresLoginStore(appPool).complete({
+      attempt: loginAttempt(now),
+      identity: {
+        ...identityFor('unverified.invitee@example.test', 'unverified-invitee', now),
+        emailVerifiedAt: null,
+      },
+      idTokenHintCiphertext: Buffer.from('sealed-hint'),
+      keyVersion: 1,
+      now,
+      ip: null,
+      userAgentHash: null,
+      requestId: 'unverified-request',
+    })
+
+    expect(result.token).toHaveLength(43)
+    const membership = await ownerPool.query<{ count: number }>(
+      'select count(*)::int as count from control.membership where user_id = $1',
+      [result.userId],
+    )
+    expect(membership.rows[0]!.count).toBe(0)
+    const pending = await ownerPool.query<{ status: string }>(
+      'select status from identity.invitation where id = $1',
+      [invitation],
+    )
+    expect(pending.rows[0]!.status).toBe('pending')
+    const user = await ownerPool.query<{ verified: Date | null }>(
+      'select email_verified_at as verified from identity.app_user where id = $1',
+      [result.userId],
+    )
+    expect(user.rows[0]!.verified).toBeNull()
+  })
+})
+
+describe('pending registration repository', () => {
+  const pending = () => new PendingRegistrationRepository(appPool)
+
+  function record(email: string, token: string, expiresAt: Date) {
+    return {
+      email,
+      displayName: 'Ada Lovelace',
+      passwordHash: '$2b$10$abcdefghijklmnopqrstuvABCDEFGHIJKLMNOPQRSTUVWXYZ01234',
+      tokenHash: hashToken(token),
+      expiresAt,
+      requestedIp: null,
+      userAgentHash: null,
+    }
+  }
+
+  test('stores a sign-up and finds it by token before expiry', async () => {
+    const email = `pending.find.${randomUUID()}@example.test`
+    const token = randomBytes(32).toString('base64url')
+    const now = new Date()
+    await pending().replace(record(email, token, new Date(now.getTime() + 60_000)))
+
+    const found = await pending().findForUpdate(appPool, hashToken(token), now)
+
+    expect(found).toMatchObject({ email, displayName: 'Ada Lovelace' })
+    expect(found?.consumedAt).toBeNull()
+  })
+
+  test('replaces an open sign-up for the same address', async () => {
+    const email = `pending.replace.${randomUUID()}@example.test`
+    const first = randomBytes(32).toString('base64url')
+    const second = randomBytes(32).toString('base64url')
+    const now = new Date()
+    await pending().replace(record(email, first, new Date(now.getTime() + 60_000)))
+    await pending().replace({
+      ...record(email, second, new Date(now.getTime() + 120_000)),
+      displayName: 'Ada King',
+    })
+
+    const open = await ownerPool.query<{ count: number }>(
+      'select count(*)::int as count from identity.pending_registration where email = $1 and consumed_at is null',
+      [email],
+    )
+    expect(open.rows[0]!.count).toBe(1)
+    expect(await pending().findForUpdate(appPool, hashToken(first), now)).toBeNull()
+    const found = await pending().findForUpdate(appPool, hashToken(second), now)
+    expect(found).toMatchObject({ email, displayName: 'Ada King' })
+  })
+
+  test('consumes a sign-up exactly once', async () => {
+    const email = `pending.consume.${randomUUID()}@example.test`
+    const token = randomBytes(32).toString('base64url')
+    const now = new Date()
+    await pending().replace(record(email, token, new Date(now.getTime() + 60_000)))
+    const stored = await pending().findForUpdate(appPool, hashToken(token), now)
+    expect(stored).not.toBeNull()
+
+    const consumedAt = new Date()
+    expect(await pending().markConsumed(appPool, stored!.id, consumedAt)).toBe(true)
+    expect(await pending().markConsumed(appPool, stored!.id, consumedAt)).toBe(false)
+    expect(await pending().findForUpdate(appPool, hashToken(token), now)).toBeNull()
+
+    await expect(
+      ownerPool.query(
+        'update identity.pending_registration set display_name = $2 where id = $1',
+        [stored!.id, 'Changed'],
+      ),
+    ).rejects.toMatchObject({ code: '23514' })
+  })
+
+  test('ignores an expired sign-up', async () => {
+    const email = `pending.expired.${randomUUID()}@example.test`
+    const token = randomBytes(32).toString('base64url')
+    const now = new Date()
+    await pending().replace(record(email, token, new Date(now.getTime() + 60_000)))
+
+    expect(
+      await pending().findForUpdate(appPool, hashToken(token), new Date(now.getTime() + 120_000)),
+    ).toBeNull()
+  })
+
+  test('does not let the runtime delete a sign-up', async () => {
+    await expect(
+      appPool.query('delete from identity.pending_registration'),
+    ).rejects.toMatchObject({ code: '42501' })
   })
 })

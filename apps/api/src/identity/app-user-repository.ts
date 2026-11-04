@@ -62,7 +62,10 @@ export class AppUserRepository {
          values ($1, $2, $3, $4, $5, $6)
          on conflict (identity_issuer, zitadel_sub) do update set
            email = excluded.email,
-           email_verified_at = excluded.email_verified_at,
+           email_verified_at = coalesce(
+             excluded.email_verified_at,
+             identity.app_user.email_verified_at
+           ),
            display_name = excluded.display_name
          returning ${COLUMNS}`,
         [

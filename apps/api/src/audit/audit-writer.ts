@@ -23,7 +23,7 @@ export interface AuditEvent {
 }
 
 export interface AuditSink {
-  write(event: AuditEvent): Promise<void>
+  write(event: AuditEvent, db?: DatabaseQuery): Promise<void>
 }
 
 /**
@@ -34,8 +34,8 @@ export interface AuditSink {
 export class AuditWriter implements AuditSink {
   constructor(private readonly db: DatabaseQuery) {}
 
-  async write(event: AuditEvent): Promise<void> {
-    await this.db.query(
+  async write(event: AuditEvent, db: DatabaseQuery = this.db): Promise<void> {
+    await db.query(
       `insert into audit.event
          (actor_user_id, actor_type, session_id, organisation_id, hospital_id,
           event_type, outcome, target_type, target_id, request_id, reason,

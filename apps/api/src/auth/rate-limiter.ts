@@ -3,13 +3,22 @@ import { AppError } from '../shared/errors'
 import { NO_METRICS, type Metrics } from '../shared/metrics'
 import type { RateLimitStore } from './rate-limit-repository'
 
-export type RateLimitRoute = 'login' | 'callback' | 'step_up'
+export type RateLimitRoute =
+  | 'login'
+  | 'callback'
+  | 'step_up'
+  | 'register'
+  | 'verify'
+  | 'password'
 
 /** Requests allowed per client address per minute, per route. */
 export const RATE_LIMITS: Readonly<Record<RateLimitRoute, number>> = {
   login: 30,
   callback: 30,
   step_up: 10,
+  register: 5,
+  verify: 10,
+  password: 10,
 }
 
 const WINDOW_SECONDS = 60

@@ -2,6 +2,7 @@ import { createApp } from './app'
 import { AuthorizationRepository } from './access/authorization-repository'
 import { AccessRepository } from './identity/access-repository'
 import { AppUserRepository } from './identity/app-user-repository'
+import { PendingRegistrationRepository } from './identity/pending-registration-repository'
 import { SessionRepository } from './identity/session-repository'
 import { SessionService } from './identity/session-service'
 import { AuditReadRepository } from './admin/audit-read-repository'
@@ -17,7 +18,7 @@ import { loadMailConfig, MailConfigError } from './admin/mail-config'
 import { OrganisationAdminService } from './admin/organisation-admin-service'
 import { OrganisationProvisioningService } from './admin/organisation-provisioning-service'
 import { OrganisationRepository } from './admin/organisation-repository'
-import { createSmtpMailer } from './admin/smtp-mailer'
+import { createSmtpMailer, createVerificationMailer } from './admin/smtp-mailer'
 import {
   ZitadelManagementClient,
   createServiceUserTokenProvider,
@@ -30,13 +31,19 @@ import { AuthConfigError, loadAuthConfig } from './auth/config'
 import { BreakGlassService } from './break-glass/break-glass-service'
 import { LoginAttemptRepository } from './auth/login-attempt-repository'
 import { LoginService } from './auth/login-service'
+import { PasswordLoginService } from './auth/password-login-service'
 import { RateLimitRepository } from './auth/rate-limit-repository'
 import { RateLimiter } from './auth/rate-limiter'
+import { EmailVerificationService } from './auth/email-verification-service'
+import { bcryptPasswordHasher } from './auth/password-hash'
+import { RegistrationService } from './auth/registration-service'
 import { createLogoutService } from './auth/logout-service'
 import { createOidcProvider } from './auth/oidc-provider'
 import { PostgresLoginStore } from './auth/postgres-login-store'
+import { ZitadelLoginClient } from './auth/zitadel-session-client'
 import { ConfigError, loadConfig } from './config'
-import { checkControlDatabase, createControlPool } from './db/pool'
+import { checkControlDatabase, createControlPool, withTransaction } from './db/pool'
+import { OnboardingService } from './onboarding/onboarding-service'
 import { MAX_BODY_BYTES } from './plugins/security'
 import { createMetrics } from './shared/metrics'
 
@@ -71,27 +78,60 @@ const organisations = new OrganisationRepository(pool)
 const hospitals = new HospitalRepository(pool)
 const memberships = new MembershipAdminRepository(pool)
 const invitations = new InvitationRepository(pool)
-const zitadel = new ZitadelManagementClient(
-  managementConfig.issuer,
-  createServiceUserTokenProvider({
-    issuer: managementConfig.issuer,
-    userId: managementConfig.serviceUserId,
-    keyId: managementConfig.keyId,
-    privateKeyPem: managementConfig.privateKeyPem,
-  }),
+const serviceTokens = createServiceUserTokenProvider({
+  issuer: managementConfig.issuer,
+  userId: managementConfig.serviceUserId,
+  keyId: managementConfig.keyId,
+  privateKeyPem: managementConfig.privateKeyPem,
+})
+const zitadel = new ZitadelManagementClient(managementConfig.issuer, serviceTokens)
+const loginClient = new ZitadelLoginClient({
+  issuer: managementConfig.issuer,
+  loginClientUserId: managementConfig.serviceUserId,
+  redirectUri: authConfig.redirectUri,
+  tokens: serviceTokens,
+})
+const login = new LoginService({
+  attempts: new LoginAttemptRepository(pool),
+  oidc,
+  completion: new PostgresLoginStore(pool),
+  audit,
+  metrics,
+  sealingKey: authConfig.sealingKey,
+})
+const rateLimit = new RateLimiter({
+  store: new RateLimitRepository(pool),
+  metrics,
+})
+const passwordLogin = new PasswordLoginService(login, loginClient)
+const pendingRegistrations = new PendingRegistrationRepository(pool)
+const smtpOptions = {
+  smtpUrl: mailConfig.smtpUrl,
+  smtpUser: mailConfig.smtpUser,
+  smtpPassword: mailConfig.smtpPassword,
+  from: mailConfig.from,
+  webPublicOrigin: mailConfig.webPublicOrigin,
+}
+const registration = new RegistrationService(
+  users,
+  pendingRegistrations,
+  createVerificationMailer(smtpOptions),
+  audit,
+  bcryptPasswordHasher,
 )
+const verification = new EmailVerificationService(
+  pendingRegistrations,
+  zitadel,
+  audit,
+  (run) => withTransaction(pool, run),
+)
+const provisioning = new OrganisationProvisioningService(pool, zitadel, audit, metrics)
+const onboarding = new OnboardingService(pool, provisioning, memberships, audit)
 
 const app = createApp({
   checkDatabase: () => checkControlDatabase(pool),
   auth: {
-    login: new LoginService({
-      attempts: new LoginAttemptRepository(pool),
-      oidc,
-      completion: new PostgresLoginStore(pool),
-      audit,
-      metrics,
-      sealingKey: authConfig.sealingKey,
-    }),
+    login,
     sessions,
     users,
     access: new AccessRepository(pool),
@@ -100,16 +140,15 @@ const app = createApp({
       oidc,
       sealingKey: authConfig.sealingKey,
     }),
-    rateLimit: new RateLimiter({
-      store: new RateLimitRepository(pool),
-      metrics,
-    }),
+    rateLimit,
   },
+  selfService: { registration, verification, passwordLogin, rateLimit },
+  onboarding: { onboarding, sessions, users },
   admin: {
     organisations: new OrganisationAdminService(
       organisations,
       authorization,
-      new OrganisationProvisioningService(pool, zitadel, audit, metrics),
+      provisioning,
     ),
     hospitals: new HospitalAdminService(hospitals, organisations, authorization, audit),
     memberships: new MembershipAdminService(memberships, authorization, audit),
@@ -123,13 +162,7 @@ const app = createApp({
       authorization,
       zitadel,
       audit,
-      mailer: createSmtpMailer({
-        smtpUrl: mailConfig.smtpUrl,
-        smtpUser: mailConfig.smtpUser,
-        smtpPassword: mailConfig.smtpPassword,
-        from: mailConfig.from,
-        webPublicOrigin: mailConfig.webPublicOrigin,
-      }),
+      mailer: createSmtpMailer(smtpOptions),
     }),
     audit: new AuditAdminService(new AuditReadRepository(pool), authorization),
     sessions,

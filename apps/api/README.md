@@ -74,6 +74,9 @@ production data.
 | --- | --- | --- |
 | GET | `/health` | Liveness probe: `{ "status": "ok" }` |
 | GET | `/health/ready` | Readiness probe; 503 unless the schema version and runtime privileges are correct |
+| POST | `/v1/auth/register` | Start a sign-up: stores a pending registration and emails a verification link |
+| POST | `/v1/auth/verify-email` | Consume the verification token and create the Zitadel user |
+| POST | `/v1/auth/password-login` | Sign in with an email and password: returns a callback URL |
 | POST | `/v1/auth/login-attempts` | Start a login: returns the Zitadel authorization URL and its expiry |
 | POST | `/v1/auth/step-up-attempts` | Start a step-up: forces `prompt=login` and `max_age=0`; requires a bearer session token |
 | POST | `/v1/auth/callback` | Complete a login or step-up: consumes the attempt, exchanges the code and returns a session token once; `expiresAt` is the absolute expiry |
@@ -96,6 +99,7 @@ production data.
 | GET/POST | `/v1/admin/organisations/:organisationId/invitations` | List or create invitations |
 | POST/DELETE | `/v1/admin/invitations/:invitationId/resend` / delete | Resend or revoke a pending invitation |
 | POST | `/v1/admin/invitations/accept` | Accept an invitation for the signed-in subject |
+| POST | `/v1/onboarding/organisation` | Create the signed-in user's first organisation and become its org admin |
 | GET | `/v1/admin/organisations/:organisationId/audit` | Paginated organisation or hospital audit read |
 | GET | `/openapi` | Scalar API reference |
 | GET | `/openapi/json` | OpenAPI 3.1 document |
@@ -103,10 +107,23 @@ production data.
 The `/v1` prefix follows ADR-012. The root path and versioning policy remain
 undecided (`docs/architecture/unresolved-decisions.md`, U-15).
 
-Authentication is external. Credentials, MFA and the hosted login page belong
-to Zitadel. The API never reads cookies: the web app sends
+Credentials belong to Zitadel, but the product uses first-party screens
+(ADR-016). The browser posts a password to the web BFF, which forwards it to
+this API over the private hop. The API calls Zitadel and never stores a
+plaintext password.
+
+Sign-up is two steps. `POST /v1/auth/register` stores a pending registration
+with a bcrypt hash and a token hash, then emails a verification link.
+`POST /v1/auth/verify-email` consumes the row and creates the Zitadel user
+with a verified address, so the account can complete OIDC immediately. The API
+creates no identity before the address is verified. A password login returns a
+callback URL that the browser follows through the existing web callback route.
+
+The API never reads cookies: the web app sends
 `Authorization: Bearer <session token>`. A session token is returned only by
-the callback response and is stored as a hash in the control database.
+the callback response and is stored as a hash in the control database. An
+account with MFA enabled returns `MFA_REQUIRED` (403) because challenge
+screens are not implemented.
 
 The idle timeout is 15 minutes and the absolute lifetime is 8 hours. The
 cookie uses the absolute expiry. A step-up keeps the same absolute expiry and
@@ -114,7 +131,8 @@ rotates the token, so the previous token stops working immediately.
 
 The unauthenticated auth routes are rate limited in the control database, so
 every API replica shares one budget. A client address gets 30 login attempts,
-30 callbacks and 10 step-ups per minute. A rejected call returns 429
+30 callbacks and 10 step-ups per minute. Register allows 5, email verification
+10 and password login 10 attempts per minute. A rejected call returns 429
 `RATE_LIMITED` with `Retry-After`. `identity.rate_limit` stores a SHA-256
 digest of the route and address, never the address itself; an operations job
 must delete rows whose window has passed. The API limits the address Bun
@@ -208,7 +226,8 @@ src/
 ├── break-glass/     time-boxed emergency access service and routes
 ├── db/              control pool, migration runner, row parsing
 ├── health/          liveness and readiness features
-├── identity/        user, session and access repositories, session service
+├── identity/        user, session, access and pending-registration repositories
+├── onboarding/      first-organisation service and routes
 ├── plugins/         errors, OpenAPI
 └── shared/          error envelope, AppError, tokens, sealing
 test/

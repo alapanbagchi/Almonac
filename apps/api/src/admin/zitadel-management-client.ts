@@ -124,9 +124,15 @@ export class ZitadelManagementClient {
     )
   }
 
+  /**
+   * Create a human user. A null organisation uses the service user's own
+   * organisation, which is how self-registration assigns the home tenant. A
+   * password creates a usable account immediately; the invitation flow omits
+   * it and lets the provider send an initialisation link instead.
+   */
   async createHumanUser(
-    organisationId: string,
-    input: { email: string; displayName: string },
+    organisationId: string | null,
+    input: { email: string; displayName: string; password?: string },
   ): Promise<string> {
     const parts = input.displayName.trim().split(/\s+/)
     const firstName = parts[0] ?? input.email
@@ -138,9 +144,42 @@ export class ZitadelManagementClient {
         userName: input.email,
         profile: { firstName, lastName, displayName: input.displayName },
         email: { email: input.email, isEmailVerified: false },
+        ...(input.password === undefined
+          ? {}
+          : { password: input.password, passwordChangeRequired: false }),
       },
-      organisationId,
+      organisationId ?? undefined,
     )
+    const userId = readRecord(body).userId
+    if (typeof userId !== 'string' || userId.length === 0) {
+      throw new ZitadelUnavailableError('user response has no id')
+    }
+    return userId
+  }
+
+  /**
+   * Create a user whose email was verified by Almonac. The password arrives as
+   * a bcrypt hash, so the plaintext never reaches the provider. The v2 API is
+   * used because the management import always creates an unverified address.
+   */
+  async createVerifiedHumanUser(input: {
+    email: string
+    displayName: string
+    passwordHash: string
+  }): Promise<string> {
+    const parts = input.displayName.trim().split(/\s+/)
+    const firstName = parts[0] ?? input.email
+    const lastName = parts.slice(1).join(' ') || firstName
+    const body = await this.request('POST', '/v2/users/human', {
+      username: input.email,
+      profile: {
+        givenName: firstName,
+        familyName: lastName,
+        displayName: input.displayName,
+      },
+      email: { email: input.email, isVerified: true },
+      hashedPassword: { hash: input.passwordHash },
+    })
     const userId = readRecord(body).userId
     if (typeof userId !== 'string' || userId.length === 0) {
       throw new ZitadelUnavailableError('user response has no id')

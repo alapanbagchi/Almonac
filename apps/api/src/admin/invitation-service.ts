@@ -276,19 +276,20 @@ export class InvitationService {
       roleIds: input.roleIds,
     })
 
-    if (input.kind === 'existing_user') {
-      try {
-        await this.dependencies.mailer.send({
-          to: input.email,
-          token: minted.token,
-          organisationName: input.organisationName,
-          hospitalName: input.hospitalName,
-          expiresAt,
-        })
-      } catch (error) {
-        await this.dependencies.invitations.revokePending(invitation.id, this.clock())
-        throw error
-      }
+    // Both kinds receive the local link. A new user cannot accept until their
+    // provider account is usable, but the link keeps an explicit token path that
+    // does not depend on a verified address.
+    try {
+      await this.dependencies.mailer.send({
+        to: input.email,
+        token: minted.token,
+        organisationName: input.organisationName,
+        hospitalName: input.hospitalName,
+        expiresAt,
+      })
+    } catch (error) {
+      await this.dependencies.invitations.revokePending(invitation.id, this.clock())
+      throw error
     }
     return invitation
   }

@@ -73,15 +73,19 @@ const MEMBERSHIP_SELECT = `
 export class MembershipAdminRepository {
   constructor(private readonly db: DatabaseQuery) {}
 
-  async createFromInvitation(input: {
-    userId: string
-    organisationId: string
-    hospitalId: string | null
-    roleIds: readonly string[]
-    assignedBy: string
-  }): Promise<string> {
+  async createFromInvitation(
+    input: {
+      userId: string
+      organisationId: string
+      hospitalId: string | null
+      roleIds: readonly string[]
+      assignedBy: string
+    },
+    /** Pass the caller's transaction so the new rows join its snapshot. */
+    db: DatabaseQuery = this.db,
+  ): Promise<string> {
     try {
-      const result = await this.db.query(
+      const result = await db.query(
         `insert into control.membership
            (user_id, organisation_id, hospital_id, accepted_at, validity)
          values ($1, $2, $3, now(), tstzrange(now(), null, '[)'))
@@ -90,7 +94,7 @@ export class MembershipAdminRepository {
       )
       const membershipId = stringField(rowRecord(result.rows[0]), 'id')
       for (const roleId of input.roleIds) {
-        await this.db.query(
+        await db.query(
           `insert into control.membership_role
              (membership_id, role_id, assigned_by, assigned_at, validity)
            values ($1, $2, $3, now(), tstzrange(now(), null, '[)'))`,

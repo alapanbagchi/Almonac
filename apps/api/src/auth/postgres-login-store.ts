@@ -202,6 +202,10 @@ export class PostgresLoginStore implements LoginCompletionStore {
     user: AppUser,
     now: Date,
   ): Promise<PendingInvitation[]> {
+    // An unverified address cannot prove ownership of an invitation mailbox.
+    // Such a user finishes registration first; the invitation stays pending.
+    if (user.emailVerifiedAt === null) return []
+
     const result = await db.query(PENDING_INVITATION_QUERY, [
       user.email,
       now,

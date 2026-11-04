@@ -130,6 +130,17 @@ export class LoginService {
     return this.begin(returnTo, context, userId)
   }
 
+  /**
+   * Record a rejected first-party attempt. The audit write stays best effort,
+   * exactly as it does for a rejected callback.
+   */
+  async recordFailure(
+    reasonCode: string,
+    context: LoginRequestContext,
+  ): Promise<void> {
+    await this.fail(reasonCode, null, context)
+  }
+
   private async begin(
     returnTo: unknown,
     context: LoginRequestContext,
