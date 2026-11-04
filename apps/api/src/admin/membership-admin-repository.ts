@@ -3,6 +3,7 @@ import { pageOf, type Page, type PageRequest } from '../shared/pagination'
 import {
   dateField,
   hasSqlState,
+  integerField,
   nullableDateField,
   nullableStringField,
   rowRecord,
@@ -263,8 +264,9 @@ export class MembershipAdminRepository {
           and role_permission.permission_key = 'organisation.manage'`,
       [organisationId],
     )
-    const value = rowRecord(result.rows[0] ?? {})
-    return typeof value.count === 'number' ? value.count : 0
+    // count(*) always returns exactly one row, and ::int keeps it a JS number.
+    const row = result.rows[0]
+    return row === undefined ? 0 : integerField(rowRecord(row), 'count')
   }
 
   async findActiveMembershipForUser(input: {
