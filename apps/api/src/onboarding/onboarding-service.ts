@@ -1,7 +1,7 @@
 import type { Pool } from 'pg'
 import { AuditWriter } from '../audit/audit-writer'
 import type { AuditSink } from '../audit/audit-writer'
-import { withTransaction } from '../db/pool'
+import { withTransaction, type DatabaseQuery } from '../db/pool'
 import { rowRecord, stringField } from '../db/rows'
 import type { MembershipAdminRepository } from '../admin/membership-admin-repository'
 import type { Organisation } from '../admin/organisation-repository'
@@ -61,20 +61,17 @@ export class OnboardingService {
       throw new AppError('INVALID_SLUG', 422, 'Organisation address is not valid.')
     }
 
+    // Reject an account that already has access before calling the identity
+    // provider. The transaction below rechecks under its lock, but this check
+    // keeps a repeated request from provisioning an organisation first.
+    if (await hasActiveMembership(this.pool, context.userId)) throw onboardingComplete()
+
     const claimed = await this.provisioning.provision({ name, slug })
 
     return withTransaction(this.pool, async (db) => {
       await db.query('select pg_advisory_xact_lock(hashtext($1))', ['onboarding:' + slug])
 
-      const active = await db.query(
-        `select 1 from control.membership
-          where user_id = $1 and status = 'active' and validity @> now()
-          limit 1`,
-        [context.userId],
-      )
-      if (active.rows.length > 0) {
-        throw new AppError('ONBOARDING_COMPLETE', 409, 'Your account already has access.')
-      }
+      if (await hasActiveMembership(db, context.userId)) throw onboardingComplete()
 
       const members = await db.query(
         'select count(*)::int as count from control.membership where organisation_id = $1',
@@ -111,7 +108,7 @@ export class OnboardingService {
         )
       } catch (error) {
         if (error instanceof Error && error.name === 'MembershipConflictError') {
-          throw new AppError('ONBOARDING_COMPLETE', 409, 'Your account already has access.')
+          throw onboardingComplete()
         }
         throw error
       }
@@ -148,6 +145,20 @@ export class OnboardingService {
       return claimed
     })
   }
+}
+
+async function hasActiveMembership(db: DatabaseQuery, userId: string): Promise<boolean> {
+  const active = await db.query(
+    `select 1 from control.membership
+      where user_id = $1 and status = 'active' and validity @> now()
+      limit 1`,
+    [userId],
+  )
+  return active.rows.length > 0
+}
+
+function onboardingComplete(): AppError {
+  return new AppError('ONBOARDING_COMPLETE', 409, 'Your account already has access.')
 }
 
 function readCount(value: unknown): number {

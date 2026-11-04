@@ -3188,7 +3188,14 @@ describe('onboarding service', () => {
     )
   }
 
-  const slugs = ['north-clinic', 'onboard-first', 'onboard-second', 'onboard-shared']
+  const slugs = [
+    'north-clinic',
+    'onboard-first',
+    'onboard-second',
+    'onboard-shared',
+    'onboard-precheck',
+    'onboard-precheck-two',
+  ]
 
   afterAll(async () => {
     await ownerPool.query(
@@ -3260,6 +3267,29 @@ describe('onboarding service', () => {
     await expect(
       service().create(context(user), { name: 'Second', slug: 'onboard-second' }),
     ).rejects.toMatchObject({ code: 'ONBOARDING_COMPLETE', status: 409 })
+  })
+
+  test('checks access before provisioning an organisation', async () => {
+    const user = await createUser(ownerPool, 'onboard-precheck', 'onboard.precheck@example.test')
+    await service().create(context(user), { name: 'First', slug: 'onboard-precheck' })
+
+    let provisions = 0
+    const guarded = new OnboardingService(
+      appPool,
+      {
+        async provision() {
+          provisions += 1
+          throw new Error('must not provision')
+        },
+      },
+      new MembershipAdminRepository(appPool),
+      new AuditWriter(appPool),
+    )
+
+    await expect(
+      guarded.create(context(user), { name: 'Second', slug: 'onboard-precheck-two' }),
+    ).rejects.toMatchObject({ code: 'ONBOARDING_COMPLETE', status: 409 })
+    expect(provisions).toBe(0)
   })
 
   test('refuses an organisation that already has a member', async () => {
