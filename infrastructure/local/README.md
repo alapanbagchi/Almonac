@@ -1,8 +1,9 @@
 # Local development stack
 
 This stack is for development and CI only. It runs one single-replica Zitadel
-deployment, the Login v2 UI, the Zitadel database, a separate control database,
-Mailpit and a development proxy. It is not the production topology. See ADR-013.
+deployment, the Login v2 UI, the Zitadel database, a separate control database
+and a development proxy. Email goes to a real SMTP relay that you configure;
+the stack runs no mail catcher. It is not the production topology. See ADR-013.
 
 ## What runs
 
@@ -13,9 +14,8 @@ Mailpit and a development proxy. It is not the production topology. See ADR-013.
 | `zitadel-login` | Login v2 UI | http://localhost:8080/ui/v2/login/ |
 | `postgres` | Zitadel database | internal only |
 | `control-postgres` | Almonac control database and test database | `127.0.0.1:5433` |
-| `mailpit` | Catches email | http://localhost:8025 |
 
-Only the proxy, Mailpit and control PostgreSQL publish host ports. All bind to
+Only the proxy and control PostgreSQL publish host ports. Both bind to
 127.0.0.1. The Zitadel API, the login container and the Zitadel database are
 reachable only on the Compose network.
 
@@ -98,8 +98,11 @@ Add the authentication and administration variables:
 | `ZITADEL_SERVICE_USER_ID` | machine user ID |
 | `ZITADEL_SERVICE_USER_KEY_ID` | machine key ID |
 | `ZITADEL_SERVICE_USER_PRIVATE_KEY` | machine key, PKCS#8 PEM |
-| `SMTP_URL` | `smtp://localhost:1025` |
-| `MAIL_FROM` | `no-reply@almonac.local` |
+| `SMTP_URL` | real relay, for example `smtps://smtp.provider.test:465` |
+| `SMTP_USER` | relay user name |
+| `SMTP_PASSWORD` | relay password |
+| `MAIL_FROM` | verified sender address |
+| `MAIL_FROM_NAME` | display name, for example `Almonac` |
 | `WEB_PUBLIC_ORIGIN` | `http://localhost:3000` |
 
 The local Zitadel instance must contain an Almonac project, a web OIDC
@@ -165,10 +168,24 @@ production console is not public (ADR-013).
 
 ## Email
 
-Mailpit runs at http://localhost:8025. The stack does not configure an SMTP
-provider. Zitadel v4.20 does not persist the
-`ZITADEL_DEFAULTINSTANCE_SMTPCONFIGURATION_*` environment values as a provider.
-No email is sent until product provisioning adds and activates a provider.
+There is no mail catcher. Two senders use a real relay:
+
+- **The API** sends the sign-up verification link and the invitation link.
+  Set `SMTP_URL`, `SMTP_USER`, `SMTP_PASSWORD`, `MAIL_FROM` and
+  `MAIL_FROM_NAME` in `apps/api/.env`. Use `smtps://` on port 465, or
+  `smtp://` on port 587 with STARTTLS. In production the API requires SMTP
+  credentials, refuses a loopback host and requires STARTTLS on an `smtp`
+  URL. It sends only the token link, never the token in a request line.
+- **Zitadel** sends the initialisation mail for an invited user who has no
+  password yet, and password-reset mail. Add an SMTP provider in the local
+  console at http://localhost:8080/ui/console/ (Settings → SMTP) and activate
+  it. Zitadel v4.20 does not persist
+  `ZITADEL_DEFAULTINSTANCE_SMTPCONFIGURATION_*` as a provider.
+
+The relay must be allowed to send as `MAIL_FROM`. Publish SPF, DKIM and DMARC
+for that domain; many providers reject or quarantine a sender without them.
+Test with a real mailbox before inviting staff. A failed send surfaces as a
+503; the server does not retry silently.
 
 ## Reset
 
@@ -189,8 +206,11 @@ no migration path for local data.
   decrypted. Restore the old key or reset the stack.
 - **Login page 404**: the login container is not healthy. Check
   `docker compose ps` and `docker compose logs zitadel-login`.
-- **Port already in use**: change `PROXY_PORT`, `MAILPIT_UI_PORT`,
-  `MAILPIT_SMTP_PORT` or `CONTROL_POSTGRES_PORT` in `.env`.
+- **Port already in use**: change `PROXY_PORT` or `CONTROL_POSTGRES_PORT`
+  in `.env`.
+- **No email arrives**: check the API log for `SMTP` errors, confirm the relay
+  accepts `MAIL_FROM`, and confirm Zitadel has an active SMTP provider for
+  initialisation mail.
 - **Control database connection refused**: check that `control-postgres` is
   healthy and that `DATABASE_URL` uses port 5433.
 - **Test database does not exist**: the control volume was created before the
@@ -205,8 +225,8 @@ no migration path for local data.
 
 - `.env` and `apps/api/.env` are ignored and must not be committed. The example
   files contain no secret values.
-- The proxy, Mailpit and control PostgreSQL bind to 127.0.0.1. Do not publish
-  this stack on a shared network.
+- The proxy and control PostgreSQL bind to 127.0.0.1. Do not publish this
+  stack on a shared network.
 - The login-client PAT has a long expiry and lives in the Docker volume. The
   admin password and control database password are local only.
 - The control database contains identity, authorisation and audit records, not
