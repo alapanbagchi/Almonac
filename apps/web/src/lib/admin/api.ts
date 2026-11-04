@@ -2,6 +2,8 @@ import "server-only";
 
 import { z } from "zod";
 
+import type { Page } from "@/lib/pagination";
+
 import {
   auditSchema,
   createdDomainSchema,
@@ -59,6 +61,21 @@ export function createAdminApi({
   timeoutMs = 8_000,
   fetch: request = globalThis.fetch,
 }: AdminApiOptions) {
+  /** Load every page so a screen never silently hides rows after the first page. */
+  async function allPages<T>(load: (query: string) => Promise<Page<T>>): Promise<Page<T>> {
+    const items: T[] = [];
+    let offset = 0;
+    for (;;) {
+      const query = offset === 0 ? "" : `?offset=${offset}`;
+      const page = await load(query);
+      items.push(...page.items);
+      if (page.nextOffset === null || page.nextOffset <= offset) {
+        return { items, nextOffset: null };
+      }
+      offset = page.nextOffset;
+    }
+  }
+
   async function call<T>(
     token: string,
     method: string,
@@ -98,7 +115,7 @@ export function createAdminApi({
 
   return {
     listOrganisations: (token: string): Promise<OrganisationPage> =>
-      call(token, "GET", "/organisations", organisationPageSchema),
+      allPages((query) => call(token, "GET", `/organisations${query}`, organisationPageSchema)),
     getOrganisation: (token: string, id: string): Promise<Organisation> =>
       call(token, "GET", `/organisations/${id}`, organisationSchema),
     createOrganisation: (
@@ -107,7 +124,9 @@ export function createAdminApi({
     ): Promise<Organisation> =>
       call(token, "POST", "/organisations", organisationSchema, input),
     listHospitals: (token: string, organisationId: string): Promise<HospitalPage> =>
-      call(token, "GET", `/organisations/${organisationId}/hospitals`, hospitalPageSchema),
+      allPages((query) =>
+        call(token, "GET", `/organisations/${organisationId}/hospitals${query}`, hospitalPageSchema),
+      ),
     createHospital: (
       token: string,
       organisationId: string,
@@ -121,7 +140,9 @@ export function createAdminApi({
         input,
       ),
     listDomains: (token: string, hospitalId: string): Promise<DomainPage> =>
-      call(token, "GET", `/hospitals/${hospitalId}/domains`, domainPageSchema),
+      allPages((query) =>
+        call(token, "GET", `/hospitals/${hospitalId}/domains${query}`, domainPageSchema),
+      ),
     addDomain: (
       token: string,
       hospitalId: string,
@@ -153,11 +174,13 @@ export function createAdminApi({
         hospitalSchema,
       ),
     listMemberships: (token: string, organisationId: string): Promise<MembershipPage> =>
-      call(
-        token,
-        "GET",
-        `/organisations/${organisationId}/memberships`,
-        membershipPageSchema,
+      allPages((query) =>
+        call(
+          token,
+          "GET",
+          `/organisations/${organisationId}/memberships${query}`,
+          membershipPageSchema,
+        ),
       ),
     suspendMembership: (
       token: string,
@@ -176,7 +199,9 @@ export function createAdminApi({
         () => undefined,
       ),
     listRoles: (token: string, organisationId: string): Promise<RolePage> =>
-      call(token, "GET", `/organisations/${organisationId}/roles`, rolePageSchema),
+      allPages((query) =>
+        call(token, "GET", `/organisations/${organisationId}/roles${query}`, rolePageSchema),
+      ),
     assignRole: (token: string, membershipId: string, roleId: string): Promise<void> =>
       call(token, "POST", `/memberships/${membershipId}/roles`, okSchema, { roleId }).then(
         () => undefined,
@@ -189,11 +214,13 @@ export function createAdminApi({
         okSchema,
       ).then(() => undefined),
     listInvitations: (token: string, organisationId: string): Promise<InvitationPage> =>
-      call(
-        token,
-        "GET",
-        `/organisations/${organisationId}/invitations`,
-        invitationPageSchema,
+      allPages((query) =>
+        call(
+          token,
+          "GET",
+          `/organisations/${organisationId}/invitations${query}`,
+          invitationPageSchema,
+        ),
       ),
     createInvitation: (
       token: string,

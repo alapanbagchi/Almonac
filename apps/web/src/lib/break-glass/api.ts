@@ -27,6 +27,8 @@ export class BreakGlassApiError extends Error {
 
 type Fetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
+type GrantPage = z.infer<typeof grantListSchema>;
+
 /** Server-only client for the break-glass endpoints. */
 export function createBreakGlassApi({
   baseUrl,
@@ -75,10 +77,31 @@ export function createBreakGlassApi({
     };
   }
 
+  /** Load every page so the screen never silently hides grants after the first page. */
+  async function allGrants(token: string, hospitalId: string | null): Promise<GrantPage> {
+    const items: GrantPage["items"] = [];
+    let offset = 0;
+    for (;;) {
+      const params = new URLSearchParams();
+      if (hospitalId !== null) params.set("hospitalId", hospitalId);
+      if (offset > 0) params.set("offset", String(offset));
+      const query = params.toString();
+      const page = await call(
+        `/v1/break-glass/grants${query === "" ? "" : `?${query}`}`,
+        jsonInit("GET", token),
+        grantListSchema,
+      );
+      items.push(...page.items);
+      if (page.nextOffset === null || page.nextOffset <= offset) {
+        return { items, nextOffset: null };
+      }
+      offset = page.nextOffset;
+    }
+  }
+
   return {
-    listGrants(token: string, hospitalId: string | null): Promise<z.infer<typeof grantListSchema>> {
-      const query = hospitalId === null ? "" : `?hospitalId=${encodeURIComponent(hospitalId)}`;
-      return call(`/v1/break-glass/grants${query}`, jsonInit("GET", token), grantListSchema);
+    listGrants(token: string, hospitalId: string | null): Promise<GrantPage> {
+      return allGrants(token, hospitalId);
     },
 
     requestGrant(token: string, body: GrantRequest) {
