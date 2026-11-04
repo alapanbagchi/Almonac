@@ -3,6 +3,7 @@ import { pageOf, type Page, type PageRequest } from '../shared/pagination'
 import {
   dateField,
   hasSqlState,
+  isEmpty,
   nullableDateField,
   nullableStringField,
   rowRecord,
@@ -86,10 +87,8 @@ export class BreakGlassRepository {
       'select id, organisation_id, name, status from control.hospital where id = $1',
       [id],
     )
-    const row = result.rows[0]
-    if (row === undefined) return null
-
-    const record = rowRecord(row)
+    if (isEmpty(result)) return null
+    const record = rowRecord(result.rows[0])
     return {
       id: stringField(record, 'id'),
       organisationId: stringField(record, 'organisation_id'),
@@ -134,7 +133,7 @@ export class BreakGlassRepository {
        limit 1`,
       [userId, hospitalId, at],
     )
-    return result.rows[0] === undefined ? null : mapGrant(result.rows[0])
+    return isEmpty(result) ? null : mapGrant(result.rows[0])
   }
 
   async create(input: NewBreakGlassGrant): Promise<BreakGlassGrant> {
@@ -169,7 +168,7 @@ export class BreakGlassRepository {
       `select ${COLUMNS} from control.break_glass_grant where id = $1`,
       [id],
     )
-    return result.rows[0] === undefined ? null : mapGrant(result.rows[0])
+    return isEmpty(result) ? null : mapGrant(result.rows[0])
   }
 
   async list(
@@ -202,7 +201,7 @@ export class BreakGlassRepository {
       [id, userId, at],
     )
 
-    return result.rows[0] === undefined ? null : mapGrant(result.rows[0])
+    return isEmpty(result) ? null : mapGrant(result.rows[0])
   }
 
   async revoke(id: string, at: Date): Promise<BreakGlassGrant | null> {
@@ -214,7 +213,7 @@ export class BreakGlassRepository {
       [id, at],
     )
 
-    return result.rows[0] === undefined ? null : mapGrant(result.rows[0])
+    return isEmpty(result) ? null : mapGrant(result.rows[0])
   }
 
   async createReview(input: {
