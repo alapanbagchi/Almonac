@@ -182,7 +182,7 @@ export class BreakGlassService {
         ...grantEvent(grant),
         eventType: 'admin.change',
         reasonCode: 'break_glass.approved',
-        metadata: { resource_type: 'break_glass_grant', resource_id: grant.id },
+        metadata: changeMetadata(grant.id),
       })
       return grant
     })
@@ -395,6 +395,11 @@ export class BreakGlassService {
       throw conflict('The person already has an open emergency grant for this hospital.')
     }
   }
+}
+
+/** An administrative change names the resource it changed. */
+function changeMetadata(grantId: string): Record<string, string> {
+  return { resource_type: 'break_glass_grant', resource_id: grantId }
 }
 
 function durationOf(value: number | undefined): number {
