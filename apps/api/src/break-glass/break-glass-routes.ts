@@ -50,6 +50,7 @@ export function createBreakGlass(dependencies: BreakGlassDependencies) {
   }
 
   return new Elysia({ name: 'break-glass.routes', prefix: '/v1/break-glass', tags: ['Break glass'] })
+    .derive(async (context) => ({ breakGlassContext: await contextOf(context) }))
     .post(
       '/grants',
       {
@@ -58,7 +59,7 @@ export function createBreakGlass(dependencies: BreakGlassDependencies) {
         detail: routeDetail('Request emergency access'),
       },
       async (context) => {
-        const actor = await contextOf(context)
+        const actor = context.breakGlassContext
         const grant =
           context.body.mode === 'pre_approved'
             ? await dependencies.grants.createPreApproved(actor, {
@@ -85,7 +86,7 @@ export function createBreakGlass(dependencies: BreakGlassDependencies) {
       },
       async (context) => {
         const grants = await dependencies.grants.list(
-          await contextOf(context),
+          context.breakGlassContext,
           context.query.hospitalId ?? null,
           pageRequest(context.query),
         )
@@ -101,7 +102,7 @@ export function createBreakGlass(dependencies: BreakGlassDependencies) {
       },
       async (context) =>
         grantResponse(
-          await dependencies.grants.activate(await contextOf(context), context.params.grantId),
+          await dependencies.grants.activate(context.breakGlassContext, context.params.grantId),
         ),
     )
     .post(
@@ -115,7 +116,7 @@ export function createBreakGlass(dependencies: BreakGlassDependencies) {
       async (context) =>
         grantResponse(
           await dependencies.grants.revoke(
-            await contextOf(context),
+            context.breakGlassContext,
             context.params.grantId,
             context.body.reason,
           ),
@@ -131,7 +132,7 @@ export function createBreakGlass(dependencies: BreakGlassDependencies) {
       },
       async (context) => {
         const review = await dependencies.grants.review(
-          await contextOf(context),
+          context.breakGlassContext,
           context.params.grantId,
           context.body.decision,
           context.body.notes ?? null,

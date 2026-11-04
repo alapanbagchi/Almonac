@@ -37,6 +37,20 @@ export function createOnboarding(dependencies: OnboardingRouteDependencies) {
     prefix: '/v1/onboarding',
     tags: ['Onboarding'],
   })
+    .derive(async (context) => {
+      const authenticated = await authenticateBearer(
+        context.headers.authorization,
+        dependencies.sessions,
+        dependencies.users,
+      )
+      return {
+        onboardingContext: {
+          userId: authenticated.user.id,
+          sessionId: authenticated.session.id,
+          ...requestContext(context.request, context.server, requestIdOf(context)),
+        },
+      }
+    })
     .post('/organisation', {
       body,
       response: { 201: response },
@@ -45,21 +59,11 @@ export function createOnboarding(dependencies: OnboardingRouteDependencies) {
         security: [{ bearerAuth: [] }],
       },
     }, async (context) => {
-      const { body: input, headers, request, server, set } = context
-      const authenticated = await authenticateBearer(
-        headers.authorization,
-        dependencies.sessions,
-        dependencies.users,
-      )
       const created = await dependencies.onboarding.create(
-        {
-          userId: authenticated.user.id,
-          sessionId: authenticated.session.id,
-          ...requestContext(request, server, requestIdOf(context)),
-        },
-        input,
+        context.onboardingContext,
+        context.body,
       )
-      set.status = 201
+      context.set.status = 201
       return {
         id: created.id,
         name: created.name,

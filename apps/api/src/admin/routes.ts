@@ -60,6 +60,7 @@ export function createAdmin(dependencies: AdminDependencies) {
   }
 
   return new Elysia({ name: 'admin.routes', prefix: '/v1/admin', tags: ['Administration'] })
+    .derive(async (context) => ({ adminContext: await contextOf(context) }))
     .post(
       '/organisations',
       {
@@ -69,7 +70,7 @@ export function createAdmin(dependencies: AdminDependencies) {
       },
       async (context) => {
         const organisation = await dependencies.organisations.create(
-          await contextOf(context),
+          context.adminContext,
           context.body,
         )
         context.set.status = 201
@@ -85,7 +86,7 @@ export function createAdmin(dependencies: AdminDependencies) {
       },
       async (context) => {
         const organisations = await dependencies.organisations.list(
-          await contextOf(context),
+          context.adminContext,
           pageRequest(context.query),
         )
         return {
@@ -102,7 +103,7 @@ export function createAdmin(dependencies: AdminDependencies) {
         detail: routeDetail('Read an organisation'),
       },
       async (context) => organisationResponse(
-        await dependencies.organisations.get(await contextOf(context), context.params.organisationId),
+        await dependencies.organisations.get(context.adminContext, context.params.organisationId),
       ),
     )
     .get(
@@ -115,7 +116,7 @@ export function createAdmin(dependencies: AdminDependencies) {
       },
       async (context) => {
         const hospitals = await dependencies.hospitals.list(
-          await contextOf(context),
+          context.adminContext,
           context.params.organisationId,
           pageRequest(context.query),
         )
@@ -135,7 +136,7 @@ export function createAdmin(dependencies: AdminDependencies) {
       },
       async (context) => {
         const hospital = await dependencies.hospitals.create(
-          await contextOf(context),
+          context.adminContext,
           context.params.organisationId,
           {
             name: context.body.name,
@@ -157,7 +158,7 @@ export function createAdmin(dependencies: AdminDependencies) {
       },
       async (context) => {
         const domains = await dependencies.hospitals.listDomains(
-          await contextOf(context),
+          context.adminContext,
           context.params.hospitalId,
           pageRequest(context.query),
         )
@@ -179,7 +180,7 @@ export function createAdmin(dependencies: AdminDependencies) {
       },
       async (context) => {
         const created = await dependencies.hospitals.addDomain(
-          await contextOf(context),
+          context.adminContext,
           context.params.hospitalId,
           context.body.domain,
         )
@@ -197,7 +198,7 @@ export function createAdmin(dependencies: AdminDependencies) {
       },
       async (context) => domainResponse(
         await dependencies.hospitals.verifyDomain(
-          await contextOf(context),
+          context.adminContext,
           context.params.hospitalId,
           context.params.domainId,
           context.body.token,
@@ -213,7 +214,7 @@ export function createAdmin(dependencies: AdminDependencies) {
       },
       async (context) => hospitalResponse(
         await dependencies.hospitals.setPrimaryDomain(
-          await contextOf(context),
+          context.adminContext,
           context.params.hospitalId,
           context.params.domainId,
         ),
@@ -229,7 +230,7 @@ export function createAdmin(dependencies: AdminDependencies) {
       },
       async (context) => {
         const memberships = await dependencies.memberships.list(
-          await contextOf(context),
+          context.adminContext,
           {
             organisationId: context.params.organisationId,
             hospitalId: context.query.hospitalId ?? null,
@@ -260,7 +261,7 @@ export function createAdmin(dependencies: AdminDependencies) {
       },
       async (context) => {
         const roles = await dependencies.memberships.listRoles(
-          await contextOf(context),
+          context.adminContext,
           context.params.organisationId,
           pageRequest(context.query),
         )
@@ -279,7 +280,7 @@ export function createAdmin(dependencies: AdminDependencies) {
       },
       async (context) => {
         await dependencies.memberships.suspend(
-          await contextOf(context),
+          context.adminContext,
           context.params.membershipId,
           context.body.reason,
         )
@@ -295,7 +296,7 @@ export function createAdmin(dependencies: AdminDependencies) {
       },
       async (context) => {
         await dependencies.memberships.revoke(
-          await contextOf(context),
+          context.adminContext,
           context.params.membershipId,
           context.body.reason,
         )
@@ -311,7 +312,7 @@ export function createAdmin(dependencies: AdminDependencies) {
       },
       async (context) => {
         await dependencies.memberships.assignRole(
-          await contextOf(context),
+          context.adminContext,
           context.params.membershipId,
           context.body.roleId,
         )
@@ -326,7 +327,7 @@ export function createAdmin(dependencies: AdminDependencies) {
       },
       async (context) => {
         await dependencies.memberships.revokeRole(
-          await contextOf(context),
+          context.adminContext,
           context.params.membershipId,
           context.params.roleId,
         )
@@ -343,7 +344,7 @@ export function createAdmin(dependencies: AdminDependencies) {
       },
       async (context) => {
         const invitations = await dependencies.invitations.list(
-          await contextOf(context),
+          context.adminContext,
           {
             organisationId: context.params.organisationId,
             hospitalId: context.query.hospitalId ?? null,
@@ -365,7 +366,7 @@ export function createAdmin(dependencies: AdminDependencies) {
         detail: routeDetail('Invite a person'),
       },
       async (context) => {
-        const requestContext = await contextOf(context)
+        const requestContext = context.adminContext
         const invitation = await dependencies.invitations.create(requestContext, {
           email: context.body.email,
           ...(context.body.displayName === undefined ? {} : { displayName: context.body.displayName }),
@@ -386,7 +387,7 @@ export function createAdmin(dependencies: AdminDependencies) {
       },
       async (context) => invitationResponse(
         await dependencies.invitations.resend(
-          await contextOf(context),
+          context.adminContext,
           context.params.invitationId,
         ),
       ),
@@ -399,7 +400,7 @@ export function createAdmin(dependencies: AdminDependencies) {
       },
       async (context) => {
         await dependencies.invitations.revoke(
-          await contextOf(context),
+          context.adminContext,
           context.params.invitationId,
         )
         return { ok: true }
@@ -414,7 +415,7 @@ export function createAdmin(dependencies: AdminDependencies) {
       },
       async (context) => invitationResponse(
         await dependencies.invitations.accept(
-          await contextOf(context),
+          context.adminContext,
           context.body.token,
         ),
       ),
@@ -434,7 +435,7 @@ export function createAdmin(dependencies: AdminDependencies) {
         detail: routeDetail('Read the audit log'),
       },
       async (context) => {
-        const entries = await dependencies.audit.list(await contextOf(context), {
+        const entries = await dependencies.audit.list(context.adminContext, {
           organisationId: context.params.organisationId,
           hospitalId: context.query.hospitalId ?? null,
           limit: limitOf(context.query.limit),
