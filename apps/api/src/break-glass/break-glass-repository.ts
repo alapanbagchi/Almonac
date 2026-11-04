@@ -240,13 +240,15 @@ export class BreakGlassRepository {
 
 export function isConstraintViolation(error: unknown): boolean {
   if (typeof error !== 'object' || error === null) return false
-  const code = Reflect.get(error, 'code')
+  const code = Reflect.get(error, 'code') as unknown
   return code === '23505' || code === '23514' || code === '23P01'
 }
 
 /** An exclusion constraint rejected an overlapping grant window. */
 export function isOverlapViolation(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && Reflect.get(error, 'code') === '23P01'
+  return (
+    typeof error === 'object' && error !== null && (Reflect.get(error, 'code') as unknown) === '23P01'
+  )
 }
 
 function mapGrant(value: unknown): BreakGlassGrant {

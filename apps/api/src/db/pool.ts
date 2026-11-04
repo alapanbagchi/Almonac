@@ -123,7 +123,7 @@ function readReadiness(result: unknown): ReadinessRow | undefined {
   const rows = (result as { rows?: unknown }).rows
   if (!Array.isArray(rows) || rows.length !== 1) return undefined
 
-  const row = rows[0]
+  const row = rows[0] as unknown
   if (typeof row !== 'object' || row === null) return undefined
 
   const values = row as Record<string, unknown>

@@ -65,14 +65,14 @@ export function nullableDateField(
 }
 
 export function bufferField(row: Record<string, unknown>, key: string): Buffer {
-  return fieldValue(row, key, 'bytea', Buffer.isBuffer)
+  return fieldValue(row, key, 'bytea', (value) => Buffer.isBuffer(value))
 }
 
 export function nullableBufferField(
   row: Record<string, unknown>,
   key: string,
 ): Buffer | null {
-  return nullableFieldValue(row, key, 'bytea', Buffer.isBuffer)
+  return nullableFieldValue(row, key, 'bytea', (value) => Buffer.isBuffer(value))
 }
 
 export function integerField(row: Record<string, unknown>, key: string): number {

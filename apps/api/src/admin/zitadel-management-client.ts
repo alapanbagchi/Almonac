@@ -246,7 +246,7 @@ export class ZitadelManagementClient {
       const body = await readProviderJson(response).catch(() => null)
       const code =
         body !== null && typeof body === 'object' && 'message' in body
-          ? String((body as { message: unknown }).message).slice(0, 100)
+          ? String(body.message).slice(0, 100)
           : null
       throw new ZitadelRejectedError(response.status, code)
     }

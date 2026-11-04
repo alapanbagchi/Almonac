@@ -17,7 +17,7 @@ export async function readJsonBody(response: Response, maxBytes: number): Promis
     if (Number.isFinite(length) && length > maxBytes) throw new ResponseBodyError('too-large')
   }
 
-  const reader = response.body?.getReader()
+  const reader = (response.body as ReadableStream<Uint8Array> | null)?.getReader()
   if (reader === undefined) return {}
 
   const chunks: Uint8Array[] = []

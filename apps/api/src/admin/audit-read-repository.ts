@@ -100,7 +100,7 @@ function readMetadata(value: unknown): Readonly<Record<string, string | number |
     throw new Error('database field metadata is not an object')
   }
   const metadata: Record<string, string | number | boolean | null> = {}
-  for (const [key, item] of Object.entries(value)) {
+  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
     if (
       item !== null &&
       typeof item !== 'string' &&
