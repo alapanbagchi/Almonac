@@ -1,10 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-async function signIn(page: import("@playwright/test").Page) {
-  await page.goto("/dashboard");
-  await page.getByRole("link", { name: "Continue to sign in" }).click();
-  await expect(page).toHaveURL(/\/dashboard$/);
-}
+import { signIn } from "./support/sign-in";
 
 function sessionCookie(cookies: { name: string; value: string }[]) {
   return cookies.find((cookie) => cookie.name === "__Host-almonac_sid")?.value ?? null;

@@ -8,12 +8,16 @@ const TOKEN = "A".repeat(43);
 const HOSPITAL_ADMIN_TOKEN = "D".repeat(43);
 const UNAVAILABLE_TOKEN = "C".repeat(43);
 const STEP_UP_TOKEN = "E".repeat(43);
+const FRESH_TOKEN = "F".repeat(43);
 const GRANT_ID = "00000000-0000-4000-8000-000000000007";
 
 interface Attempt {
   returnTo: string;
   stepUp: boolean;
+  fresh: boolean;
 }
+
+let onboarded = false;
 
 /** Login attempts in flight, keyed by state, so parallel tests do not collide. */
 const attempts = new Map<string, Attempt>();
@@ -48,6 +52,12 @@ const SESSION = {
     "audit.read",
     "break_glass.request",
   ],
+};
+
+const FRESH_SESSION = {
+  user: SESSION.user,
+  memberships: [],
+  permissions: [],
 };
 
 const HOSPITAL_ADMIN_SESSION = {
@@ -139,7 +149,8 @@ function authorised(request: Request): boolean {
   return (
     authorization === `Bearer ${TOKEN}` ||
     authorization === `Bearer ${HOSPITAL_ADMIN_TOKEN}` ||
-    authorization === `Bearer ${STEP_UP_TOKEN}`
+    authorization === `Bearer ${STEP_UP_TOKEN}` ||
+    authorization === `Bearer ${FRESH_TOKEN}`
   );
 }
 
@@ -154,6 +165,9 @@ Bun.serve({
       if (authorization === `Bearer ${UNAVAILABLE_TOKEN}`) return failure(503, "AUTH_UNAVAILABLE");
       if (authorization === `Bearer ${HOSPITAL_ADMIN_TOKEN}`) {
         return json(200, HOSPITAL_ADMIN_SESSION);
+      }
+      if (authorization === `Bearer ${FRESH_TOKEN}`) {
+        return json(200, onboarded ? SESSION : FRESH_SESSION);
       }
       return authorization === `Bearer ${TOKEN}` || authorization === `Bearer ${STEP_UP_TOKEN}`
         ? json(200, SESSION)
@@ -275,6 +289,64 @@ Bun.serve({
 
     if (request.method !== "POST") return failure(404, "NOT_FOUND");
 
+    if (pathname === "/v1/auth/register") {
+      const body: unknown = await request.json();
+      const email =
+        typeof body === "object" && body !== null && "email" in body && typeof body.email === "string"
+          ? body.email
+          : "";
+      if (email === "taken@example.test") return failure(409, "EMAIL_TAKEN");
+      return json(202, { status: "verification_sent" });
+    }
+
+    if (pathname === "/v1/auth/verify-email") {
+      const body: unknown = await request.json();
+      const token =
+        typeof body === "object" && body !== null && "token" in body && typeof body.token === "string"
+          ? body.token
+          : "";
+      if (token.startsWith("X")) return failure(422, "EMAIL_VERIFICATION_INVALID");
+      return json(200, { status: "verified" });
+    }
+
+    if (pathname === "/v1/auth/password-login") {
+      const body: unknown = await request.json();
+      const returnTo =
+        typeof body === "object" && body !== null && "returnTo" in body && typeof body.returnTo === "string"
+          ? body.returnTo
+          : "/dashboard";
+      const email =
+        typeof body === "object" && body !== null && "email" in body && typeof body.email === "string"
+          ? body.email
+          : "";
+      if (email === "nobody@example.test") return failure(401, "AUTH_FAILED");
+      const state = crypto.randomUUID().replaceAll("-", "").padEnd(43, "x");
+      // A sign-in headed for onboarding is a brand new account with no memberships yet.
+      attempts.set(state, {
+        returnTo,
+        stepUp: false,
+        fresh: returnTo === "/onboarding/organisation",
+      });
+      return json(200, {
+        callbackUrl: `http://localhost:3100/api/auth/callback?code=test-code&state=${state}`,
+      });
+    }
+
+    if (pathname === "/v1/onboarding/organisation") {
+      if (!authorised(request)) return failure(401, "AUTH_REQUIRED");
+      const body: unknown = await request.json();
+      const name =
+        typeof body === "object" && body !== null && "name" in body && typeof body.name === "string"
+          ? body.name
+          : "New organisation";
+      const slug =
+        typeof body === "object" && body !== null && "slug" in body && typeof body.slug === "string"
+          ? body.slug
+          : "new-organisation";
+      onboarded = true;
+      return json(201, { id: ORG_ID, name, slug, status: "active" });
+    }
+
     if (pathname === "/v1/auth/login-attempts" || pathname === "/v1/auth/step-up-attempts") {
       const stepUp = pathname.endsWith("step-up-attempts");
       if (stepUp && !authorised(request)) return failure(401, "AUTH_FAILED");
@@ -284,7 +356,7 @@ Bun.serve({
           ? body.returnTo
           : "/dashboard";
       const state = crypto.randomUUID().replaceAll("-", "").padEnd(43, "x");
-      attempts.set(state, { returnTo, stepUp });
+      attempts.set(state, { returnTo, stepUp, fresh: false });
       return json(201, {
         authorizationUrl: `http://localhost:3100/api/auth/callback?code=test-code&state=${state}`,
         expiresAt: new Date(Date.now() + 600_000).toISOString(),
@@ -309,7 +381,7 @@ Bun.serve({
       if (!valid || attempt === undefined) return failure(401, "AUTH_FAILED");
       attempts.delete(state);
       return json(200, {
-        token: attempt.stepUp ? STEP_UP_TOKEN : TOKEN,
+        token: attempt.stepUp ? STEP_UP_TOKEN : attempt.fresh ? FRESH_TOKEN : TOKEN,
         expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
         returnTo: attempt.returnTo,
       });

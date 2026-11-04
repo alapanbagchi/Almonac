@@ -1,10 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-async function signIn(page: import("@playwright/test").Page) {
-  await page.goto("/dashboard");
-  await page.getByRole("link", { name: "Continue to sign in" }).click();
-  await expect(page).toHaveURL(/\/dashboard$/);
-}
+import { signIn } from "./support/sign-in";
 
 test("needs a fresh identity check before emergency access", async ({ page }) => {
   await signIn(page);
