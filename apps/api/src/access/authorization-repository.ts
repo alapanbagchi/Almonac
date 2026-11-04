@@ -14,6 +14,11 @@ export class AuthorizationRepository {
   constructor(private readonly db: DatabaseQuery) {}
 
   async hasPlatformPermission(userId: string, permission: string): Promise<boolean> {
+    return this.hasAnyPlatformPermission(userId, [permission])
+  }
+
+  /** True when any one of several platform permissions is held. */
+  async hasAnyPlatformPermission(userId: string, permissions: readonly string[]): Promise<boolean> {
     const result = await this.db.query(
       `select exists (
          select 1
@@ -24,11 +29,11 @@ export class AuthorizationRepository {
          join control.permission as permission
            on permission.key = role_permission.permission_key
          where assignment.user_id = $1
-           and role_permission.permission_key = $2
+           and role_permission.permission_key = any($2::text[])
            and role.scope = 'platform'
            and not permission.is_clinical
        ) as allowed`,
-      [userId, permission],
+      [userId, permissions],
     )
     return result.rows[0] !== undefined && isAllowed(result.rows[0])
   }
