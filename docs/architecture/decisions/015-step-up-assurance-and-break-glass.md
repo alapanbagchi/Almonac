@@ -80,6 +80,7 @@ requires. Claiming AAL3 from the AMR value alone would be false.
 ## Follow-ups
 
 - Add a review queue and notification for grants that need review.
+- Return review state on the grant list so the screen hides grants that are already reviewed.
 - Re-check whether Zitadel can supply a trustworthy AAL3 or hardware-bound signal.
 - Consume active grants in the first clinical authorisation guard.
 - Add an operations alert for emergency activation and for overdue reviews.
