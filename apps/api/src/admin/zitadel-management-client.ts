@@ -141,15 +141,13 @@ export class ZitadelManagementClient {
     organisationId: string | null,
     input: { email: string; displayName: string; password?: string },
   ): Promise<string> {
-    const parts = input.displayName.trim().split(/\s+/)
-    const firstName = parts[0] ?? input.email
-    const lastName = parts.slice(1).join(' ') || firstName
+    const names = splitName(input)
     const body = await this.request(
       'POST',
       '/management/v1/users/human/_import',
       {
         userName: input.email,
-        profile: { firstName, lastName, displayName: input.displayName },
+        profile: { ...names, displayName: input.displayName },
         email: { email: input.email, isEmailVerified: false },
         ...(input.password === undefined
           ? {}
@@ -174,16 +172,10 @@ export class ZitadelManagementClient {
     displayName: string
     passwordHash: string
   }): Promise<string> {
-    const parts = input.displayName.trim().split(/\s+/)
-    const firstName = parts[0] ?? input.email
-    const lastName = parts.slice(1).join(' ') || firstName
+    const names = splitName(input)
     const body = await this.request('POST', '/v2/users/human', {
       username: input.email,
-      profile: {
-        givenName: firstName,
-        familyName: lastName,
-        displayName: input.displayName,
-      },
+      profile: { ...names, displayName: input.displayName },
       email: { email: input.email, isVerified: true },
       hashedPassword: { hash: input.passwordHash },
     })
@@ -263,6 +255,18 @@ async function readProviderJson(response: Response): Promise<unknown> {
   } catch {
     throw new ZitadelUnavailableError('response body is unavailable')
   }
+}
+
+/**
+ * Zitadel wants a given and a family name. A single word becomes both, and an
+ * empty display name falls back to the address rather than a blank profile.
+ */
+function splitName(input: { email: string; displayName: string }): {
+  givenName: string
+  familyName: string
+} {
+  const [first = input.email, ...rest] = input.displayName.trim().split(/\s+/)
+  return { givenName: first, familyName: rest.join(' ') || first }
 }
 
 function readRecord(value: unknown): Record<string, unknown> {
