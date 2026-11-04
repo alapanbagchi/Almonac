@@ -2,6 +2,7 @@ import type { DatabaseQuery } from '../db/pool'
 import {
   dateField,
   nullableDateField,
+  nullableStringField,
   rowRecord,
   stringField,
 } from '../db/rows'
@@ -12,6 +13,8 @@ export interface PendingRegistration {
   readonly displayName: string
   readonly passwordHash: string
   readonly expiresAt: Date
+  readonly claimedAt: Date | null
+  readonly claimId: string | null
   readonly consumedAt: Date | null
 }
 
@@ -25,18 +28,25 @@ export interface NewPendingRegistration {
   readonly userAgentHash: Buffer | null
 }
 
+export type ClaimedPendingRegistration = PendingRegistration & {
+  readonly claimedAt: Date
+  readonly claimId: string
+}
+
 export interface PendingRegistrationStore {
   replace(input: NewPendingRegistration): Promise<void>
-  findForUpdate(
+  claim(
     db: DatabaseQuery,
     tokenHash: Buffer,
-    at: Date,
-  ): Promise<PendingRegistration | null>
-  markConsumed(db: DatabaseQuery, id: string, at: Date): Promise<boolean>
+    leaseSeconds: number,
+  ): Promise<ClaimedPendingRegistration | null>
+  release(db: DatabaseQuery, id: string, claimId: string): Promise<boolean>
+  finish(db: DatabaseQuery, id: string, claimId: string): Promise<boolean>
 }
 
 const COLUMNS = `
-  id, email, display_name, password_hash, expires_at, consumed_at
+  id, email, display_name, password_hash, expires_at,
+  claimed_at, claim_id, consumed_at
 `
 
 /**
@@ -53,7 +63,7 @@ export class PendingRegistrationRepository implements PendingRegistrationStore {
          (email, display_name, password_hash, token_hash, expires_at,
           requested_ip, user_agent_hash)
        values ($1, $2, $3, $4, $5, $6, $7)
-       on conflict (email) where consumed_at is null do update set
+       on conflict (email) where consumed_at is null and claimed_at is null do update set
          display_name = excluded.display_name,
          password_hash = excluded.password_hash,
          token_hash = excluded.token_hash,
@@ -74,31 +84,57 @@ export class PendingRegistrationRepository implements PendingRegistrationStore {
   }
 
   /**
-   * Lock the open row for the duration of the verification transaction. The
-   * lock is what stops two concurrent clicks from creating two identities.
+   * Reserve an open row without holding a transaction across the provider call.
+   * A claim older than the lease may be taken over, so a crashed attempt cannot
+   * strand the link forever. Database time is authoritative for both the expiry
+   * check and the claim, so a skewed application clock cannot break the
+   * `claimed_at` constraint.
    */
-  async findForUpdate(
+  async claim(
     db: DatabaseQuery,
     tokenHash: Buffer,
-    at: Date,
-  ): Promise<PendingRegistration | null> {
-    const result = await db.query(
-      `select ${COLUMNS}
-         from identity.pending_registration
-        where token_hash = $1 and consumed_at is null and expires_at > $2
-        for update`,
-      [tokenHash, at],
-    )
-    return result.rows[0] === undefined ? null : mapRow(result.rows[0])
-  }
-
-  async markConsumed(db: DatabaseQuery, id: string, at: Date): Promise<boolean> {
+    leaseSeconds: number,
+  ): Promise<ClaimedPendingRegistration | null> {
     const result = await db.query(
       `update identity.pending_registration
-          set consumed_at = $2
-        where id = $1 and consumed_at is null
+          set claimed_at = now(), claim_id = gen_random_uuid()
+        where token_hash = $1
+          and consumed_at is null
+          and expires_at > now()
+          and (claimed_at is null or claimed_at <= now() - $2 * interval '1 second')
+        returning ${COLUMNS}`,
+      [tokenHash, leaseSeconds],
+    )
+    if (result.rows[0] === undefined) return null
+    const registration = mapRow(result.rows[0])
+    if (registration.claimedAt === null || registration.claimId === null) {
+      throw new Error('claimed registration has no claim identifier')
+    }
+    return {
+      ...registration,
+      claimedAt: registration.claimedAt,
+      claimId: registration.claimId,
+    }
+  }
+
+  async release(db: DatabaseQuery, id: string, claimId: string): Promise<boolean> {
+    const result = await db.query(
+      `update identity.pending_registration
+          set claimed_at = null, claim_id = null
+        where id = $1 and claim_id = $2 and consumed_at is null
         returning id`,
-      [id, at],
+      [id, claimId],
+    )
+    return result.rows.length === 1
+  }
+
+  async finish(db: DatabaseQuery, id: string, claimId: string): Promise<boolean> {
+    const result = await db.query(
+      `update identity.pending_registration
+          set consumed_at = now()
+        where id = $1 and claim_id = $2 and consumed_at is null
+        returning id`,
+      [id, claimId],
     )
     return result.rows.length === 1
   }
@@ -112,6 +148,8 @@ function mapRow(value: unknown): PendingRegistration {
     displayName: stringField(row, 'display_name'),
     passwordHash: stringField(row, 'password_hash'),
     expiresAt: dateField(row, 'expires_at'),
+    claimedAt: nullableDateField(row, 'claimed_at'),
+    claimId: nullableStringField(row, 'claim_id'),
     consumedAt: nullableDateField(row, 'consumed_at'),
   }
 }

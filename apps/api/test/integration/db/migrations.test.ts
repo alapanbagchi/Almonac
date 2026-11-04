@@ -361,7 +361,7 @@ describe('control database schema', () => {
       'select version from control.schema_metadata where id = 1',
     )
 
-    expect(result.rows[0]?.version).toBe(9)
+    expect(result.rows[0]?.version).toBe(10)
   })
 })
 
@@ -3350,15 +3350,16 @@ describe('pending registration repository', () => {
     }
   }
 
-  test('stores a sign-up and finds it by token before expiry', async () => {
+  test('claims a sign-up by token before expiry', async () => {
     const email = `pending.find.${randomUUID()}@example.test`
     const token = randomBytes(32).toString('base64url')
-    const now = new Date()
-    await pending().replace(record(email, token, new Date(now.getTime() + 60_000)))
+    await pending().replace(record(email, token, new Date(Date.now() + 60_000)))
 
-    const found = await pending().findForUpdate(appPool, hashToken(token), now)
+    const found = await pending().claim(appPool, hashToken(token), 300)
 
     expect(found).toMatchObject({ email, displayName: 'Ada Lovelace' })
+    expect(found?.claimedAt).toBeInstanceOf(Date)
+    expect(typeof found?.claimId).toBe('string')
     expect(found?.consumedAt).toBeNull()
   })
 
@@ -3366,10 +3367,9 @@ describe('pending registration repository', () => {
     const email = `pending.replace.${randomUUID()}@example.test`
     const first = randomBytes(32).toString('base64url')
     const second = randomBytes(32).toString('base64url')
-    const now = new Date()
-    await pending().replace(record(email, first, new Date(now.getTime() + 60_000)))
+    await pending().replace(record(email, first, new Date(Date.now() + 60_000)))
     await pending().replace({
-      ...record(email, second, new Date(now.getTime() + 120_000)),
+      ...record(email, second, new Date(Date.now() + 120_000)),
       displayName: 'Ada King',
     })
 
@@ -3378,23 +3378,21 @@ describe('pending registration repository', () => {
       [email],
     )
     expect(open.rows[0]!.count).toBe(1)
-    expect(await pending().findForUpdate(appPool, hashToken(first), now)).toBeNull()
-    const found = await pending().findForUpdate(appPool, hashToken(second), now)
+    expect(await pending().claim(appPool, hashToken(first), 300)).toBeNull()
+    const found = await pending().claim(appPool, hashToken(second), 300)
     expect(found).toMatchObject({ email, displayName: 'Ada King' })
   })
 
   test('consumes a sign-up exactly once', async () => {
     const email = `pending.consume.${randomUUID()}@example.test`
     const token = randomBytes(32).toString('base64url')
-    const now = new Date()
-    await pending().replace(record(email, token, new Date(now.getTime() + 60_000)))
-    const stored = await pending().findForUpdate(appPool, hashToken(token), now)
+    await pending().replace(record(email, token, new Date(Date.now() + 60_000)))
+    const stored = await pending().claim(appPool, hashToken(token), 300)
     expect(stored).not.toBeNull()
 
-    const consumedAt = new Date()
-    expect(await pending().markConsumed(appPool, stored!.id, consumedAt)).toBe(true)
-    expect(await pending().markConsumed(appPool, stored!.id, consumedAt)).toBe(false)
-    expect(await pending().findForUpdate(appPool, hashToken(token), now)).toBeNull()
+    expect(await pending().finish(appPool, stored!.id, stored!.claimId)).toBe(true)
+    expect(await pending().finish(appPool, stored!.id, stored!.claimId)).toBe(false)
+    expect(await pending().claim(appPool, hashToken(token), 300)).toBeNull()
 
     await expect(
       ownerPool.query(
@@ -3404,15 +3402,37 @@ describe('pending registration repository', () => {
     ).rejects.toMatchObject({ code: '23514' })
   })
 
+  test('lets a stale claim be taken over and a released claim be retried', async () => {
+    const email = `pending.stale.${randomUUID()}@example.test`
+    const token = randomBytes(32).toString('base64url')
+    await pending().replace(record(email, token, new Date(Date.now() + 60_000)))
+    const firstClaim = await pending().claim(appPool, hashToken(token), 300)
+    expect(firstClaim).not.toBeNull()
+    expect(await pending().claim(appPool, hashToken(token), 300)).toBeNull()
+
+    await ownerPool.query(
+      "update identity.pending_registration set created_at = now() - interval '1 hour', claimed_at = now() - interval '10 minutes' where id = $1",
+      [firstClaim!.id],
+    )
+    const takeover = await pending().claim(appPool, hashToken(token), 300)
+    expect(typeof takeover?.claimId).toBe('string')
+
+    expect(await pending().release(appPool, firstClaim!.id, firstClaim!.claimId)).toBe(false)
+    expect(await pending().release(appPool, firstClaim!.id, takeover!.claimId)).toBe(true)
+    const retried = await pending().claim(appPool, hashToken(token), 300)
+    expect(retried?.claimedAt).toBeInstanceOf(Date)
+  })
+
   test('ignores an expired sign-up', async () => {
     const email = `pending.expired.${randomUUID()}@example.test`
     const token = randomBytes(32).toString('base64url')
-    const now = new Date()
-    await pending().replace(record(email, token, new Date(now.getTime() + 60_000)))
+    await pending().replace(record(email, token, new Date(Date.now() + 60_000)))
+    await ownerPool.query(
+      "update identity.pending_registration set created_at = now() - interval '2 hours', expires_at = now() - interval '1 hour' where email = $1",
+      [email],
+    )
 
-    expect(
-      await pending().findForUpdate(appPool, hashToken(token), new Date(now.getTime() + 120_000)),
-    ).toBeNull()
+    expect(await pending().claim(appPool, hashToken(token), 300)).toBeNull()
   })
 
   test('does not let the runtime delete a sign-up', async () => {

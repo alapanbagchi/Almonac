@@ -33,8 +33,9 @@ function store(captured: NewPendingRegistration[]): PendingRegistrationStore {
     replace: async (input) => {
       captured.push(input)
     },
-    findForUpdate: async () => null,
-    markConsumed: async () => true,
+    claim: async () => null,
+    release: async () => true,
+    finish: async () => true,
   }
 }
 
