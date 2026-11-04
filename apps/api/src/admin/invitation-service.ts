@@ -238,13 +238,16 @@ export class InvitationService {
       await audit.write({
         actorUserId: user.id,
         actorType: 'user',
-        sessionId: null,
+        sessionId: context.sessionId,
         organisationId: invitation.organisationId,
         hospitalId: invitation.hospitalId,
         eventType: 'invitation.accept',
         outcome: 'success',
         targetType: 'invitation',
         targetId: invitation.id,
+        requestId: context.requestId,
+        ip: context.ip,
+        userAgentHash: context.userAgentHash,
         metadata: { invitation_id: invitation.id },
       })
       return { ...invitation, status: 'accepted', acceptedAt: now, acceptedByUserId: user.id }

@@ -2600,19 +2600,35 @@ describe('invitation service', () => {
     expect(wrongActor).toBeInstanceOf(AppError)
     expect((wrongActor as AppError).status).toBe(403)
 
-    const accepted = await service.accept(
-      {
-        actor: invitee!,
-        sessionId: randomUUID(),
-        requestId: 'request-accept',
-        ip: null,
-        userAgentHash: null,
-      },
-      sent.token!,
-    )
+    const acceptContext = {
+      actor: invitee!,
+      sessionId: randomUUID(),
+      requestId: 'request-accept',
+      ip: '203.0.113.9',
+      userAgentHash: Buffer.alloc(32, 7),
+    }
+    const accepted = await service.accept(acceptContext, sent.token!)
     expect(accepted.status).toBe('accepted')
     expect(accepted.acceptedByUserId).toBe(inviteeId)
     expect(accepted.roleIds).toEqual([role])
+
+    const auditEvent = await appPool.query<{
+      session_id: string
+      request_id: string
+      ip: string
+      user_agent_hash: Buffer
+    }>(
+      `select session_id, request_id, ip, user_agent_hash
+         from audit.event
+        where event_type = 'invitation.accept' and target_id = $1`,
+      [invitation.id],
+    )
+    expect(auditEvent.rows[0]).toMatchObject({
+      session_id: acceptContext.sessionId,
+      request_id: 'request-accept',
+      ip: '203.0.113.9',
+    })
+    expect(auditEvent.rows[0]!.user_agent_hash).toEqual(acceptContext.userAgentHash)
 
     const membership = await ownerPool.query<{ count: number }>(
       'select count(*)::int as count from control.membership where user_id = $1 and organisation_id = $2',
