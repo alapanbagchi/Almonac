@@ -111,12 +111,30 @@ export function createAuthApi({
       return { authorizationUrl: data.authorizationUrl, expiresAt: new Date(data.expiresAt) };
     },
 
-    async completeLogin(code: string, state: string): Promise<LoginResult> {
+    async startStepUp(token: string, returnTo: string): Promise<LoginStart> {
+      const data = await call(
+        "/v1/auth/step-up-attempts",
+        {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${token}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ returnTo }),
+        },
+        loginStart,
+      );
+      return { authorizationUrl: data.authorizationUrl, expiresAt: new Date(data.expiresAt) };
+    },
+
+    async completeLogin(code: string, state: string, token: string | null = null): Promise<LoginResult> {
+      const headers: Record<string, string> = { "content-type": "application/json" };
+      if (token !== null) headers.authorization = `Bearer ${token}`;
       const data = await call(
         "/v1/auth/callback",
         {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers,
           body: JSON.stringify({ code, state }),
         },
         loginResult,

@@ -41,9 +41,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const binding = request.cookies.get(LOGIN_COOKIE_NAME)?.value;
   if (binding === undefined || binding !== state) return failure("expired");
 
+  const sessionToken = request.cookies.get(SESSION_COOKIE_NAME)?.value ?? null;
+
   let result;
   try {
-    result = await createAuthApi({ baseUrl: config.apiUrl }).completeLogin(code, state);
+    result = await createAuthApi({ baseUrl: config.apiUrl }).completeLogin(
+      code,
+      state,
+      sessionToken !== null && isSessionToken(sessionToken) ? sessionToken : null,
+    );
   } catch (error) {
     return failure(
       error instanceof AuthApiError && (error.status === 0 || error.status === 503)

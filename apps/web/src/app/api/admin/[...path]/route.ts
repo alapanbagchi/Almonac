@@ -6,46 +6,7 @@ import { loadWebConfig, type WebConfig } from "@/lib/auth/config";
 import { noStore } from "@/lib/auth/responses";
 import { hasTrustedOrigin } from "@/lib/auth/same-origin";
 import { getSessionToken } from "@/lib/auth/session";
-
-const MAX_BODY_BYTES = 8_192;
-
-class BodyTooLargeError extends Error {}
-
-/** Reads at most MAX_BODY_BYTES, so an unauthenticated caller cannot stream
- * an unbounded body through the BFF. */
-async function readBoundedBody(request: NextRequest): Promise<string> {
-  const declared = Number(request.headers.get("content-length") ?? "0");
-  if (!Number.isFinite(declared) || declared > MAX_BODY_BYTES) {
-    throw new BodyTooLargeError();
-  }
-  if (request.body === null) return "";
-
-  const reader = request.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      total += value.byteLength;
-      if (total > MAX_BODY_BYTES) {
-        await reader.cancel();
-        throw new BodyTooLargeError();
-      }
-      chunks.push(value);
-    }
-  } finally {
-    reader.releaseLock();
-  }
-
-  const bytes = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return new TextDecoder().decode(bytes);
-}
+import { BodyTooLargeError, readBoundedBody } from "@/lib/http/bounded-body";
 
 /**
  * Relays an allowlisted administration call to the API. The browser never
