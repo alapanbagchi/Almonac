@@ -2,6 +2,7 @@ import type { DatabaseQuery } from '../db/pool'
 import { pageOf, type Page, type PageRequest } from '../shared/pagination'
 import {
   dateField,
+  hasSqlState,
   nullableDateField,
   nullableStringField,
   rowRecord,
@@ -314,10 +315,5 @@ function mapMembership(value: unknown): MembershipSummary {
 }
 
 function isExclusionViolation(error: unknown): boolean {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'code' in error &&
-    (error as { code?: unknown }).code === '23P01'
-  )
+  return hasSqlState(error, '23P01')
 }

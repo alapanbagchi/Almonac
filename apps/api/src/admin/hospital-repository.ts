@@ -2,6 +2,7 @@ import type { DatabaseQuery } from '../db/pool'
 import { pageOf, type Page, type PageRequest } from '../shared/pagination'
 import {
   dateField,
+  hasSqlState,
   nullableDateField,
   nullableStringField,
   rowRecord,
@@ -81,7 +82,7 @@ export class HospitalRepository {
       )
       return mapHospital(result.rows[0])
     } catch (error) {
-      if (isUniqueViolation(error)) throw new HospitalSlugConflictError()
+      if (hasSqlState(error, '23505')) throw new HospitalSlugConflictError()
       throw error
     }
   }
@@ -118,7 +119,7 @@ export class HospitalRepository {
       )
       return mapDomain(result.rows[0])
     } catch (error) {
-      if (isUniqueViolation(error)) throw new DomainConflictError()
+      if (hasSqlState(error, '23505')) throw new DomainConflictError()
       throw error
     }
   }
@@ -168,7 +169,7 @@ export class HospitalRepository {
     } catch (error) {
       // The trigger rejects a missing, unverified, retired or foreign domain
       // with 23503 or 23514. Both mean the same thing to the caller.
-      if (isConstraintViolation(error)) throw new PrimaryDomainRejectedError()
+      if (hasSqlState(error, '23503', '23514')) throw new PrimaryDomainRejectedError()
       throw error
     }
   }
@@ -198,18 +199,4 @@ function mapDomain(value: unknown): HospitalDomain {
     retiredAt: nullableDateField(row, 'retired_at'),
     createdAt: dateField(row, 'created_at'),
   }
-}
-
-function isUniqueViolation(error: unknown): boolean {
-  return hasSqlState(error, '23505')
-}
-
-function isConstraintViolation(error: unknown): boolean {
-  return hasSqlState(error, '23503', '23514')
-}
-
-function hasSqlState(error: unknown, ...codes: string[]): boolean {
-  if (typeof error !== 'object' || error === null || !('code' in error)) return false
-  const code = (error as { code?: unknown }).code
-  return typeof code === 'string' && codes.includes(code)
 }

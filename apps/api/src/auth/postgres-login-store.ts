@@ -2,7 +2,7 @@ import type { Pool } from 'pg'
 import { AuditWriter } from '../audit/audit-writer'
 import type { DatabaseQuery, DatabaseResult } from '../db/pool'
 import { withTransaction } from '../db/pool'
-import { rowRecord, stringField } from '../db/rows'
+import { hasSqlState, rowRecord, stringField } from '../db/rows'
 import {
   AppUserEmailConflictError,
   AppUserRepository,
@@ -238,7 +238,7 @@ export class PostgresLoginStore implements LoginCompletionStore {
         [user.id, invitation.organisationId, invitation.hospitalId],
       )
     } catch (error) {
-      if (isMembershipConflict(error)) {
+      if (hasSqlState(error, '23P01', '23505')) {
         throw new LoginRejectedError('membership_conflict', user.id)
       }
       throw error
@@ -288,10 +288,3 @@ export class PostgresLoginStore implements LoginCompletionStore {
   }
 }
 
-function isMembershipConflict(error: unknown): boolean {
-  if (typeof error !== 'object' || error === null || !('code' in error)) {
-    return false
-  }
-  const code = (error as { code?: unknown }).code
-  return code === '23P01' || code === '23505'
-}

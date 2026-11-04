@@ -1,5 +1,6 @@
 import type { DatabaseQuery } from '../db/pool'
 import {
+  hasSqlState,
   dateField,
   nullableDateField,
   nullableStringField,
@@ -172,11 +173,7 @@ function mapRow(value: unknown): AppUser {
 
 function isEmailConflict(error: unknown): boolean {
   return (
-    typeof error === 'object' &&
-    error !== null &&
-    'code' in error &&
-    'constraint' in error &&
-    (error as { code?: unknown }).code === '23505' &&
-    (error as { constraint?: unknown }).constraint === 'app_user_email_key'
+    hasSqlState(error, '23505') &&
+    Reflect.get(error as object, 'constraint') === 'app_user_email_key'
   )
 }

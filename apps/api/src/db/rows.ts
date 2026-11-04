@@ -9,11 +9,9 @@ export function rowRecord(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>
 }
 
-type FieldCheck<T> = (value: unknown) => value is T
-
 interface Kind<T> {
   readonly label: string
-  readonly check: FieldCheck<T>
+  readonly check: (value: unknown) => value is T
 }
 
 const KIND = {
@@ -34,13 +32,14 @@ const KIND = {
   },
 } as const satisfies Record<string, Kind<unknown>>
 
-function field<T>(row: Record<string, unknown>, key: string, kind: Kind<T>): T {
+/** Read one validated field; an absent key fails just like a wrong type. */
+export function field<T>(row: Record<string, unknown>, key: string, kind: Kind<T>): T {
   const value = row[key]
   if (!kind.check(value)) throw new Error(`database field ${key} is not ${kind.label}`)
   return value
 }
 
-function nullableField<T>(row: Record<string, unknown>, key: string, kind: Kind<T>): T | null {
+export function nullableField<T>(row: Record<string, unknown>, key: string, kind: Kind<T>): T | null {
   if (row[key] === null) return null
   return field(row, key, kind)
 }
@@ -79,4 +78,10 @@ export function nullableIntegerField(row: Record<string, unknown>, key: string):
 
 export function textArrayField(row: Record<string, unknown>, key: string): string[] {
   return field(row, key, KIND.textArray)
+}
+/** True when PostgreSQL rejected the statement with any of these SQLSTATEs. */
+export function hasSqlState(error: unknown, ...codes: readonly string[]): boolean {
+  if (typeof error !== 'object' || error === null) return false
+  const code = Reflect.get(error, 'code') as unknown
+  return typeof code === 'string' && codes.includes(code)
 }

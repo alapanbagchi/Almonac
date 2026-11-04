@@ -2,6 +2,7 @@ import type { DatabaseQuery } from '../db/pool'
 import { pageOf, type Page, type PageRequest } from '../shared/pagination'
 import {
   dateField,
+  hasSqlState,
   nullableDateField,
   nullableStringField,
   rowRecord,
@@ -49,7 +50,7 @@ export class OrganisationRepository {
       )
       return mapOrganisation(result.rows[0])
     } catch (error) {
-      if (isUniqueViolation(error)) throw new OrganisationSlugConflictError()
+      if (hasSqlState(error, '23505')) throw new OrganisationSlugConflictError()
       throw error
     }
   }
@@ -110,13 +111,4 @@ function mapOrganisation(value: unknown): Organisation {
     provisionedAt: nullableDateField(row, 'provisioned_at'),
     createdAt: dateField(row, 'created_at'),
   }
-}
-
-function isUniqueViolation(error: unknown): boolean {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'code' in error &&
-    (error as { code?: unknown }).code === '23505'
-  )
 }
