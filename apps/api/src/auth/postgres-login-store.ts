@@ -14,6 +14,7 @@ import type {
   LoginCompletion,
   LoginCompletionInput,
   LoginCompletionStore,
+  StepUpCompletionInput,
 } from './login-service'
 import { LoginRejectedError } from './login-service'
 
@@ -45,6 +46,76 @@ export class PostgresLoginStore implements LoginCompletionStore {
 
   async complete(input: LoginCompletionInput): Promise<LoginCompletion> {
     return withTransaction(this.pool, (db) => this.completeInTransaction(db, input))
+  }
+
+  /**
+   * Rotate an existing session after a step-up. The attempt, the old session and
+   * the new token must all belong to the same active user. The old token is
+   * revoked in the same transaction that creates its replacement.
+   */
+  async completeStepUp(input: StepUpCompletionInput): Promise<LoginCompletion> {
+    return withTransaction(this.pool, async (db) => {
+      const userId = input.attempt.userId
+      if (userId === null) throw new LoginRejectedError('invalid_attempt')
+
+      const user = await new AppUserRepository(db).findById(userId)
+      if (user === null || user.status !== 'active') {
+        throw new LoginRejectedError('user_inactive', user?.id ?? null)
+      }
+      if (
+        user.identityIssuer !== input.identity.issuer ||
+        user.zitadelSubject !== input.identity.subject
+      ) {
+        throw new LoginRejectedError('identity_mismatch', user.id)
+      }
+
+      const sessions = new SessionService({
+        store: new SessionRepository(db),
+        clock: () => input.now,
+      })
+      const current = await sessions.findByToken(input.sessionToken)
+      if (current === null || current.userId !== user.id) {
+        throw new LoginRejectedError('session_mismatch', user.id)
+      }
+
+      const issued = await sessions.rotate(input.sessionToken, {
+        amr: input.identity.amr,
+        authTime: input.identity.authTime,
+        aal: input.identity.aal,
+        acr: input.identity.acr,
+        oidcSid: input.identity.sid,
+        idTokenHintCiphertext: input.idTokenHintCiphertext,
+        keyVersion: input.keyVersion,
+      })
+      if (issued === null) throw new LoginRejectedError('session_expired', user.id)
+
+      await new AuditWriter(db).write({
+        actorUserId: user.id,
+        actorType: 'user',
+        sessionId: issued.session.id,
+        organisationId: null,
+        hospitalId: null,
+        eventType: 'auth.step_up',
+        outcome: 'success',
+        targetType: 'session',
+        targetId: issued.session.id,
+        requestId: input.requestId,
+        ip: input.ip,
+        userAgentHash: input.userAgentHash,
+        metadata: {
+          session_id: issued.session.id,
+          amr: input.identity.amr.join(','),
+        },
+      })
+
+      return {
+        token: issued.token,
+        expiresAt: issued.session.absoluteExpiresAt,
+        returnTo: input.attempt.returnTo,
+        sessionId: issued.session.id,
+        userId: user.id,
+      }
+    })
   }
 
   private async completeInTransaction(

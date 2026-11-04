@@ -44,8 +44,13 @@ export interface LoginCompletionInput {
   readonly requestId: string | null
 }
 
+export interface StepUpCompletionInput extends LoginCompletionInput {
+  readonly sessionToken: string
+}
+
 export interface LoginCompletionStore {
   complete(input: LoginCompletionInput): Promise<LoginCompletion>
+  completeStepUp(input: StepUpCompletionInput): Promise<LoginCompletion>
 }
 
 export class LoginRejectedError extends Error {
@@ -106,6 +111,26 @@ export class LoginService {
     returnTo: unknown,
     context: LoginRequestContext,
   ): Promise<LoginStart> {
+    return this.begin(returnTo, context, null)
+  }
+
+  /**
+   * Start a step-up attempt for an already-authenticated user. The provider must
+   * re-authenticate the user even when the identity-provider session is valid.
+   */
+  async startStepUp(
+    userId: string,
+    returnTo: unknown,
+    context: LoginRequestContext,
+  ): Promise<LoginStart> {
+    return this.begin(returnTo, context, userId)
+  }
+
+  private async begin(
+    returnTo: unknown,
+    context: LoginRequestContext,
+    userId: string | null,
+  ): Promise<LoginStart> {
     let target: string
     try {
       target = normaliseReturnTo(returnTo)
@@ -128,6 +153,7 @@ export class LoginService {
         state: secrets.state,
         nonce: secrets.nonce,
         challenge: secrets.challenge,
+        ...(userId === null ? {} : { prompt: 'login', maxAgeSeconds: 0 }),
       })
     } catch (error) {
       if (error instanceof OidcUnavailableError) {
@@ -147,13 +173,13 @@ export class LoginService {
     const expiresAt = new Date(now.getTime() + this.loginAttemptTtlMs)
 
     await this.attempts.create({
-      userId: null,
+      userId,
       stateHash: hashToken(secrets.state),
       nonceHash: hashToken(secrets.nonce),
       pkceVerifierCiphertext: sealedVerifier.ciphertext,
       keyVersion: sealedVerifier.keyVersion,
       returnTo: target,
-      purpose: 'login',
+      purpose: userId === null ? 'login' : 'step_up',
       ip: context.ip,
       userAgentHash: context.userAgentHash,
       expiresAt,
@@ -166,6 +192,7 @@ export class LoginService {
     code: string,
     state: string,
     context: LoginRequestContext,
+    sessionToken: string | null = null,
   ): Promise<LoginCompletion> {
     if (!isSessionToken(state) || code.length === 0 || code.length > MAX_CODE_LENGTH) {
       await this.fail('invalid_callback', null, context)
@@ -174,8 +201,20 @@ export class LoginService {
 
     const now = this.clock()
     const attempt = await this.attempts.consume(hashToken(state), now)
-    if (attempt === null || attempt.purpose !== 'login') {
-      await this.fail('invalid_attempt', attempt?.userId ?? null, context)
+    if (attempt === null) {
+      await this.fail('invalid_attempt', null, context)
+      throw authFailed()
+    }
+    const stepUpToken =
+      attempt.purpose === 'step_up' && isSessionToken(sessionToken ?? '')
+        ? sessionToken
+        : null
+    if (attempt.purpose === 'step_up' && stepUpToken === null) {
+      await this.fail('missing_session', attempt.userId, context)
+      throw authFailed()
+    }
+    if (attempt.purpose !== 'login' && attempt.purpose !== 'step_up') {
+      await this.fail('invalid_attempt', attempt.userId, context)
       throw authFailed()
     }
 
@@ -201,7 +240,7 @@ export class LoginService {
         SESSION_ID_TOKEN_HINT_AAD,
       )
 
-      return await this.completion.complete({
+      const completionInput = {
         attempt,
         identity,
         idTokenHintCiphertext: sealedHint.ciphertext,
@@ -210,7 +249,16 @@ export class LoginService {
         ip: attempt.ip ?? context.ip,
         userAgentHash: attempt.userAgentHash ?? context.userAgentHash,
         requestId: context.requestId,
-      })
+      }
+
+      if (stepUpToken !== null) {
+        return await this.completion.completeStepUp({
+          ...completionInput,
+          sessionToken: stepUpToken,
+        })
+      }
+
+      return await this.completion.complete(completionInput)
     } catch (error) {
       if (error instanceof OidcUnavailableError) {
         await this.fail('identity_unavailable', null, context)

@@ -353,7 +353,7 @@ describe('control database schema', () => {
       'select version from control.schema_metadata where id = 1',
     )
 
-    expect(result.rows[0]?.version).toBe(4)
+    expect(result.rows[0]?.version).toBe(5)
   })
 })
 
@@ -513,7 +513,7 @@ describe('runtime privileges', () => {
     await withTransaction(appPool, async (client) => {
       await expect(
         client.query(
-          'update control.schema_metadata set version = 4 where id = 1',
+          'update control.schema_metadata set version = 5 where id = 1',
         ),
       ).rejects.toMatchObject({ code: '42501' })
     })
@@ -1764,7 +1764,7 @@ describe('access model', () => {
     ])
     expect(links.rows[0]!.count).toBe(13)
     expect(versions.rows[0]!.count).toBe(4)
-    expect(events.rows[0]!.count).toBe(10)
+    expect(events.rows[0]!.count).toBe(11)
   })
 })
 
@@ -2113,6 +2113,117 @@ describe('login completion store', () => {
     expect(access.memberships[0]!.organisationId).toBe(organisation)
     expect(access.memberships[0]!.roles).toEqual(['login_clinician'])
     expect(access.permissions).toEqual(['clinical.read'])
+  })
+
+  test('rotates the session and records a step-up', async () => {
+    const user = await createUser(ownerPool, 'step-up-user', 'step-up@example.test')
+    const now = new Date(Date.now() + 1_000)
+    const sessions = new SessionService({
+      store: new SessionRepository(appPool),
+      clock: () => now,
+    })
+    const issued = await sessions.mint({
+      userId: user,
+      identityIssuer: 'http://localhost:8080',
+      zitadelSessionId: null,
+      oidcSid: 'sid-before',
+      acr: null,
+      idTokenHintCiphertext: Buffer.from('sealed-hint-before'),
+      keyVersion: 1,
+      amr: ['pwd'],
+      authTime: new Date(now.getTime() - 60_000),
+      aal: 1,
+      ip: null,
+      userAgentHash: null,
+    })
+
+    const result = await new PostgresLoginStore(appPool).completeStepUp({
+      attempt: {
+        ...loginAttempt(now),
+        id: 'step-up-attempt',
+        userId: user,
+        purpose: 'step_up',
+        returnTo: '/settings',
+      },
+      identity: {
+        ...identityFor('step-up@example.test', 'step-up-user', now),
+        amr: ['pwd', 'hwk'],
+        aal: 3,
+        authTime: new Date(now.getTime() - 1_000),
+      },
+      idTokenHintCiphertext: Buffer.from('sealed-hint-after'),
+      keyVersion: 1,
+      now,
+      ip: '127.0.0.1',
+      userAgentHash: null,
+      requestId: 'step-up-request',
+      sessionToken: issued.token,
+    })
+
+    expect(result.token).not.toBe(issued.token)
+    expect(result.returnTo).toBe('/settings')
+
+    const previous = await sessions.findByToken(issued.token)
+    expect(previous?.revokedAt).toEqual(now)
+    expect(previous?.revokeReason).toBe('rotated')
+
+    const next = await sessions.findByToken(result.token)
+    expect(next?.userId).toBe(user)
+    expect(next?.aal).toBe(3)
+    expect(next?.amr).toEqual(['pwd', 'hwk'])
+    expect(next?.authTime).toEqual(new Date(now.getTime() - 1_000))
+
+    const audit = await ownerPool.query<{ count: number }>(
+      "select count(*)::int as count from audit.event where actor_user_id = $1 and event_type = 'auth.step_up'",
+      [user],
+    )
+    expect(audit.rows[0]!.count).toBe(1)
+  })
+
+  test('refuses to rotate a session that belongs to another user', async () => {
+    const owner = await createUser(ownerPool, 'step-up-owner', 'step-up-owner@example.test')
+    const other = await createUser(ownerPool, 'step-up-other', 'step-up-other@example.test')
+    const now = new Date(Date.now() + 1_000)
+    const sessions = new SessionService({
+      store: new SessionRepository(appPool),
+      clock: () => now,
+    })
+    const issued = await sessions.mint({
+      userId: owner,
+      identityIssuer: 'http://localhost:8080',
+      zitadelSessionId: null,
+      oidcSid: null,
+      acr: null,
+      idTokenHintCiphertext: null,
+      keyVersion: null,
+      amr: ['pwd'],
+      authTime: new Date(now.getTime() - 1_000),
+      aal: 1,
+      ip: null,
+      userAgentHash: null,
+    })
+
+    await expect(
+      new PostgresLoginStore(appPool).completeStepUp({
+        attempt: {
+          ...loginAttempt(now),
+          id: 'step-up-other-attempt',
+          userId: other,
+          purpose: 'step_up',
+        },
+        identity: identityFor('step-up-other@example.test', 'step-up-other', now),
+        idTokenHintCiphertext: Buffer.from('sealed-hint-after'),
+        keyVersion: 1,
+        now,
+        ip: null,
+        userAgentHash: null,
+        requestId: null,
+        sessionToken: issued.token,
+      }),
+    ).rejects.toBeInstanceOf(LoginRejectedError)
+
+    const stillActive = await sessions.findByToken(issued.token)
+    expect(stillActive?.revokedAt).toBeNull()
   })
 
   test('rejects a suspended user and creates no session', async () => {

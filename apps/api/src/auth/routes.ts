@@ -17,7 +17,17 @@ import { requestContext, requestIdOf, type RequestServer } from './request-conte
 
 export interface LoginFlow {
   start(returnTo: unknown, context: LoginRequestContext): Promise<LoginStart>
-  complete(code: string, state: string, context: LoginRequestContext): Promise<LoginCompletion>
+  startStepUp(
+    userId: string,
+    returnTo: unknown,
+    context: LoginRequestContext,
+  ): Promise<LoginStart>
+  complete(
+    code: string,
+    state: string,
+    context: LoginRequestContext,
+    sessionToken?: string | null,
+  ): Promise<LoginCompletion>
 }
 
 export interface AccessReader {
@@ -140,18 +150,46 @@ export function createAuth(dependencies: AuthDependencies) {
       },
     )
     .post(
+      '/step-up-attempts',
+      {
+        body: loginAttemptBody,
+        response: { 201: loginStartResponse },
+        detail: routeDetail('Start a step-up attempt', true),
+      },
+      async (context) => {
+        const { body, headers, request, server, set } = context
+        const authenticated = await current(
+          headers.authorization,
+          request,
+          server,
+          requestIdOf(context),
+        )
+        const start = await dependencies.login.startStepUp(
+          authenticated.session.userId,
+          body.returnTo,
+          authenticated.context,
+        )
+        set.status = 201
+        return {
+          authorizationUrl: start.authorizationUrl,
+          expiresAt: start.expiresAt.toISOString(),
+        }
+      },
+    )
+    .post(
       '/callback',
       {
         body: callbackBody,
         response: { 200: callbackResponse },
-        detail: routeDetail('Complete a login attempt'),
+        detail: routeDetail('Complete a login or step-up attempt'),
       },
       async (context) => {
-        const { body, request, server } = context
+        const { body, headers, request, server } = context
         const completion = await dependencies.login.complete(
           body.code,
           body.state,
           requestContext(request, server, requestIdOf(context)),
+          readBearerToken(headers.authorization),
         )
         return {
           token: completion.token,

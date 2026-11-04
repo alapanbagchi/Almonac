@@ -81,12 +81,24 @@ class FakeOidc implements OidcProvider {
   startUnavailable = false
   reject = false
   futureAuthTime = false
+  lastAuthorizationInput: {
+    prompt?: string
+    maxAgeSeconds?: number
+  } | null = null
 
   async authorizationUrl(input: {
     state: string
     nonce: string
     challenge: string
+    prompt?: string
+    maxAgeSeconds?: number
   }): Promise<string> {
+    this.lastAuthorizationInput = {
+      ...(input.prompt === undefined ? {} : { prompt: input.prompt }),
+      ...(input.maxAgeSeconds === undefined
+        ? {}
+        : { maxAgeSeconds: input.maxAgeSeconds }),
+    }
     if (this.startUnavailable) {
       const { OidcUnavailableError } = await import('../../src/auth/errors')
       throw new OidcUnavailableError()
@@ -123,13 +135,28 @@ class FakeOidc implements OidcProvider {
 
 class FakeCompletion {
   calls = 0
+  stepUpCalls = 0
   reject = false
   lastInput: import('../../src/auth/login-service').LoginCompletionInput | null = null
+  lastStepUpInput: import('../../src/auth/login-service').StepUpCompletionInput | null = null
 
   async complete(input: import('../../src/auth/login-service').LoginCompletionInput) {
     this.calls += 1
     this.lastInput = input
     if (this.reject) throw new LoginRejectedError('user_inactive', 'user-1')
+    return this.result()
+  }
+
+  async completeStepUp(
+    input: import('../../src/auth/login-service').StepUpCompletionInput,
+  ) {
+    this.stepUpCalls += 1
+    this.lastStepUpInput = input
+    if (this.reject) throw new LoginRejectedError('user_inactive', 'user-1')
+    return this.result()
+  }
+
+  private result() {
     return {
       token: 'a'.repeat(43),
       expiresAt: new Date(START.getTime() + 60_000),
@@ -209,15 +236,62 @@ describe('login service', () => {
     expect(attempts.rows).toHaveLength(0)
   })
 
-  test('does not complete a step-up attempt on the login route', async () => {
+  test('rejects a step-up attempt on the login callback without a token', async () => {
     const { login, attempts, audit } = service()
     const start = await login.start('/', context)
     const state = new URL(start.authorizationUrl).searchParams.get('state')!
     attempts.rows[0]!.purpose = 'step_up'
+    attempts.rows[0]!.userId = 'user-1'
     await expect(login.complete('code', state, context)).rejects.toMatchObject({
       code: 'AUTH_FAILED',
     })
-    expect(audit.events.at(-1)?.reasonCode).toBe('invalid_attempt')
+    expect(audit.events.at(-1)?.reasonCode).toBe('missing_session')
+  })
+
+  test('starts a step-up for the current user and forces re-authentication', async () => {
+    const { login, attempts, oidc } = service()
+    const start = await login.startStepUp('user-1', '/settings', context)
+    const stored = attempts.rows[0]!
+
+    expect(stored.purpose).toBe('step_up')
+    expect(stored.userId).toBe('user-1')
+    expect(stored.returnTo).toBe('/settings')
+    expect(oidc.lastAuthorizationInput).toEqual({
+      prompt: 'login',
+      maxAgeSeconds: 0,
+    })
+    expect(start.authorizationUrl).toContain('identity.example.test')
+  })
+
+  test('completes a step-up with the current session token', async () => {
+    const { login, completion } = service()
+    const start = await login.startStepUp('user-1', '/settings', context)
+    const state = new URL(start.authorizationUrl).searchParams.get('state')!
+    const result = await login.complete(
+      'code-1',
+      state,
+      context,
+      's'.repeat(43),
+    )
+
+    expect(result.token).toHaveLength(43)
+    expect(completion.stepUpCalls).toBe(1)
+    expect(completion.calls).toBe(0)
+    expect(completion.lastStepUpInput?.sessionToken).toBe('s'.repeat(43))
+    expect(completion.lastStepUpInput?.attempt.userId).toBe('user-1')
+  })
+
+  test('rejects a step-up callback without a session token', async () => {
+    const { login, attempts, audit, completion } = service()
+    const start = await login.startStepUp('user-1', '/settings', context)
+    const state = new URL(start.authorizationUrl).searchParams.get('state')!
+    await expect(login.complete('code-1', state, context)).rejects.toMatchObject({
+      code: 'AUTH_FAILED',
+    })
+    expect(completion.stepUpCalls).toBe(0)
+    expect(completion.calls).toBe(0)
+    expect(attempts.rows[0]?.consumedAt).toEqual(START)
+    expect(audit.events.at(-1)?.reasonCode).toBe('missing_session')
   })
 
   test('maps an identity outage at start to 503', async () => {

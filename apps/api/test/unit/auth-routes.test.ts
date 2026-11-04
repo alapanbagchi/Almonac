@@ -70,6 +70,12 @@ function dependencies(overrides: Partial<AuthDependencies> = {}): AuthDependenci
           expiresAt: new Date(NOW.getTime() + 600_000),
         }
       },
+      async startStepUp(userId, returnTo) {
+        return {
+          authorizationUrl: `https://identity.example.test/authorize?stepUp=${userId}&returnTo=${String(returnTo)}`,
+          expiresAt: new Date(NOW.getTime() + 600_000),
+        }
+      },
       async complete() {
         return {
           token: 't'.repeat(43),
@@ -137,6 +143,9 @@ describe('auth routes', () => {
         async start() {
           throw new AppError('VALIDATION_FAILED', 400, 'returnTo must be an internal path.')
         },
+        async startStepUp() {
+          throw new Error('unused')
+        },
         async complete() {
           throw new Error('unused')
         },
@@ -146,6 +155,56 @@ describe('auth routes', () => {
     expect(response.headers.get('cache-control')).toBe('no-store')
     const body = (await response.json()) as { error?: { code?: string } }
     expect(body.error?.code).toBe('VALIDATION_FAILED')
+  })
+
+  test('starts a step-up only for an authenticated session', async () => {
+    const missing = await app().handle(
+      post('/v1/auth/step-up-attempts', { returnTo: '/dashboard' }),
+    )
+    expect(missing.status).toBe(401)
+
+    const response = await app().handle(
+      post(
+        '/v1/auth/step-up-attempts',
+        { returnTo: '/dashboard' },
+        { authorization: `Bearer ${'v'.repeat(43)}` },
+      ),
+    )
+    expect(response.status).toBe(201)
+    const body = (await response.json()) as Record<string, unknown>
+    expect(String(body.authorizationUrl)).toContain('stepUp=user-1')
+  })
+
+  test('forwards the bearer token on a step-up callback', async () => {
+    const seen: { token: string | null } = { token: null }
+    const response = await app({
+      login: {
+        async start() {
+          throw new Error('unused')
+        },
+        async startStepUp() {
+          throw new Error('unused')
+        },
+        async complete(_code, _state, _context, token) {
+          seen.token = token ?? null
+          return {
+            token: 't'.repeat(43),
+            expiresAt: new Date(NOW.getTime() + 60_000),
+            returnTo: '/dashboard',
+            sessionId: session.id,
+            userId: user.id,
+          }
+        },
+      },
+    }).handle(
+      post(
+        '/v1/auth/callback',
+        { code: 'code-1', state: 's'.repeat(43) },
+        { authorization: `Bearer ${'v'.repeat(43)}` },
+      ),
+    )
+    expect(response.status).toBe(200)
+    expect(seen.token).toBe('v'.repeat(43))
   })
 
   test('completes a callback with no-store and no-referrer headers', async () => {
@@ -164,6 +223,9 @@ describe('auth routes', () => {
     const response = await app({
       login: {
         async start() {
+          throw new Error('unused')
+        },
+        async startStepUp() {
           throw new Error('unused')
         },
         async complete() {
