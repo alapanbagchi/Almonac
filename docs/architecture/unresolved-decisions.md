@@ -17,7 +17,7 @@ Status values: `open` (no decision), `blocked` (waiting for an external party, f
 | U-09 | Tenancy hierarchy: organisation or hospital | resolved (ADR-011) | - |
 | U-10 | Migration tool and rollout across hospital databases | tool resolved (ADR-008). Fleet rollout open. | First migration |
 | U-11 | Vocabulary licensing (SNOMED CT, RxNorm, ICD-10) | blocked (legal and commercial) | Before terminology import |
-| U-12 | Audit log storage and tamper evidence | open | Before clinical data |
+| U-12 | Audit log storage and tamper evidence | open (control table implemented, ADR-014; retention and external tamper evidence open) | Before clinical data |
 | U-13 | Clinical AI provider and processing agreement | blocked (legal) | Before real PHI goes to a model |
 | U-14 | Clinical validation and sign-off process | open | Before any clinical workflow ships |
 | U-15 | API versioning and deprecation policy | open | First external consumer |
@@ -88,6 +88,8 @@ This entry covers who signs off a workflow as clinically acceptable, what the te
 ## U-15 - API versioning
 
 The options are path versioning (`/v1`), header versioning or additive-only evolution. The choice affects the frontend, integrations and generated clients.
+
+The authentication and administration routes use `/v1` (ADR-012). That is a convention, not a deprecation policy. A change to a request or response shape still has no agreed process.
 
 ## U-16 - Billing
 

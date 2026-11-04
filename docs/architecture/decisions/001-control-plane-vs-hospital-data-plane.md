@@ -1,6 +1,6 @@
 # ADR-001: Separate the control plane from the hospital data plane
 
-- **Status:** Proposed (nothing implemented)
+- **Status:** Accepted. The control plane is implemented. The hospital and terminology planes are not implemented.
 - **Date:** 2026-11-03
 - **Deciders:** Architecture, Backend, Security
 - **Related:** ADR-002, ADR-004, ADR-005

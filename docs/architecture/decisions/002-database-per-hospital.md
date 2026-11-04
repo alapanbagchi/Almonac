@@ -1,6 +1,6 @@
 # ADR-002: One logical database per hospital, pooled behind the API
 
-- **Status:** Proposed (nothing implemented)
+- **Status:** Accepted as direction. No hospital database or pool exists yet.
 - **Date:** 2026-11-03
 - **Deciders:** Architecture, Backend, Operations
 - **Related:** ADR-001

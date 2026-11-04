@@ -1,6 +1,6 @@
 # ADR-003: Elysia for the API, with the schema as the contract
 
-- **Status:** Proposed (nothing implemented)
+- **Status:** Accepted. Routes, validation and OpenAPI are implemented. Domain contracts are not started.
 - **Date:** 2026-11-03
 - **Deciders:** Backend, Frontend, Architecture
 - **Related:** ADR-001, `apps/api/AGENTS.md`

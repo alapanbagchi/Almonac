@@ -1,8 +1,8 @@
 # ADR-004: Server-side sessions and membership-checked tenant resolution
 
-- **Status:** Proposed (nothing implemented. ADR-012 amends the transport.)
+- **Status:** Accepted. ADR-012 amends the transport and the session now exists. Tenant resolution and permission guards on domain routes are not implemented.
 - **Date:** 2026-11-03
-- **Amended:** 2026-11-03. ADR-012 defines the cookie and Bearer split and the OIDC flow.
+- **Amended:** 2026-11-03 by ADR-012 (cookie and Bearer split, OIDC flow); 2026-11-04 by ADR-015 (step-up and break-glass assurance).
 - **Deciders:** Backend, Security, Frontend
 - **Related:** ADR-001, ADR-002, ADR-010, ADR-012, skill `tenant-isolation-review`
 
@@ -44,7 +44,7 @@ Negative:
 
 ## Follow-ups
 
-- Choose the idle and absolute timeout values. A clinical workstation must not stay unlocked without limit. ADR-012 proposes 15 minutes idle and 8 hours absolute, pending clinical and security approval.
-- Define the break-glass flow. Record who can request it, how long it lasts, what is audited and who is notified.
+- Get clinical and security sign-off on 15 minutes idle and 8 hours absolute. The values are implemented as provisional defaults.
+- Define the tenant resolution plugin and the permission guard for clinical routes. Return 403 for a known resource and 404 for a cross-tenant lookup.
 - Decide whether multi-hospital users select a hospital per session or per request. The current UI assumes one active hospital.
-- Implement the cookie and Bearer split and the API-owned OIDC flow as ADR-012 specifies. Do not add a cookie-reading API guard.
+- Keep the cookie and Bearer split. Do not add a cookie-reading API guard. ADR-012 is implemented; the break-glass flow is defined in ADR-015.

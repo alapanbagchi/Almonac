@@ -1,6 +1,6 @@
 # ADR-006: Clinical AI behind a provider interface, never in the decision path
 
-- **Status:** Proposed (nothing implemented)
+- **Status:** Proposed. No clinical AI service exists.
 - **Date:** 2026-11-03
 - **Deciders:** Architecture, Clinical safety, Security
 - **Related:** `apps/clinical-ai/AGENTS.md`, `infrastructure/AGENTS.md`

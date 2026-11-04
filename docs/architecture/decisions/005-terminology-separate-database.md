@@ -1,6 +1,6 @@
 # ADR-005: Terminology in its own database, versioned and read-only
 
-- **Status:** Proposed (nothing implemented)
+- **Status:** Accepted as direction. No terminology database exists yet.
 - **Date:** 2026-11-03
 - **Deciders:** Architecture, Clinical informatics, Backend
 - **Related:** ADR-001, ADR-002, `database/AGENTS.md`

@@ -4,6 +4,8 @@
 
 The Next.js app in `apps/web/` and the local identity stack run on a developer machine. Nothing is deployed.
 
+Production identity runbooks and the drill register are in `docs/operations/`. No runbook or drill has run against a cluster. Each drill in `docs/operations/drills.md` is a blocking gate before real patient data.
+
 ## 1. Environments
 
 Three environments, separate accounts/projects and separate state:
