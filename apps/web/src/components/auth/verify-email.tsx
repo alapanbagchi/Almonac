@@ -2,10 +2,10 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { LoaderCircle } from "lucide-react";
 
 import { ArrowRight02 } from "@/components/animate-ui/icons/hugeicons/arrow-right-02";
 import { AuthShell } from "@/components/auth/form-parts";
+import { VerificationMark } from "@/components/auth/verification-mark";
 import { FormError } from "@/components/form/form-error";
 import { buttonVariants } from "@/components/ui/button";
 import { submitCredentials } from "@/lib/auth/browser";
@@ -60,10 +60,22 @@ export function VerifyEmail() {
   }, []);
 
   return (
-    <AuthShell title="Verify your email" subtitle={SUBTITLES[state.status]}>
+    <AuthShell
+      title="Verify your email"
+      subtitle={SUBTITLES[state.status]}
+      mark={
+        <VerificationMark
+          status={state.status}
+          className={
+            state.status === "error"
+              ? "size-16 text-destructive"
+              : "size-16 text-parchment"
+          }
+        />
+      }
+    >
       {state.status === "verifying" ? (
-        <p role="status" className="flex items-center gap-2.5 text-[15px] text-moss-bright">
-          <LoaderCircle size={16} aria-hidden="true" className="animate-spin" />
+        <p role="status" className="text-[15px] text-moss-bright">
           Checking your verification link...
         </p>
       ) : state.status === "verified" ? (
