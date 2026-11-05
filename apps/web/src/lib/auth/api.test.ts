@@ -7,25 +7,33 @@ const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
 describe("auth API client", () => {
-  test("starts a login and returns the authorization URL", async () => {
+  test("re-authenticates with a password and returns the callback", async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     const api = createAuthApi({
       baseUrl: "http://api.example",
       fetch: async (input, init) => {
         calls.push({ url: String(input), init });
         return json({
-          authorizationUrl: "https://id.example/authorize?state=abc",
-          expiresAt: "2030-01-01T00:00:00.000Z",
+          callbackUrl: "http://web.example/api/auth/callback?state=abc&code=code",
         });
       },
     });
 
-    const result = await api.startLogin("/dashboard");
-    expect(result.authorizationUrl).toBe("https://id.example/authorize?state=abc");
-    expect(result.expiresAt).toEqual(new Date("2030-01-01T00:00:00.000Z"));
-    expect(calls[0]?.url).toBe("http://api.example/v1/auth/login-attempts");
+    const result = await api.stepUp("s".repeat(43), {
+      password: "Correct horse 9!",
+      returnTo: "/dashboard/break-glass",
+    });
+    expect(result.callbackUrl).toBe(
+      "http://web.example/api/auth/callback?state=abc&code=code",
+    );
+    expect(calls[0]?.url).toBe("http://api.example/v1/auth/step-up");
     expect(calls[0]?.init?.method).toBe("POST");
-    expect(calls[0]?.init?.body).toBe(JSON.stringify({ returnTo: "/dashboard" }));
+    expect(calls[0]?.init?.headers).toMatchObject({
+      authorization: `Bearer ${"s".repeat(43)}`,
+    });
+    expect(calls[0]?.init?.body).toBe(
+      JSON.stringify({ password: "Correct horse 9!", returnTo: "/dashboard/break-glass" }),
+    );
     expect(calls[0]?.init?.cache).toBe("no-store");
   });
 
@@ -76,6 +84,8 @@ describe("auth API client", () => {
         throw new Error("socket closed at 10.0.0.1");
       },
     });
-    await expect(api.startLogin("/")).rejects.toBeInstanceOf(AuthApiError);
+    await expect(
+      api.stepUp("a".repeat(43), { password: "secret", returnTo: "/" }),
+    ).rejects.toBeInstanceOf(AuthApiError);
   });
 });

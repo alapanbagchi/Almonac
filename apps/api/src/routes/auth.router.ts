@@ -5,19 +5,16 @@ import { clientIp, requestContext, requestIdOf } from '../shared/request'
 import type { AuthDependencies } from '../controllers/auth/dependencies'
 import { completeCallback } from '../controllers/auth/complete-callback'
 import { logout } from '../controllers/auth/logout'
+import { passwordStepUp } from '../controllers/auth/password-login'
 import { readSession } from '../controllers/auth/read-session'
-import { startLogin } from '../controllers/auth/start-login'
-import { startStepUp } from '../controllers/auth/start-step-up'
 import { authenticateRequest } from '../controllers/auth/session'
 
-const loginAttemptBody = t.Object({
+const stepUpBody = t.Object({
+  password: t.String({ minLength: 1, maxLength: 1_024 }),
   returnTo: t.Optional(t.String({ maxLength: 2_048 })),
 })
 
-const loginStartResponse = t.Object({
-  authorizationUrl: t.String(),
-  expiresAt: t.String(),
-})
+const browserLoginResponse = t.Object({ callbackUrl: t.String() })
 
 const callbackBody = t.Object({
   code: t.String({ minLength: 1, maxLength: 4_096 }),
@@ -73,40 +70,21 @@ export function authRouter(dependencies: AuthDependencies) {
     tags: ['Authentication'],
   })
     .post(
-      '/login-attempts',
+      '/step-up',
       {
-        body: loginAttemptBody,
-        response: { 201: loginStartResponse },
-        detail: routeDetail('Start a login attempt'),
+        body: stepUpBody,
+        response: { 200: browserLoginResponse },
+        detail: routeDetail('Re-authenticate the current session with a password', true),
       },
       async (context) => {
-        const { body, request, server, set } = context
-        await dependencies.rateLimit?.check('login', clientIp(request, server))
-        set.status = 201
-        return startLogin(
-          dependencies,
-          requestContext(request, server, requestIdOf(context)),
-          body.returnTo,
-        )
-      },
-    )
-    .post(
-      '/step-up-attempts',
-      {
-        body: loginAttemptBody,
-        response: { 201: loginStartResponse },
-        detail: routeDetail('Start a step-up attempt', true),
-      },
-      async (context) => {
-        const { body, headers, request, server, set } = context
+        const { body, headers, request, server } = context
         await dependencies.rateLimit?.check('step_up', clientIp(request, server))
         const authenticated = await authenticateRequest(dependencies, headers.authorization)
-        set.status = 201
-        return startStepUp(
+        return passwordStepUp(
           dependencies,
           requestContext(request, server, requestIdOf(context)),
-          authenticated.session.userId,
-          body.returnTo,
+          authenticated.user,
+          body,
         )
       },
     )

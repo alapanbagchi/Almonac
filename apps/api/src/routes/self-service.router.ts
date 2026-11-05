@@ -1,6 +1,7 @@
 import { Elysia, t } from 'elysia'
 import { clientIp, requestContext, requestIdOf } from '../shared/request'
 import type { AuthDependencies } from '../controllers/auth/dependencies'
+import { claimInvitation } from '../controllers/auth/claim-invitation'
 import { passwordLogin } from '../controllers/auth/password-login'
 import { register } from '../controllers/auth/register'
 import { verifyEmail } from '../controllers/auth/verify-email'
@@ -22,6 +23,13 @@ const verificationBody = t.Object({
 const passwordBody = t.Object({
   email: t.String({ minLength: 3, maxLength: 320 }),
   password: t.String({ minLength: 1, maxLength: 1_024 }),
+  returnTo: t.Optional(t.String({ maxLength: 2_048 })),
+})
+
+const claimBody = t.Object({
+  token: t.String({ minLength: 32, maxLength: 128 }),
+  fullName: t.String({ minLength: 2, maxLength: 200 }),
+  password: t.String({ minLength: 8, maxLength: 72 }),
   returnTo: t.Optional(t.String({ maxLength: 2_048 })),
 })
 
@@ -70,6 +78,23 @@ export function selfServiceRouter(dependencies: AuthDependencies) {
           dependencies,
           requestContext(request, server, requestIdOf(context)),
           body.token,
+        )
+      },
+    )
+    .post(
+      '/invitation-registration',
+      {
+        body: claimBody,
+        response: { 200: callbackResponse },
+        detail: routeDetail('Claim an invitation and create the account'),
+      },
+      async (context) => {
+        const { body, request, server } = context
+        await dependencies.rateLimit?.check('invitation_claim', clientIp(request, server))
+        return claimInvitation(
+          dependencies,
+          requestContext(request, server, requestIdOf(context)),
+          body,
         )
       },
     )

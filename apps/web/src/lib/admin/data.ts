@@ -293,7 +293,6 @@ export async function createInvitationData(
   organisationId: string,
   input: {
     email: string;
-    displayName?: string;
     hospitalId: string | null;
     roleIds: string[];
   },

@@ -7,14 +7,12 @@ import {
   issue,
   prepareInvitation,
   requireNoMembership,
-  resendInitialisation,
   type InvitationDependencies,
 } from './issue'
 import { invitationResponse, type InvitationResponse } from './responses'
 
 export interface CreateInvitationInput {
   readonly email: string
-  readonly displayName?: string
   readonly organisationId: string
   readonly hospitalId: string | null
   readonly roleIds: readonly string[]
@@ -22,8 +20,8 @@ export interface CreateInvitationInput {
 
 /**
  * Invite one person to an organisation or hospital. A pending invitation is
- * reissued rather than duplicated, an existing identity is invited directly,
- * and everyone else gets an identity provider account first.
+ * reissued rather than duplicated and an existing identity is invited directly.
+ * Everyone else claims the invitation by choosing a password on the accept page.
  */
 export async function createInvitation(
   d: InvitationDependencies,
@@ -47,7 +45,6 @@ export async function createInvitation(
     hospitalId,
   })
   if (pending !== null) {
-    await resendInitialisation(d, scope.organisation, pending)
     const invitation = await issue(
       d,
       context,
@@ -78,23 +75,11 @@ export async function createInvitation(
     return invitationResponse(invitation)
   }
 
-  if (scope.organisation.zitadelOrgId === null) {
-    throw ruleViolation('The organisation is not provisioned yet.')
-  }
-  const zitadelOrgId = scope.organisation.zitadelOrgId
-  const displayName = input.displayName?.trim() || email.split('@')[0] || email
-  const subject = await d.identity.createHumanUser(zitadelOrgId, { email, displayName })
-  try {
-    const invitation = await issue(
-      d,
-      context,
-      { email, organisationId, hospitalId, kind: 'new_user', zitadelSub: subject, roleIds },
-      scope.delivery,
-    )
-    return invitationResponse(invitation)
-  } catch (error) {
-    // The identity exists but nobody will use it; deactivate rather than orphan it.
-    await d.identity.deactivateUser(zitadelOrgId, subject).catch(() => undefined)
-    throw error
-  }
+  const invitation = await issue(
+    d,
+    context,
+    { email, organisationId, hospitalId, kind: 'new_user', zitadelSub: null, roleIds },
+    scope.delivery,
+  )
+  return invitationResponse(invitation)
 }

@@ -4,17 +4,10 @@ import { mintToken } from '../../shared/tokens'
 import { createAppUserRepository } from '../../repositories/app-user-repository'
 import { createPendingRegistrationRepository } from '../../repositories/pending-registration-repository'
 import { clockOf, type AuthDependencies, type LoginRequestContext } from './dependencies'
+import { assertStrongPassword } from './password-policy'
+import { normaliseDisplayName } from './profile'
 
-export const MIN_PASSWORD_LENGTH = 8
-export const MAX_PASSWORD_LENGTH = 72
-export const MIN_NAME_LENGTH = 2
-export const MAX_NAME_LENGTH = 200
 export const VERIFICATION_TTL_MS = 30 * 60 * 1000
-
-const UPPER = /[A-Z]/
-const LOWER = /[a-z]/
-const DIGIT = /[0-9]/
-const SYMBOL = /[^A-Za-z0-9]/
 
 export interface RegistrationInput {
   readonly fullName: string
@@ -39,17 +32,8 @@ export async function register(
   if (email === null) {
     throw new AppError('INVALID_EMAIL', 422, 'Email address is not valid.')
   }
-  const displayName = input.fullName.trim().replace(/\s+/g, ' ')
-  if (displayName.length < MIN_NAME_LENGTH || displayName.length > MAX_NAME_LENGTH) {
-    throw new AppError('INVALID_NAME', 422, 'Full name is not valid.')
-  }
-  if (!isStrongPassword(input.password)) {
-    throw new AppError(
-      'INVALID_PASSWORD',
-      422,
-      'Password must be 8 to 72 characters and include upper case, lower case, a number and a symbol.',
-    )
-  }
+  const displayName = normaliseDisplayName(input.fullName)
+  assertStrongPassword(input.password)
 
   const users = createAppUserRepository(dependencies.db)
   if ((await users.findByEmail(email)) !== null) {
@@ -93,15 +77,4 @@ export async function register(
     )
   }
   return { status: 'verification_sent' }
-}
-
-function isStrongPassword(value: string): boolean {
-  return (
-    value.length >= MIN_PASSWORD_LENGTH &&
-    value.length <= MAX_PASSWORD_LENGTH &&
-    UPPER.test(value) &&
-    LOWER.test(value) &&
-    DIGIT.test(value) &&
-    SYMBOL.test(value)
-  )
 }

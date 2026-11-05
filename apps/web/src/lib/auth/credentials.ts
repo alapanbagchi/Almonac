@@ -41,7 +41,11 @@ export function credentialFailure(error: unknown): Response {
       return authError(409, error.code, "An account with this email already exists.");
     }
     if (error.code === "MFA_REQUIRED") {
-      return authError(403, error.code, "This account needs multi-factor authentication. Use single sign-on.");
+      return authError(
+        403,
+        error.code,
+        "This account needs multi-factor authentication, which is not available here.",
+      );
     }
     if (error.code === "RATE_LIMITED") {
       return authError(429, error.code, "Too many attempts. Try again shortly.");
@@ -64,6 +68,33 @@ export function credentialFailure(error: unknown): Response {
     if (error.code === "MAIL_UNAVAILABLE") {
       return authError(503, error.code, "The verification email could not be sent. Try again shortly.");
     }
+  }
+  return authError(503, "AUTH_UNAVAILABLE", "Authentication is unavailable. Try again shortly.");
+}
+
+/** Claim failures must not reveal whether an invitation token or email exists. */
+export function invitationClaimFailure(error: unknown): Response {
+  if (!(error instanceof AuthApiError)) {
+    return authError(503, "AUTH_UNAVAILABLE", "Authentication is unavailable. Try again shortly.");
+  }
+  if (error.status === 0 || error.status === 503) {
+    return authError(503, "AUTH_UNAVAILABLE", "Authentication is unavailable. Try again shortly.");
+  }
+  if (error.code === "RATE_LIMITED") {
+    return authError(429, error.code, "Too many attempts. Try again shortly.");
+  }
+  if (error.status === 404 || error.status === 409) {
+    return authError(
+      409,
+      "INVITATION_UNAVAILABLE",
+      "This invitation is no longer available. Ask an administrator to resend it.",
+    );
+  }
+  if (error.code === "INVALID_NAME" || error.code === "INVALID_PASSWORD") {
+    return authError(400, error.code, "Check your name and password and try again.");
+  }
+  if (error.status === 422) {
+    return authError(422, "INVITATION_UNAVAILABLE", "This invitation cannot be used with this account.");
   }
   return authError(503, "AUTH_UNAVAILABLE", "Authentication is unavailable. Try again shortly.");
 }

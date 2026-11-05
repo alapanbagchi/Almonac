@@ -12,8 +12,9 @@ import type { AdminRequestContext } from '../../src/guards/admin-context'
 import type { AppUser } from '../../src/repositories/app-user-repository'
 import type { Invitation } from '../../src/repositories/invitation-repository'
 import type { AuditEvent } from '../../src/shared/audit-writer'
-import { withTransaction, type DatabaseQuery } from '../../src/db/pool'
+import type { DatabaseQuery } from '../../src/db/pool'
 import { AppError, forbidden } from '../../src/shared/errors'
+import { FakeDatabase, NOW } from './auth-fixtures'
 
 const ORGANISATION_ID = '22222222-2222-4222-8222-222222222222'
 
@@ -69,7 +70,7 @@ interface Recorded {
   readonly mails: { sent: number }
 }
 
-function dependencies(pool: Pool, authorize: AdminDependencies['authorize']): InvitationDependencies & Recorded {
+function dependencies(db: DatabaseQuery, authorize: AdminDependencies['authorize']): InvitationDependencies & Recorded {
   const events: AuditEvent[] = []
   const mails = { sent: 0 }
   const mailer: InvitationMailer = {
@@ -80,8 +81,8 @@ function dependencies(pool: Pool, authorize: AdminDependencies['authorize']): In
   return {
     events,
     mails,
-    db: pool,
-    transaction: (run) => withTransaction(pool, run),
+    db,
+    transaction: async (run) => run(db),
     organisationIdentity: {
       async create() {
         throw new Error('the identity provider must not be reached')
@@ -98,11 +99,6 @@ function dependencies(pool: Pool, authorize: AdminDependencies['authorize']): In
     sessions: { authenticate: async () => null, revoke: async () => false },
     users: { findById: async () => null },
     mailer,
-    identity: {
-      createHumanUser: async () => 'subject-new',
-      resendInitialization: async () => undefined,
-      deactivateUser: async () => undefined,
-    },
   }
 }
 
@@ -140,6 +136,72 @@ describe('invitation controller authorisation', () => {
     expect(pool.totalCount).toBe(0)
     expect(recorded.events).toHaveLength(0)
     await pool.end()
+  })
+})
+
+describe('creating an invitation for an unknown email', () => {
+  const ROLE_ID = '44444444-4444-4444-8444-444444444444'
+
+  function organisationRow(): Record<string, unknown> {
+    return {
+      id: ORGANISATION_ID,
+      zitadel_org_id: null,
+      name: 'General Hospital',
+      slug: 'general-hospital',
+      status: 'active',
+      provisioned_at: NOW,
+      created_at: NOW,
+    }
+  }
+
+  function invitationDbRow(): Record<string, unknown> {
+    return {
+      id: invitation().id,
+      email: 'person@example.com',
+      organisation_id: ORGANISATION_ID,
+      hospital_id: null,
+      kind: 'new_user',
+      zitadel_sub: null,
+      status: 'pending',
+      expires_at: new Date('2026-01-08T00:00:00.000Z'),
+      created_at: new Date('2026-01-01T00:00:00.000Z'),
+      accepted_at: null,
+      accepted_by_user_id: null,
+      invited_by: invitation().invitedBy,
+      role_ids: [],
+    }
+  }
+
+  test('stores no subject and sends the claim link', async () => {
+    const db = new FakeDatabase([
+      { match: /from control\.organisation where id/, rows: [organisationRow()] },
+      { match: /from control\.role as role/, rows: [{ id: ROLE_ID, key: 'doctor', name: 'Doctor', scope: 'organisation', permissions: [] }] },
+      { match: /where invitation\.email = \$1/, rows: [] },
+      { match: /from identity\.app_user where email/, rows: [] },
+      { match: /insert into identity\.invitation/, rows: [invitationDbRow()] },
+      { match: /insert into control\.invitation_role/, rows: [] },
+    ])
+    const recorded = dependencies(db, async () => undefined)
+
+    const result = await createInvitation(recorded, context(), {
+      email: 'Person@Example.com',
+      organisationId: ORGANISATION_ID,
+      hospitalId: null,
+      roleIds: [ROLE_ID],
+    })
+
+    expect(result).toMatchObject({
+      email: 'person@example.com',
+      kind: 'new_user',
+      zitadelSub: null,
+      roleIds: [ROLE_ID],
+    })
+    expect(recorded.mails.sent).toBe(1)
+
+    const [insert] = db.statementsMatching(/insert into identity\.invitation/)
+    expect(insert?.values[3]).toBe('new_user')
+    expect(insert?.values[4]).toBeNull()
+    expect(recorded.events[0]).toMatchObject({ eventType: 'admin.change', reasonCode: 'invitation.created' })
   })
 })
 

@@ -57,6 +57,7 @@ export interface InvitationRepository {
     organisationId: string
     hospitalId: string | null
   }): Promise<Invitation | null>
+  findByTokenHash(tokenHash: Buffer): Promise<Invitation | null>
   findByTokenHashForUpdate(tokenHash: Buffer): Promise<Invitation | null>
   revokePending(id: string, at: Date): Promise<boolean>
   markAccepted(id: string, input: { acceptedByUserId: string; at: Date }): Promise<boolean>
@@ -159,6 +160,16 @@ export function createInvitationRepository(db: DatabaseQuery): InvitationReposit
           order by invitation.created_at desc
           limit 1`,
         [input.email, input.organisationId, input.hospitalId],
+      )
+      return single(result)
+    },
+
+    async findByTokenHash(tokenHash) {
+      const result = await db.query(
+        `select ${SELECT_COLUMNS}
+           from identity.invitation as invitation
+          where invitation.token_hash = $1`,
+        [tokenHash],
       )
       return single(result)
     },

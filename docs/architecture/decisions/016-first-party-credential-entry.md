@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-11-04
+- Amended: 2026-11-05
 - Deciders: Engineering
 - Related: ADR-010, ADR-012, ADR-013, ADR-014
 
@@ -9,7 +10,7 @@
 
 ADR-010 chose Zitadel as the identity provider and allowed its hosted login.
 The product now requires Almonac-branded sign-up and sign-in screens. The
-browser must never show the Zitadel hosted login for a normal password login.
+browser must never show the Zitadel hosted login for any product flow.
 
 A user that Zitadel holds in the INITIAL state cannot complete an OIDC token
 exchange. Zitadel v4.20 returns `Errors.User.NotFound` from the token
@@ -37,6 +38,15 @@ plaintext password.
   and password, then asks Zitadel for the callback URL. The browser follows that
   URL through the existing `/api/auth/callback` BFF route, which exchanges the
   code and mints the opaque Almonac session (ADR-012).
+- **Step-up:** `POST /v1/auth/step-up` re-authenticates the current session with
+  its password. It returns a callback URL, and the normal callback rotates the
+  session (ADR-015). An account that needs MFA cannot step up and gets
+  `MFA_REQUIRED`.
+- **Invitation onboarding:** a new-user invitation stores no Zitadel subject.
+  Its public link opens `/invitations/accept`; `POST
+  /v1/auth/invitation-registration` verifies the pending token by hash, creates
+  a verified Zitadel user with a bcrypt hash, and starts password login. The
+  callback auto-accepts the invitation by email.
 - **Email:** the verification link carries the token in the URL fragment, so it
   never reaches a server log. The page removes it from the address bar before
   the POST.
@@ -44,7 +54,8 @@ plaintext password.
   minute per address. Register and password responses do not distinguish an
   unknown account from a wrong password.
 - **No fallback:** the hosted login stays disabled for product users. A
-  provider outage returns 503, not a redirect to another login surface.
+  provider outage returns 503, not a redirect to another login surface. The local
+  stack runs no Login v2 container and no proxy.
 
 The API holds the Zitadel client secret and a machine key with the login-client
 role. The web app holds neither. The design keeps the provider replaceable, as
@@ -72,8 +83,8 @@ ADR-010 requires.
 - An account with MFA enabled cannot finish password login in the custom UI; the
   API returns `MFA_REQUIRED` (403). MFA enrolment and challenge screens are not
   implemented.
-- An invited new user still sets the first password through the Zitadel
-  initialisation page. That page is the only hosted surface that remains.
+- A new-user invitation defers Zitadel user creation until acceptance, so no
+  identity exists for an invitee who never accepts.
 
 ## Alternatives considered
 
@@ -90,8 +101,8 @@ ADR-010 requires.
 
 - Add MFA challenge and enrolment screens, or return to the hosted login only
   for accounts that require MFA.
-- Replace the Zitadel initialisation email for invited new users with a
-  first-party sign-up link bound to the invitation token.
+- Verify the Zitadel login-client endpoints stay available when no Login v2
+  container runs (local and production deployments).
 - Add a test for a Zitadel outage during verification and during password login.
 - Confirm the login-client role is granted by the deployment bootstrap, not by
   an operator (ADR-013).

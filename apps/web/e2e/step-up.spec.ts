@@ -12,7 +12,7 @@ test("starts a step-up check and rotates the session", async ({ page, context })
   expect(before).not.toBeNull();
 
   const started = await page.request.post("/api/auth/step-up", {
-    form: { returnTo: "/dashboard" },
+    form: { password: "LocalPassword1!", returnTo: "/dashboard" },
     headers: { origin: "http://localhost:3100" },
     maxRedirects: 0,
   });
@@ -34,11 +34,31 @@ test("starts a step-up check and rotates the session", async ({ page, context })
   expect(after).not.toBe(before);
 });
 
+
+test("rejects a wrong password without rotating the session", async ({ page, context }) => {
+  await signIn(page);
+  const before = sessionCookie(await context.cookies());
+  expect(before).not.toBeNull();
+
+  const response = await page.request.post("/api/auth/step-up", {
+    form: { password: "wrong-password", returnTo: "/dashboard" },
+    headers: { origin: "http://localhost:3100" },
+    maxRedirects: 0,
+  });
+  expect(response.status()).toBe(303);
+  expect(response.headers()["location"]).toBe(
+    "http://localhost:3100/dashboard?stepUp=credentials",
+  );
+
+  const after = sessionCookie(await context.cookies());
+  expect(after).toBe(before);
+});
+
 test("refuses a step-up check from another origin", async ({ page }) => {
   await signIn(page);
 
   const response = await page.request.post("/api/auth/step-up", {
-    form: { returnTo: "/dashboard" },
+    form: { password: "LocalPassword1!", returnTo: "/dashboard" },
     headers: { origin: "https://evil.example" },
     maxRedirects: 0,
   });
@@ -47,7 +67,7 @@ test("refuses a step-up check from another origin", async ({ page }) => {
 
 test("sends a member without a session to sign in", async ({ request }) => {
   const response = await request.post("/api/auth/step-up", {
-    form: { returnTo: "/dashboard" },
+    form: { password: "LocalPassword1!", returnTo: "/dashboard" },
     headers: { origin: "http://localhost:3100" },
     maxRedirects: 0,
   });

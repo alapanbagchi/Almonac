@@ -44,16 +44,16 @@ describe('auth rate limit', () => {
     const metrics = new RecordingMetrics()
     const limiter = createAuthRateLimit(options(store, metrics))
 
-    for (let attempt = 0; attempt < RATE_LIMITS.login; attempt += 1) {
-      await limiter.check('login', '203.0.113.7')
+    for (let attempt = 0; attempt < RATE_LIMITS.password; attempt += 1) {
+      await limiter.check('password', '203.0.113.7')
     }
 
-    const failure = await expectLimited(limiter.check('login', '203.0.113.7'))
+    const failure = await expectLimited(limiter.check('password', '203.0.113.7'))
     expect(failure.code).toBe('RATE_LIMITED')
     expect(failure.status).toBe(429)
     expect(failure.headers?.['retry-after']).toBe('60')
     expect(metrics.counts).toEqual([
-      { name: 'auth.rate_limited', attributes: { route: 'login' } },
+      { name: 'auth.rate_limited', attributes: { route: 'password' } },
     ])
   })
 
@@ -67,7 +67,7 @@ describe('auth rate limit', () => {
     await expectLimited(limiter.check('register', '203.0.113.7'))
 
     // A different route has its own budget.
-    await limiter.check('login', '203.0.113.7')
+    await limiter.check('password', '203.0.113.7')
     // A different address has its own budget.
     await limiter.check('register', '198.51.100.9')
   })
@@ -75,7 +75,7 @@ describe('auth rate limit', () => {
   test('never stores the address itself', async () => {
     const store = new FixedWindowStore()
     const limiter = createAuthRateLimit(options(store))
-    await limiter.check('login', '203.0.113.7')
+    await limiter.check('password', '203.0.113.7')
 
     const key = store.keys[0]
     expect(key).toBeDefined()
@@ -95,15 +95,22 @@ describe('auth rate limit', () => {
   })
 
   test('the route budgets match the documented contract', () => {
-    const routes: RateLimitRoute[] = ['login', 'callback', 'step_up', 'register', 'verify', 'password']
+    const routes: RateLimitRoute[] = [
+      'callback',
+      'step_up',
+      'register',
+      'verify',
+      'password',
+      'invitation_claim',
+    ]
     expect(Object.keys(RATE_LIMITS).sort()).toEqual([...routes].sort())
     expect(RATE_LIMITS).toEqual({
-      login: 30,
       callback: 30,
       step_up: 10,
       register: 5,
       verify: 10,
       password: 10,
+      invitation_claim: 5,
     })
   })
 })

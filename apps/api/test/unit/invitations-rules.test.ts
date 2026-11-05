@@ -93,6 +93,28 @@ describe('invitation rules', () => {
     ).not.toThrow()
   })
 
+  test('accepts a new-user invitation by email when no subject is stored', () => {
+    expect(() =>
+      assertInvitationAcceptable(
+        invitation({ zitadelSub: null }),
+        actor(),
+        new Date('2026-01-02T00:00:00.000Z'),
+      ),
+    ).not.toThrow()
+  })
+
+  test('refuses a new-user invitation addressed to another email', async () => {
+    const mismatch = await failure(() =>
+      assertInvitationAcceptable(
+        invitation({ zitadelSub: null }),
+        actor({ email: 'other@example.com' }),
+        new Date('2026-01-02T00:00:00.000Z'),
+      ),
+    )
+
+    expect(mismatch).toMatchObject({ status: 403 })
+  })
+
   test('refuses an accepted invitation, an expired one and another identity', async () => {
     const accepted = await failure(() =>
       assertInvitationAcceptable(
@@ -119,13 +141,13 @@ describe('invitation rules', () => {
   })
 
   test('keeps the invitation fields when a link is reissued', () => {
-    const draft = draftOf(invitation())
+    const draft = draftOf(invitation({ zitadelSub: null }))
 
     expect(draft).toMatchObject({
       email: 'person@example.com',
       organisationId: '22222222-2222-4222-8222-222222222222',
       kind: 'new_user',
-      zitadelSub: 'subject-1',
+      zitadelSub: null,
       roleIds: [ROLE.id],
     })
   })

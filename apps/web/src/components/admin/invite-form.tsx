@@ -40,7 +40,6 @@ export function InviteForm({
       {
         organisationId,
         email: String(form.get("email") ?? "").trim(),
-        displayName: String(form.get("displayName") ?? "").trim() || undefined,
         hospitalId: hospitalId === "" ? null : hospitalId,
         roleIds: roleId === "" ? [] : [roleId],
       },
@@ -75,10 +74,6 @@ export function InviteForm({
           maxLength={320}
           autoComplete="off"
         />
-      </div>
-      <div className="space-y-1.5">
-        <Label htmlFor="invite-name">Display name</Label>
-        <Input id="invite-name" name="displayName" maxLength={200} autoComplete="off" />
       </div>
       <div className="space-y-1.5">
         <Label htmlFor="invite-hospital">Hospital</Label>

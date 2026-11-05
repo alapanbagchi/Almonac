@@ -3,9 +3,10 @@ import Link from "next/link";
 import { connection } from "next/server";
 
 import { AuthShell } from "@/components/auth/form-parts";
+import { MailMark } from "@/components/auth/mail-mark";
 
 export const metadata: Metadata = {
-  title: "Check your email",
+  title: "Verify your email",
   description: "Confirm the verification link for your new Almonac account.",
 };
 
@@ -17,8 +18,9 @@ export default async function CheckEmailPage() {
   await connection();
   return (
     <AuthShell
-      title="Check your email"
+      title="Verify your email"
       subtitle="We sent a verification link to your work email. Open the link to finish creating your account."
+      mark={<MailMark className="size-16 text-parchment" />}
     >
       <div className="flex flex-col gap-5 text-sm text-moss-bright">
         <p role="status">

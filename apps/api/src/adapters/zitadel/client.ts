@@ -132,33 +132,6 @@ export class ZitadelManagementClient {
   }
 
   /**
-   * Create a human user. A null organisation uses the service user's own
-   * organisation, which is how self-registration assigns the home tenant. A
-   * password creates a usable account immediately; the invitation flow omits
-   * it and lets the provider send an initialisation link instead.
-   */
-  async createHumanUser(
-    organisationId: string | null,
-    input: { email: string; displayName: string; password?: string },
-  ): Promise<string> {
-    const names = splitName(input)
-    const body = await this.request(
-      'POST',
-      '/management/v1/users/human/_import',
-      {
-        userName: input.email,
-        profile: { ...names, displayName: input.displayName },
-        email: { email: input.email, isEmailVerified: false },
-        ...(input.password === undefined
-          ? {}
-          : { password: input.password, passwordChangeRequired: false }),
-      },
-      organisationId ?? undefined,
-    )
-    return readUserId(body)
-  }
-
-  /**
    * Create a user whose email was verified by Almonac. The password arrives as
    * a bcrypt hash, so the plaintext never reaches the provider. The v2 API is
    * used because the management import always creates an unverified address.
@@ -176,24 +149,6 @@ export class ZitadelManagementClient {
       hashedPassword: { hash: input.passwordHash },
     })
     return readUserId(body)
-  }
-
-  async resendInitialization(organisationId: string, userId: string): Promise<void> {
-    await this.request(
-      'POST',
-      `/management/v1/users/${encodeURIComponent(userId)}/_resend_initialization`,
-      {},
-      organisationId,
-    )
-  }
-
-  async deactivateUser(organisationId: string, userId: string): Promise<void> {
-    await this.request(
-      'POST',
-      `/management/v1/users/${encodeURIComponent(userId)}/_deactivate`,
-      {},
-      organisationId,
-    )
   }
 
   private async request(

@@ -1,31 +1,13 @@
 # Local Zitadel stack for development and CI only.
 #
-# This is not a production deployment. It runs one replica of everything, keeps
-# secrets in a local .env file and publishes the API through a development proxy.
+# This is not a production deployment. It runs one replica of everything and
+# keeps secrets in a local .env file. The Zitadel API is published directly;
+# there is no hosted login UI or development proxy.
 # See docs/architecture/decisions/013-self-hosted-zitadel-deployment.md for the
 # production shape.
 name: almonac-local
 
 services:
-  proxy:
-    image: ${TRAEFIK_IMAGE}
-    restart: unless-stopped
-    command:
-      - --providers.docker=true
-      - --providers.docker.exposedbydefault=false
-      - --providers.docker.network=almonac-local
-      - --entrypoints.web.address=:80
-      - --api.dashboard=false
-      - --api.insecure=false
-      - --log.level=INFO
-      - --accesslog=false
-    ports:
-      - "127.0.0.1:${PROXY_PORT:-8080}:80"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    networks:
-      - almonac-local
-
   zitadel-api:
     image: ghcr.io/zitadel/zitadel:${ZITADEL_VERSION}
     restart: unless-stopped
@@ -55,8 +37,8 @@ services:
       ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD: "${ZITADEL_ADMIN_PASSWORD:?set ZITADEL_ADMIN_PASSWORD in .env}"
       ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORDCHANGEREQUIRED: "false"
 
-      # Login v2 is required in Zitadel 4.x. The login UI is a separate
-      # container served under /ui/v2/login by the proxy.
+      # Login v2 is required in Zitadel 4.x, but this stack does not run the
+      # login UI. The API only reads the redirect Location from the login client.
       ZITADEL_FIRSTINSTANCE_LOGINCLIENTPATPATH: /zitadel/bootstrap/login-client.pat
       ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_MACHINE_USERNAME: login-client
       ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_MACHINE_NAME: Almonac login client
@@ -71,6 +53,8 @@ services:
       timeout: 30s
       retries: 20
       start_period: 30s
+    ports:
+      - "127.0.0.1:${ZITADEL_EXTERNALPORT:-8080}:8080"
     volumes:
       - zitadel-bootstrap:/zitadel/bootstrap:rw
     networks:
@@ -78,68 +62,17 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    labels:
-      - traefik.enable=true
-      - traefik.docker.network=almonac-local
-      - traefik.http.services.zitadel-api.loadbalancer.server.port=8080
-      - traefik.http.services.zitadel-api.loadbalancer.server.scheme=h2c
-      - traefik.http.routers.zitadel-api.rule=Host(`${ZITADEL_DOMAIN}`)
-      - traefik.http.routers.zitadel-api.entrypoints=web
-      - traefik.http.routers.zitadel-api.priority=100
-      - traefik.http.routers.zitadel-api.service=zitadel-api
 
-  zitadel-login:
-    image: ghcr.io/zitadel/zitadel-login:${ZITADEL_VERSION}
-    restart: unless-stopped
-    user: "0"
-    environment:
-      ZITADEL_API_URL: http://zitadel-api:8080
-      NEXT_PUBLIC_BASE_PATH: /ui/v2/login
-      ZITADEL_SERVICE_USER_TOKEN_FILE: /zitadel/bootstrap/login-client.pat
-      ZITADEL_SESSION_COOKIE_SECRET: "${LOGIN_SESSION_COOKIE_SECRET:?set LOGIN_SESSION_COOKIE_SECRET in .env}"
-      CUSTOM_REQUEST_HEADERS: Host:${ZITADEL_DOMAIN},X-Forwarded-Proto:${ZITADEL_PUBLIC_SCHEME}
-    healthcheck:
-      test:
-        - CMD
-        - /bin/sh
-        - -c
-        - node /app/healthcheck.mjs http://localhost:3000/ui/v2/login/healthy
-      interval: 10s
-      timeout: 30s
-      retries: 20
-      start_period: 20s
-    volumes:
-      - zitadel-bootstrap:/zitadel/bootstrap:ro
-    networks:
-      - almonac-local
-    depends_on:
-      zitadel-api:
-        condition: service_healthy
-    labels:
-      - traefik.enable=true
-      - traefik.docker.network=almonac-local
-      - traefik.http.services.zitadel-login.loadbalancer.server.port=3000
-      - traefik.http.middlewares.zitadel-root.replacepath.path=/ui/v2/login/
-      - traefik.http.routers.zitadel-root.rule=Host(`${ZITADEL_DOMAIN}`) && Path(`/`)
-      - traefik.http.routers.zitadel-root.entrypoints=web
-      - traefik.http.routers.zitadel-root.middlewares=zitadel-root
-      - traefik.http.routers.zitadel-root.priority=400
-      - traefik.http.routers.zitadel-root.service=zitadel-login
-      - traefik.http.routers.zitadel-login.rule=Host(`${ZITADEL_DOMAIN}`) && PathPrefix(`/ui/v2/login`)
-      - traefik.http.routers.zitadel-login.entrypoints=web
-      - traefik.http.routers.zitadel-login.priority=250
-      - traefik.http.routers.zitadel-login.service=zitadel-login
-
-  control-postgres:
+  registry-postgres:
     image: ${POSTGRES_IMAGE}
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${CONTROL_POSTGRES_DB}
-      POSTGRES_USER: ${CONTROL_POSTGRES_USER}
-      POSTGRES_PASSWORD: "${CONTROL_POSTGRES_PASSWORD:?set CONTROL_POSTGRES_PASSWORD in .env}"
-      CONTROL_POSTGRES_TEST_DB: ${CONTROL_POSTGRES_TEST_DB}
+      POSTGRES_DB: ${REGISTRY_POSTGRES_DB}
+      POSTGRES_USER: ${REGISTRY_POSTGRES_USER}
+      POSTGRES_PASSWORD: "${REGISTRY_POSTGRES_PASSWORD:?set REGISTRY_POSTGRES_PASSWORD in .env}"
+      REGISTRY_POSTGRES_TEST_DB: ${REGISTRY_POSTGRES_TEST_DB}
     ports:
-      - "127.0.0.1:${CONTROL_POSTGRES_PORT:-5433}:5432"
+      - "127.0.0.1:${REGISTRY_POSTGRES_PORT:-5433}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s
@@ -147,8 +80,8 @@ services:
       retries: 20
       start_period: 10s
     volumes:
-      - control-postgres:/var/lib/postgresql/data:rw
-      - ./init/control-db/01-create-test-db.sh:/docker-entrypoint-initdb.d/01-create-test-db.sh:ro
+      - registry-postgres:/var/lib/postgresql/data:rw
+      - ./init/registry-db/01-create-test-db.sh:/docker-entrypoint-initdb.d/01-create-test-db.sh:ro
     networks:
       - almonac-local
 
@@ -175,6 +108,6 @@ networks:
     name: almonac-local
 
 volumes:
-  control-postgres:
+  registry-postgres:
   zitadel-postgres:
   zitadel-bootstrap:

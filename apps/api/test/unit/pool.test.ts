@@ -28,7 +28,7 @@ const readyResult = (overrides: Record<string, unknown> = {}) => ({
 describe('control pool', () => {
   test('uses the bounded control settings and the runtime role', async () => {
     const pool = createControlPool(
-      'postgresql://almonac:local-password@127.0.0.1:5433/almonac_control',
+      'postgresql://almonac:local-password@127.0.0.1:5433/almonac_registry',
     )
 
     expect(pool.options.max).toBe(CONTROL_POOL_MAX)

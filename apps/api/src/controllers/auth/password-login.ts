@@ -9,9 +9,10 @@ import {
 import { AppError } from '../../shared/errors'
 import { normaliseEmail } from '../../shared/email'
 import { isSessionToken } from '../../shared/tokens'
+import type { AppUser } from '../../repositories/app-user-repository'
 import type { AuthDependencies, LoginRequestContext } from './dependencies'
 import { recordLoginFailure } from './complete-callback'
-import { startLogin } from './start-login'
+import { beginLoginAttempt } from './start-login'
 
 const MAX_PASSWORD_LENGTH = 1_024
 
@@ -21,6 +22,11 @@ export interface PasswordLoginDto {
 
 export interface PasswordLoginInput {
   readonly email: string
+  readonly password: string
+  readonly returnTo?: unknown
+}
+
+export interface PasswordStepUpInput {
   readonly password: string
   readonly returnTo?: unknown
 }
@@ -39,14 +45,33 @@ export async function passwordLogin(
   if (loginName === null) {
     throw new AppError('INVALID_EMAIL', 422, 'Email address is not valid.')
   }
-  if (input.password.length === 0) {
-    throw new AppError('INVALID_CREDENTIALS', 401, 'Authentication failed.')
-  }
-  if (input.password.length > MAX_PASSWORD_LENGTH) {
-    throw new AppError('VALIDATION_FAILED', 400, 'Request validation failed.')
-  }
+  assertPasswordLength(input.password)
+  return authenticate(dependencies, context, loginName, input.password, input.returnTo, null)
+}
 
-  const attempt = await startLogin(dependencies, context, input.returnTo)
+/**
+ * Re-authenticate an already signed-in user with their password. The provider
+ * attempt belongs to the user, so the callback can rotate their session.
+ */
+export async function passwordStepUp(
+  dependencies: AuthDependencies,
+  context: LoginRequestContext,
+  user: Pick<AppUser, 'id' | 'email'>,
+  input: PasswordStepUpInput,
+): Promise<PasswordLoginDto> {
+  assertPasswordLength(input.password)
+  return authenticate(dependencies, context, user.email, input.password, input.returnTo, user.id)
+}
+
+async function authenticate(
+  dependencies: AuthDependencies,
+  context: LoginRequestContext,
+  loginName: string,
+  password: string,
+  returnTo: unknown,
+  userId: string | null,
+): Promise<PasswordLoginDto> {
+  const attempt = await beginLoginAttempt(dependencies, context, returnTo, userId)
   const state = stateOf(attempt.authorizationUrl)
   if (state === null) {
     throw new AppError(
@@ -58,12 +83,21 @@ export async function passwordLogin(
 
   try {
     const authRequestId = await dependencies.loginClient.start(attempt.authorizationUrl)
-    const session = await dependencies.loginClient.signIn(loginName, input.password)
+    const session = await dependencies.loginClient.signIn(loginName, password)
     const callbackUrl = await dependencies.loginClient.complete(authRequestId, session)
     if (stateOf(callbackUrl) !== state) throw new InvalidAuthRequestError()
     return { callbackUrl }
   } catch (error) {
-    return await reject(dependencies, context, error)
+    return await reject(dependencies, context, error, userId)
+  }
+}
+
+function assertPasswordLength(password: string): void {
+  if (password.length === 0) {
+    throw new AppError('INVALID_CREDENTIALS', 401, 'Authentication failed.')
+  }
+  if (password.length > MAX_PASSWORD_LENGTH) {
+    throw new AppError('VALIDATION_FAILED', 400, 'Request validation failed.')
   }
 }
 
@@ -72,9 +106,10 @@ async function reject(
   dependencies: AuthDependencies,
   context: LoginRequestContext,
   error: unknown,
+  userId: string | null,
 ): Promise<never> {
   const [reasonCode, failure] = failureOf(error)
-  await recordLoginFailure(dependencies, context, reasonCode)
+  await recordLoginFailure(dependencies, context, reasonCode, userId)
   throw failure
 }
 
@@ -86,7 +121,7 @@ function failureOf(error: unknown): [reasonCode: string, failure: AppError] {
       new AppError(
         'MFA_REQUIRED',
         403,
-        'Multi-factor authentication is required. Use single sign-on.',
+        'Multi-factor authentication is required for this account.',
       ),
     ]
   }

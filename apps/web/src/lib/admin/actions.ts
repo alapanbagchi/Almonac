@@ -138,7 +138,6 @@ export async function setPrimaryDomain(input: {
 export async function createInvitation(input: {
   organisationId: string;
   email: string;
-  displayName?: string;
   hospitalId: string | null;
   roleIds: string[];
 }): Promise<ActionResult<Invitation>> {

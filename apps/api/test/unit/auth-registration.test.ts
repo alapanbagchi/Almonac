@@ -1,10 +1,7 @@
 import { describe, expect, test } from 'bun:test'
-import {
-  MAX_NAME_LENGTH,
-  MIN_PASSWORD_LENGTH,
-  VERIFICATION_TTL_MS,
-  register,
-} from '../../src/controllers/auth/register'
+import { MIN_PASSWORD_LENGTH } from '../../src/controllers/auth/password-policy'
+import { MAX_NAME_LENGTH } from '../../src/controllers/auth/profile'
+import { VERIFICATION_TTL_MS, register } from '../../src/controllers/auth/register'
 import { verifyEmail } from '../../src/controllers/auth/verify-email'
 import type { AuthDependencies } from '../../src/controllers/auth/dependencies'
 import type { VerificationMailer } from '../../src/controllers/auth/dependencies'

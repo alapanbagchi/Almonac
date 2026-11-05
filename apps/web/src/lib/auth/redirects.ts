@@ -14,7 +14,15 @@ export function loginFailureUrl(origin: string, failure: LoginFailure): URL {
   return url;
 }
 
-export const STEP_UP_FAILURES = ["denied", "failed", "invalid", "session", "unavailable"] as const;
+export const STEP_UP_FAILURES = [
+  "credentials",
+  "denied",
+  "failed",
+  "invalid",
+  "mfa",
+  "session",
+  "unavailable",
+] as const;
 
 export type StepUpFailure = (typeof STEP_UP_FAILURES)[number];
 

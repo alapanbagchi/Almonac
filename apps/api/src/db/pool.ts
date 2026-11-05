@@ -5,7 +5,7 @@ import { booleanField, integerField, isEmpty, rowRecord, stringField } from './r
 /** ADR-002: a bounded control pool, five connections per API replica. */
 export const CONTROL_POOL_MAX = 5
 export const CONTROL_RUNTIME_ROLE = 'almonac_app'
-export const CONTROL_SCHEMA_VERSION = 10
+export const CONTROL_SCHEMA_VERSION = 11
 export const CONTROL_CONNECTION_TIMEOUT_MS = 5_000
 export const CONTROL_IDLE_TIMEOUT_MS = 30_000
 export const CONTROL_STATEMENT_TIMEOUT_MS = 10_000

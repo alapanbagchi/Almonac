@@ -32,7 +32,6 @@ const invitationSchema = t.Object({
 
 export const invitationBody = t.Object({
   email: t.String({ minLength: 3, maxLength: 320 }),
-  displayName: t.Optional(t.String({ minLength: 1, maxLength: 200 })),
   // The web form sends null for an organisation-wide invitation.
   hospitalId: t.Optional(nullable(uuid)),
   roleIds: t.Array(uuid, { minItems: 1, maxItems: 16 }),
@@ -71,10 +70,9 @@ export function invitationsRouter(d: InvitationDependencies) {
         detail: routeDetail('Invite a person'),
       },
       async (context) => {
-        const { email, displayName, hospitalId, roleIds } = context.body
+        const { email, hospitalId, roleIds } = context.body
         const invitation = await createInvitation(d, adminContextOf(context), {
           email,
-          ...(displayName === undefined ? {} : { displayName }),
           organisationId: context.params.organisationId,
           hospitalId: hospitalId ?? null,
           roleIds,

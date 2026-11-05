@@ -51,8 +51,6 @@ export function SignInForm({
     },
   });
 
-  const ssoHref = `/api/auth/login?returnTo=${encodeURIComponent(returnTo)}`;
-
   return (
     <AuthShell
       title="Sign in to Almonac"
@@ -127,12 +125,6 @@ export function SignInForm({
             <Link href="/signup" className="font-medium text-foreground underline underline-offset-4">
               Create an account
             </Link>
-          </p>
-          <p>
-            Use a passkey, multi-factor device or hospital single sign-on?{" "}
-            <a href={ssoHref} className="font-medium text-foreground underline underline-offset-4">
-              Continue with single sign-on
-            </a>
           </p>
         </div>
       </form>
