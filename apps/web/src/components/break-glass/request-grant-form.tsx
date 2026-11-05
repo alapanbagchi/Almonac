@@ -1,16 +1,20 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
 
 import { StepUpPrompt } from "@/components/auth/step-up-prompt";
+import { FormError } from "@/components/form/form-error";
 import { SubmitButton } from "@/components/form/submit-button";
+import { useShake } from "@/components/motion/use-shake";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { breakGlassRequest, BreakGlassRequestError } from "@/lib/break-glass/client";
+import { requestGrant } from "@/lib/admin/actions";
+import { useAdminMutation } from "@/lib/admin/mutations";
+import { adminKeys } from "@/lib/admin/queries";
+import { actionErrorMessage, AdminActionError } from "@/lib/admin/result";
 
 function message(error: unknown): string {
-  if (error instanceof BreakGlassRequestError) {
+  if (error instanceof AdminActionError) {
     if (error.code === "CONFLICT") {
       return "An open emergency grant already exists for this hospital.";
     }
@@ -21,7 +25,7 @@ function message(error: unknown): string {
       return "Your account cannot request break-glass access at this hospital.";
     }
   }
-  return "The request could not be sent.";
+  return actionErrorMessage(error, "The request could not be sent.");
 }
 
 export function RequestGrantForm({
@@ -31,44 +35,42 @@ export function RequestGrantForm({
   hospitals: { id: string; name: string }[];
   returnTo: string;
 }) {
-  const router = useRouter();
-  const [pending, setPending] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
+  const { ref: formRef, shake } = useShake<HTMLFormElement>();
   const [stepUp, setStepUp] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const request = useAdminMutation(requestGrant, adminKeys.breakGlass());
 
-  async function submit(event: React.FormEvent<HTMLFormElement>) {
+  function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formElement = event.currentTarget;
     const form = new FormData(formElement);
-    setPending(true);
     setError(null);
-    try {
-      await breakGlassRequest("grants", "POST", {
+    request.mutate(
+      {
         hospitalId: String(form.get("hospitalId") ?? ""),
         mode: "emergency",
         reason: String(form.get("reason") ?? "").trim(),
         durationMinutes: Number(form.get("durationMinutes") ?? 60),
-      });
-      formElement.reset();
-      router.refresh();
-    } catch (failure) {
-      if (
-        failure instanceof BreakGlassRequestError &&
-        failure.code === "STEP_UP_REQUIRED"
-      ) {
-        setStepUp(true);
-        return;
-      }
-      setError(message(failure));
-    } finally {
-      setPending(false);
-    }
+      },
+      {
+        onSuccess: () => formElement.reset(),
+        onError: (failure) => {
+          if (failure instanceof AdminActionError && failure.code === "STEP_UP_REQUIRED") {
+            setStepUp(true);
+            return;
+          }
+          setError(message(failure));
+          shake();
+        },
+      },
+    );
   }
 
   if (stepUp) return <StepUpPrompt returnTo={returnTo} />;
 
   return (
-    <form onSubmit={submit} className="grid gap-3">
+    <form ref={formRef} onSubmit={submit} className="grid gap-3">
+      <FormError message={error} />
       <div className="space-y-1.5">
         <Label htmlFor="grant-hospital">Hospital</Label>
         <select
@@ -116,14 +118,9 @@ export function RequestGrantForm({
           At most four hours. Access is read-only and ends automatically.
         </p>
       </div>
-      <SubmitButton disabled={pending}>
-        {pending ? "Requesting..." : "Request emergency access"}
+      <SubmitButton disabled={request.isPending}>
+        {request.isPending ? "Requesting..." : "Request emergency access"}
       </SubmitButton>
-      {error === null ? null : (
-        <p role="alert" className="text-sm text-destructive">
-          {error}
-        </p>
-      )}
     </form>
   );
 }

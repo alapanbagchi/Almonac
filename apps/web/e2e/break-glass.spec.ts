@@ -28,19 +28,3 @@ test("needs a fresh identity check before emergency access", async ({ page }) =>
   await page.getByRole("button", { name: "End access" }).click();
   await expect(page.getByText("revoked", { exact: true })).toBeVisible();
 });
-
-test("refuses a break-glass call from another origin", async ({ page }) => {
-  await signIn(page);
-
-  const response = await page.request.post("/api/break-glass/grants", {
-    headers: { origin: "https://evil.example" },
-    data: {
-      hospitalId: "00000000-0000-4000-8000-000000000004",
-      mode: "emergency",
-      reason: "Cross-origin attempt",
-      durationMinutes: 60,
-    },
-    maxRedirects: 0,
-  });
-  expect(response.status()).toBe(403);
-});

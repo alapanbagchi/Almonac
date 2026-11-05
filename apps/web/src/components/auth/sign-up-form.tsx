@@ -10,20 +10,22 @@ import { Mail01 } from "@/components/animate-ui/icons/hugeicons/mail-01";
 import { UserRound } from "@/components/animate-ui/icons/hugeicons/user-round";
 import {
   AuthShell,
-  FormError,
   LeadingInput,
   PASSWORD_RULES,
   SubmitAction,
   leadingInputClass,
   signUpSchema,
 } from "@/components/auth/form-parts";
+import { FormError } from "@/components/form/form-error";
 import { ValidatedField, updateFieldValue } from "@/components/form/validated-field";
+import { useShake } from "@/components/motion/use-shake";
 import { PasswordStrengthInput } from "@/components/spectrumui/password-strength";
 import { Input } from "@/components/ui/input";
 import { submitCredentials } from "@/lib/auth/browser";
 
 export function SignUpForm() {
   const router = useRouter();
+  const { ref: formRef, shake } = useShake<HTMLFormElement>();
   const [pending, setPending] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -42,6 +44,7 @@ export function SignUpForm() {
         return;
       }
       setError(result.message ?? "The account could not be created.");
+      shake();
       setPending(false);
     },
   });
@@ -52,6 +55,7 @@ export function SignUpForm() {
       subtitle="Start with your work email. We will send a verification link before you create your first organisation."
     >
       <form
+        ref={formRef}
         noValidate
         className="flex flex-col gap-8"
         onSubmit={(event) => {
@@ -60,6 +64,7 @@ export function SignUpForm() {
         }}
       >
         <div className="flex flex-col gap-5">
+          <FormError message={error} />
           <ValidatedField
             form={form}
             name="fullName"
@@ -125,8 +130,6 @@ export function SignUpForm() {
             )}
           </ValidatedField>
         </div>
-
-        <FormError message={error} />
 
         <SubmitAction
           pending={pending}

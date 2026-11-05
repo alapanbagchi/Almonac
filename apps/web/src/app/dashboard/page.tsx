@@ -1,5 +1,6 @@
 import * as React from "react";
 import Link from "next/link";
+import { connection } from "next/server";
 
 import { Clock01 } from "@/components/animate-ui/icons/hugeicons/clock-01";
 import { Globe02 } from "@/components/animate-ui/icons/hugeicons/globe-02";
@@ -26,7 +27,9 @@ const SECTIONS: { href: string; label: string; description: string; icon: Sectio
   { href: "/dashboard/settings", label: "Settings", description: "Workspace preferences.", icon: Settings02 },
 ];
 
-export default function DashboardPage() {
+export default async function DashboardPage() {
+  // Blocking on the request is what produces per-request scripts with a nonce.
+  await connection();
   return (
     <div>
       <h1 className="font-display text-[2.05rem] leading-[1.15] font-medium tracking-[-0.02em] text-foreground">

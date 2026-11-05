@@ -67,7 +67,7 @@ These are standing instructions from the product owner. Apply them to every UI t
 
 **Location.** The web application lives at `apps/web/` (ADR-009 supersedes ADR-007). The workspace root is the Git repository; `apps/web` is not a separate repository. Run commands from `apps/web/`.
 
-**Installed baseline** (`package.json`): Next.js 16.4.3 (App Router), React 19.3, TypeScript 5 strict, Tailwind CSS 4 via `@tailwindcss/turbopack`, shadcn with the `base-nova` style on Base UI, TanStack Form 1.x, Zod 4, animate-ui icons. `next.config.ts` enables `cacheComponents` and `partialPrefetching`. The app has a server-only Eden client for `GET /api/health`, a first-party sign-up and password sign-in surface (`/signup`, `/check-email`, `/verify-email`, `/login`), a first-organisation onboarding screen, a server-side authentication BFF with step-up, an allowlisted administration BFF, an allowlisted break-glass BFF, a session reader, a guarded dashboard with a break-glass screen, and a Playwright suite. `.env.example` documents `API_URL`, `AUTH_PUBLIC_ORIGIN` and `AUTH_IDP_ORIGIN`. Dashboard memberships, hospitals and identity come from the API session.
+**Installed baseline** (`package.json`): Next.js 16.4.3 (App Router), React 19.3, TypeScript 5 strict, Tailwind CSS 4 via `@tailwindcss/turbopack`, shadcn with the `base-nova` style on Base UI, TanStack Form 1.x, TanStack Query 5.x, Zod 4, animate-ui icons. `next.config.ts` enables `cacheComponents` and `partialPrefetching`. The app has a server-only Eden client for `GET /api/health`, a first-party sign-up and password sign-in surface (`/signup`, `/check-email`, `/verify-email`, `/login`), a first-organisation onboarding screen, a server-side authentication BFF with step-up, a server-action data layer wrapped by TanStack Query for the administration, break-glass and onboarding screens, a session reader, a guarded dashboard, and a Playwright suite. `.env.example` documents `API_URL`, `AUTH_PUBLIC_ORIGIN` and `AUTH_IDP_ORIGIN`. Dashboard memberships, hospitals and identity come from the API session.
 
 ## 1. Architecture
 
@@ -75,8 +75,8 @@ These are standing instructions from the product owner. Apply them to every UI t
 - Route groups `(auth)`, `(dashboard)` group layouts without adding a URL segment. Use a group only when several routes share a layout or a guard; do not create a group for a single page.
 - A `layout.tsx` must not fetch user-specific data that its children also need; pass data down or refetch in the page. Layouts do not re-render on navigation.
 - Server Components are the default. Add `'use client'` only for state, effects, browser APIs or event handlers, and push it down to the smallest leaf that needs it — a page or layout must not become a client component because one button is interactive.
-- Every route that loads data needs a loading state (`loading.tsx` or `<Suspense>`) and an error boundary (`error.tsx` with a reset action). A clinical screen must never fail to a blank page.
-- Data fetching happens on the server, in the page or a server-only module. Client fetching is for interaction-driven reads (search-as-you-type, polling a job) and mutations.
+- Every route that loads data needs a loading state (`loading.tsx` or `<Suspense>`) and an error boundary (`error.tsx` with a reset action). A clinical screen must never fail to a blank page. A client view that waits on a query renders `AdminLoading` / `AdminError`, so a failed read is never shown as an empty list.
+- Screen reads start in a server action loader (a server-only module) and are cached per tab by TanStack Query. A page does not call several loaders in sequence; one action returns the screen's whole view model.
 - Never import a module that touches `process.env` secrets or the database into a client component. Anything marked `server-only` stays server-side.
 
 Verification: `grep -rn "use client"` should show leaves, not pages; every data route has a loading and error file.
@@ -110,12 +110,12 @@ Do not create a global component for something used once. A complex clinical com
 
 ## 3. Talking to the backend
 
-- The web client uses **Eden Treaty** against the exported `App` type for API routes; do not hand-write request/response types that Eden infers. The server-only auth BFF uses its own Zod-validated client in `src/lib/auth/api.ts` because it must never import server internals into the browser. Keep ad-hoc `fetch` out of components.
+- The web client uses **Eden Treaty** against the exported `App` type for API routes; do not hand-write request/response types that Eden infers. The server-only auth BFF uses its own Zod-validated client in `src/lib/auth/api.ts`; the admin and break-glass layers use Zod-validated clients in `src/lib/admin/api.ts` and `src/lib/break-glass/api.ts`. Server actions in `src/lib/admin/actions.ts` are the only browser-facing entry point for administration, break-glass and onboarding. Keep ad-hoc `fetch` out of components.
 - Python services (`apps/clinical-ai`) are called through the Elysia API, not directly from the browser. If a browser call is ever required, generate a typed client from that service's OpenAPI document; do not retype schemas by hand.
 - The browser never holds database credentials and never connects to PostgreSQL. There is no client-side SQL, no Supabase-style direct table access.
 - Every request carries the authenticated session, never a user ID or hospital ID taken from local state as proof of identity. The hospital selector sends a hospital ID as a *selector*; the API re-authorises it.
 - Handle the API's error envelope `{ error: { code, message, requestId } }` in one place and map codes to user-facing messages. Never render a raw server message containing internals.
-- Apply timeouts and abort signals to client-side requests; show a retry affordance rather than an infinite spinner.
+- Apply timeouts and abort signals to server-side API calls; show a retry affordance rather than an infinite spinner.
 
 ## 4. Clinical data in the browser
 
@@ -139,9 +139,9 @@ Verification: search for `localStorage`, `sessionStorage`, `console.log`, `use c
 
 ## 5. Fetching, pagination, mutations
 
-- Server reads: fetch in the page/server module, pass plain serialisable props. Do not pass class instances or functions across the boundary.
+- Server reads: one loader action per screen returns a plain serialisable view model. The page stays a server component; its client view calls the loader through `useQuery`.
 - Lists are paginated server-side. Never fetch "all patients" and filter in the browser. Default page size is explicit, sorting and filters are server parameters, and the URL may carry non-PHI list state (page, sort) only.
-- Mutations go through a server action or an API call, then revalidate the affected route. Do not mutate local arrays as the source of truth for clinical records.
+- Mutations go through a server action wrapped in `useMutation`, which invalidates `adminKeys.all`. Do not call `router.refresh()`, and do not mutate local arrays as the source of truth for clinical records.
 - Optimistic updates are allowed only for reversible UI state (toggles, draft rows) — never for signing, ordering, dispensing or anything audited. Show pending, success and failure states.
 - Search: debounce input, cancel in-flight requests, and do not put a patient name or identifier in the URL.
 - Empty states are explicit ("No encounters recorded") and never imply that data is missing when the request failed. Distinguish empty from error.
@@ -161,7 +161,7 @@ Verification: search for `localStorage`, `sessionStorage`, `console.log`, `use c
 
 - `src/proxy.ts` sets the response headers for every rendered document: a per-request nonce in `script-src` with `'strict-dynamic'`, framing denial (`frame-ancestors 'none'`, `x-frame-options: DENY`), `referrer-policy: same-origin`, a Permissions Policy, `nosniff`, and HSTS only when `AUTH_PUBLIC_ORIGIN` is https. `form-action` allows the app origin and `AUTH_IDP_ORIGIN`, because a sign-out form submission redirects to the provider to end the SSO session. Do not add `'unsafe-inline'` to `script-src`, widen the framing rules, or add other form targets.
 - A nonce only works on a request-time render. Every page that returns HTML exports `const instant = false` and awaits `connection()` from `next/server` in an async component; the build then reports the route as dynamic. `instant = false` alone does not make a route dynamic, and a static route serves scripts without a nonce that the browser refuses to run.
-- `referrer-policy: same-origin` is deliberate. `no-referrer` makes Chromium send `Origin: null` on same-origin form POSTs, which the BFF origin check rejects with 403. BFF route responses still send `no-referrer` themselves.
+- `referrer-policy: same-origin` is deliberate. `no-referrer` makes Chromium send `Origin: null` on same-origin form POSTs, which a server action's origin check rejects. Non-document auth BFF responses still send `no-referrer` themselves.
 - The policy lives in `src/lib/http/security-headers.ts`. Change it there, extend `src/lib/http/security-headers.test.ts`, and keep the `e2e/smoke.spec.ts` assertion: it reads raw HTML rather than `document.scripts` so dev-only injected scripts do not mask a missing nonce on the server output.
 
 ## 8. Before you finish

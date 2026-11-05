@@ -96,7 +96,7 @@ export function AuthShell({
           className="logo-mark block aspect-[1317/1194] w-[64px] shrink-0"
         />
 
-        <div className="step-in mt-10 flex flex-col gap-8">
+        <div className="step-in mt-4 flex flex-col gap-8">
           <div className="flex flex-col gap-3">
             <h1 className="font-display text-left text-[1.8rem] leading-[1.12] font-medium tracking-[-0.02em] text-balance text-foreground sm:text-[2.05rem]">
               {title}
@@ -143,17 +143,5 @@ export function SubmitAction({
         </>
       )}
     </SubmitButton>
-  );
-}
-
-export function FormError({ message }: { message: string | null }) {
-  if (message === null) return null;
-  return (
-    <p
-      role="alert"
-      className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
-    >
-      {message}
-    </p>
   );
 }

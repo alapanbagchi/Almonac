@@ -1,47 +1,55 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
 
-import { adminRequest } from "@/lib/admin/client";
+import { FormError } from "@/components/form/form-error";
 import { SubmitButton } from "@/components/form/submit-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useShake } from "@/components/motion/use-shake";
+import { createOrganisation } from "@/lib/admin/actions";
+import { useAdminMutation } from "@/lib/admin/mutations";
+import { actionErrorMessage, AdminActionError } from "@/lib/admin/result";
 
-function errorMessage(error: unknown): string {
-  if (error instanceof Error && error.message === "CONFLICT") {
+function messageFor(error: unknown): string {
+  if (error instanceof AdminActionError && error.code === "CONFLICT") {
     return "That slug is already in use.";
   }
-  return "The organisation could not be created.";
+  return actionErrorMessage(error, "The organisation could not be created.");
 }
 
 export function CreateOrganisationForm() {
-  const router = useRouter();
+  const { ref: formRef, shake } = useShake<HTMLFormElement>();
   const [error, setError] = React.useState<string | null>(null);
-  const [pending, setPending] = React.useState(false);
+  const create = useAdminMutation(createOrganisation);
 
-  async function submit(event: React.FormEvent<HTMLFormElement>) {
+  function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formElement = event.currentTarget;
     const form = new FormData(formElement);
-    setPending(true);
     setError(null);
-    try {
-      await adminRequest("organisations", "POST", {
+    create.mutate(
+      {
         name: String(form.get("name") ?? ""),
         slug: String(form.get("slug") ?? ""),
-      });
-      formElement.reset();
-      router.refresh();
-    } catch (failure) {
-      setError(errorMessage(failure));
-    } finally {
-      setPending(false);
-    }
+      },
+      {
+        onSuccess: () => formElement.reset(),
+        onError: (failure) => {
+          setError(messageFor(failure));
+          shake();
+        },
+      },
+    );
   }
 
   return (
-    <form onSubmit={submit} className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+    <form
+      ref={formRef}
+      onSubmit={submit}
+      className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end"
+    >
+      <FormError message={error} />
       <div className="space-y-1.5">
         <Label htmlFor="organisation-name">Name</Label>
         <Input id="organisation-name" name="name" required maxLength={200} autoComplete="off" />
@@ -57,14 +65,9 @@ export function CreateOrganisationForm() {
           autoComplete="off"
         />
       </div>
-      <SubmitButton disabled={pending}>
-        {pending ? "Creating..." : "Create"}
+      <SubmitButton disabled={create.isPending}>
+        {create.isPending ? "Creating..." : "Create"}
       </SubmitButton>
-      {error === null ? null : (
-        <p role="alert" className="text-sm text-destructive sm:col-span-3">
-          {error}
-        </p>
-      )}
     </form>
   );
 }

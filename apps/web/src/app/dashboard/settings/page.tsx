@@ -1,9 +1,13 @@
+import { connection } from "next/server";
+
 export const metadata = { title: "Settings" };
 
 // The session guard must resolve before this page renders.
 export const instant = false;
 
-export default function SettingsPage() {
+export default async function SettingsPage() {
+  // Blocking on the request is what produces per-request scripts with a nonce.
+  await connection();
   return (
     <div>
       <h1 className="font-display text-[2.05rem] leading-[1.15] font-medium tracking-[-0.02em] text-foreground">

@@ -65,6 +65,7 @@
   --color-input: var(--input);
   --color-border: var(--border);
   --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
   --color-muted-foreground: var(--muted-foreground);
@@ -111,6 +112,8 @@
   --accent-foreground: #ecdfcc;
 
   --destructive: #b4594a;
+  /* White on clay is 4.70:1; parchment would drop to 3.58:1. */
+  --destructive-foreground: #ffffff;
 
   --border: #3c3d372e;
   /* Field edges sit on bark, so the hairline is lifted slightly off the

@@ -8,13 +8,14 @@ import { Key01 } from "@/components/animate-ui/icons/hugeicons/key-01";
 import { Mail01 } from "@/components/animate-ui/icons/hugeicons/mail-01";
 import {
   AuthShell,
-  FormError,
   LeadingInput,
   SubmitAction,
   leadingInputClass,
   signInSchema,
 } from "@/components/auth/form-parts";
+import { FormError } from "@/components/form/form-error";
 import { ValidatedField } from "@/components/form/validated-field";
+import { useShake } from "@/components/motion/use-shake";
 import { Input } from "@/components/ui/input";
 import { submitCredentials } from "@/lib/auth/browser";
 
@@ -27,6 +28,7 @@ export function SignInForm({
   message: string | null;
   verified?: boolean;
 }) {
+  const { ref: formRef, shake } = useShake<HTMLFormElement>();
   const [pending, setPending] = React.useState(false);
   const [error, setError] = React.useState<string | null>(message);
 
@@ -44,6 +46,7 @@ export function SignInForm({
         return;
       }
       setError(result.message ?? "The email or password is not correct.");
+      shake();
       setPending(false);
     },
   });
@@ -56,6 +59,7 @@ export function SignInForm({
       subtitle="Use the email and password for your account."
     >
       <form
+        ref={formRef}
         noValidate
         className="flex flex-col gap-8"
         onSubmit={(event) => {
@@ -64,6 +68,7 @@ export function SignInForm({
         }}
       >
         <div className="flex flex-col gap-5">
+          <FormError message={error} />
           <ValidatedField
             form={form}
             name="email"
@@ -113,8 +118,6 @@ export function SignInForm({
             Your email is verified. Sign in to continue.
           </p>
         ) : null}
-
-        <FormError message={error} />
 
         <SubmitAction pending={pending} label="Sign in" pendingLabel="Signing in" />
 

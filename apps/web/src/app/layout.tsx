@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Lora, Geist_Mono } from "next/font/google";
 import localFont from "next/font/local";
+import { QueryProvider } from "@/components/query/query-provider";
 import "./globals.css";
 
 const sohne = localFont({
@@ -37,7 +38,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       lang="en"
       className={`${sohne.variable} ${lora.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        <QueryProvider>{children}</QueryProvider>
+      </body>
     </html>
   );
 }

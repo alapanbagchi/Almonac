@@ -3,7 +3,9 @@
 import * as React from "react";
 import Link from "next/link";
 
-import { adminRequest } from "@/lib/admin/client";
+import { acceptInvitation } from "@/lib/admin/actions";
+import { useActionMutation } from "@/lib/admin/mutations";
+import { AdminActionError } from "@/lib/admin/result";
 
 type State =
   | { status: "accepting" }
@@ -12,8 +14,14 @@ type State =
 
 export function AcceptInvitation() {
   const [state, setState] = React.useState<State>({ status: "accepting" });
+  const { mutate } = useActionMutation(acceptInvitation);
+  const started = React.useRef(false);
 
   React.useEffect(() => {
+    // Strict mode runs the effect twice; the first run consumes the token.
+    if (started.current) return;
+    started.current = true;
+
     const token = new URLSearchParams(window.location.hash.slice(1)).get("token");
     window.history.replaceState(null, "", "/invitations/accept");
     if (token === null || !/^[A-Za-z0-9_-]{32,128}$/.test(token)) {
@@ -23,10 +31,10 @@ export function AcceptInvitation() {
       return;
     }
 
-    adminRequest("invitations/accept", "POST", { token })
-      .then(() => setState({ status: "accepted" }))
-      .catch((error: unknown) => {
-        const code = error instanceof Error ? error.message : "ADMIN_FAILED";
+    mutate(token, {
+      onSuccess: () => setState({ status: "accepted" }),
+      onError: (failure) => {
+        const code = failure instanceof AdminActionError ? failure.code : "ADMIN_FAILED";
         setState({
           status: "error",
           message:
@@ -36,8 +44,9 @@ export function AcceptInvitation() {
                 ? "This invitation was issued to a different account."
                 : "The invitation could not be accepted.",
         });
-      });
-  }, []);
+      },
+    });
+  }, [mutate]);
 
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col justify-center px-6 py-16">

@@ -1,15 +1,25 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
 
-import { adminRequest } from "@/lib/admin/client";
+import { FormError } from "@/components/form/form-error";
 import { SubmitButton } from "@/components/form/submit-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { createdDomainSchema, type Domain } from "@/lib/admin/model";
+import { useShake } from "@/components/motion/use-shake";
+import { addDomain, setPrimaryDomain, verifyDomain } from "@/lib/admin/actions";
+import type { Domain } from "@/lib/admin/model";
+import { useAdminMutation } from "@/lib/admin/mutations";
+import { actionErrorMessage, AdminActionError } from "@/lib/admin/result";
 import { StatusBadge } from "./status-badge";
+
+function domainMessage(error: unknown, fallback: string): string {
+  if (error instanceof AdminActionError && error.code === "CONFLICT") {
+    return "That domain is already registered.";
+  }
+  return actionErrorMessage(error, fallback);
+}
 
 export function DomainManager({
   hospitalId,
@@ -20,67 +30,53 @@ export function DomainManager({
   domains: Domain[];
   canManage: boolean;
 }) {
-  const router = useRouter();
-  const [pending, setPending] = React.useState(false);
+  const { ref, shake } = useShake<HTMLDivElement>();
+  const { ref: addRef, shake: shakeAdd } = useShake<HTMLFormElement>();
   const [error, setError] = React.useState<string | null>(null);
+  const [addError, setAddError] = React.useState<string | null>(null);
   const [token, setToken] = React.useState<{ domain: string; value: string } | null>(null);
 
-  async function add(event: React.FormEvent<HTMLFormElement>) {
+  const add = useAdminMutation(addDomain);
+  const verify = useAdminMutation(verifyDomain);
+  const primary = useAdminMutation(setPrimaryDomain);
+  const pending = add.isPending || verify.isPending || primary.isPending;
+
+  function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formElement = event.currentTarget;
     const form = new FormData(formElement);
-    setPending(true);
-    setError(null);
-    try {
-      const result = await adminRequest(`hospitals/${hospitalId}/domains`, "POST", {
-        domain: String(form.get("domain") ?? "").trim().toLowerCase(),
-      });
-      const created = createdDomainSchema.safeParse(result);
-      if (!created.success) throw new Error("ADMIN_INVALID_RESPONSE");
-      setToken({ domain: created.data.domain.domain, value: created.data.token });
-      formElement.reset();
-      router.refresh();
-    } catch (failure) {
-      setError(
-        failure instanceof Error && failure.message === "DOMAIN_TAKEN"
-          ? "That domain is already registered."
-          : "The domain could not be added.",
-      );
-    } finally {
-      setPending(false);
-    }
+    setAddError(null);
+    add.mutate(
+      { hospitalId, domain: String(form.get("domain") ?? "").trim().toLowerCase() },
+      {
+        onSuccess: (created) => {
+          setToken({ domain: created.domain.domain, value: created.token });
+          formElement.reset();
+        },
+        onError: (failure) => {
+          setAddError(domainMessage(failure, "The domain could not be added."));
+          shakeAdd();
+        },
+      },
+    );
   }
 
-  async function verify(domain: Domain, value: string) {
-    setPending(true);
+  function makePrimary(domain: Domain) {
     setError(null);
-    try {
-      await adminRequest(`hospitals/${hospitalId}/domains/${domain.id}/verify`, "POST", {
-        token: value,
-      });
-      router.refresh();
-    } catch {
-      setError("The domain could not be verified. Check the token and try again.");
-    } finally {
-      setPending(false);
-    }
-  }
-
-  async function makePrimary(domain: Domain) {
-    setPending(true);
-    setError(null);
-    try {
-      await adminRequest(`hospitals/${hospitalId}/domains/${domain.id}/primary`, "POST");
-      router.refresh();
-    } catch {
-      setError("The primary domain could not be changed.");
-    } finally {
-      setPending(false);
-    }
+    primary.mutate(
+      { hospitalId, domainId: domain.id },
+      {
+        onError: (failure) => {
+          setError(domainMessage(failure, "The primary domain could not be changed."));
+          shake();
+        },
+      },
+    );
   }
 
   return (
-    <div className="space-y-3">
+    <div ref={ref} className="space-y-3">
+      <FormError message={error} />
       {domains.length === 0 ? (
         <p className="text-sm text-moss-bright">No domains yet.</p>
       ) : (
@@ -109,7 +105,25 @@ export function DomainManager({
                   onSubmit={(event) => {
                     event.preventDefault();
                     const form = new FormData(event.currentTarget);
-                    void verify(item, String(form.get("token") ?? ""));
+                    setError(null);
+                    verify.mutate(
+                      {
+                        hospitalId,
+                        domainId: item.id,
+                        token: String(form.get("token") ?? ""),
+                      },
+                      {
+                        onError: (failure) => {
+                          setError(
+                            domainMessage(
+                              failure,
+                              "The domain could not be verified. Check the token and try again.",
+                            ),
+                          );
+                          shake();
+                        },
+                      },
+                    );
                   }}
                 >
                   <Input
@@ -130,7 +144,8 @@ export function DomainManager({
       )}
 
       {canManage ? (
-        <form onSubmit={add} className="flex flex-wrap items-end gap-2">
+        <form ref={addRef} onSubmit={submit} className="flex flex-wrap items-end gap-2">
+          <FormError message={addError} />
           <div className="space-y-1.5">
             <Label htmlFor={`domain-${hospitalId}`}>Add a domain</Label>
             <Input
@@ -154,11 +169,6 @@ export function DomainManager({
           <p className="font-medium">Publish this TXT record for {token.domain}:</p>
           <code className="mt-1 block break-all font-mono text-xs">{token.value}</code>
         </div>
-      )}
-      {error === null ? null : (
-        <p role="alert" className="text-sm text-destructive">
-          {error}
-        </p>
       )}
     </div>
   );
