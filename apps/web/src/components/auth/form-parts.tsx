@@ -81,20 +81,24 @@ export function LeadingInput({
 export function AuthShell({
   title,
   subtitle,
+  mark,
   children,
 }: {
   title: string;
   subtitle: string;
+  mark?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
     <div className="relative flex min-h-svh flex-col overflow-hidden bg-background">
       <main className="relative z-10 mx-auto flex w-full max-w-[460px] flex-1 flex-col justify-center px-6 py-14 sm:py-16">
-        <span
-          role="img"
-          aria-label="Almonac"
-          className="logo-mark block aspect-[1317/1194] w-[64px] shrink-0"
-        />
+        {mark ?? (
+          <span
+            role="img"
+            aria-label="Almonac"
+            className="logo-mark block aspect-[1317/1194] w-[64px] shrink-0"
+          />
+        )}
 
         <div className="step-in mt-4 flex flex-col gap-5">
           <div className="flex flex-col gap-3">

@@ -9,7 +9,7 @@ test("verifies the email, signs in and creates the first organisation", async ({
   await page.getByRole("button", { name: "Create account" }).click();
 
   await expect(page).toHaveURL(/\/signup\/check-email$/);
-  await expect(page.getByRole("heading", { name: "Check your email" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Verify your email" })).toBeVisible();
 
   await page.goto(`/verify-email#token=${"A".repeat(43)}`);
   await expect(page.getByText("Your email is verified")).toBeVisible();
