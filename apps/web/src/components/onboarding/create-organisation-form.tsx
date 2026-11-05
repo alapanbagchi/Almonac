@@ -8,6 +8,9 @@ import { FormError } from "@/components/form/form-error";
 import { useShake } from "@/components/motion/use-shake";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { createFirstOrganisation } from "@/lib/admin/actions";
+import { useActionMutation } from "@/lib/admin/mutations";
+import { actionErrorMessage, AdminActionError } from "@/lib/admin/result";
 
 function slugify(value: string): string {
   return value
@@ -24,37 +27,31 @@ export function CreateOrganisationForm() {
   const [name, setName] = React.useState("");
   const [slug, setSlug] = React.useState("");
   const [slugTouched, setSlugTouched] = React.useState(false);
-  const [pending, setPending] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const create = useActionMutation(createFirstOrganisation);
 
   const effectiveSlug = slugTouched ? slug : slugify(name);
 
-  async function submit(event: React.FormEvent<HTMLFormElement>) {
+  function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setPending(true);
     setError(null);
-    try {
-      const response = await fetch("/api/onboarding/organisation", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name, slug: effectiveSlug }),
-      });
-      if (response.ok) {
-        router.push("/dashboard");
-        router.refresh();
-        return;
-      }
-      const payload = (await response.json().catch(() => null)) as
-        | { error?: { message?: string } }
-        | null;
-      setError(payload?.error?.message ?? "The organisation could not be created.");
-      shake();
-    } catch {
-      setError("The service did not respond. Try again shortly.");
-      shake();
-    } finally {
-      setPending(false);
-    }
+    create.mutate(
+      { name, slug: effectiveSlug },
+      {
+        onSuccess: () => {
+          router.push("/dashboard");
+          router.refresh();
+        },
+        onError: (failure) => {
+          setError(
+            failure instanceof AdminActionError && failure.code === "CONFLICT"
+              ? "That organisation address is already in use."
+              : actionErrorMessage(failure, "The organisation could not be created."),
+          );
+          shake();
+        },
+      },
+    );
   }
 
   return (
@@ -94,7 +91,7 @@ export function CreateOrganisationForm() {
       </div>
 
       <SubmitAction
-        pending={pending}
+        pending={create.isPending}
         label="Create organisation"
         pendingLabel="Creating organisation"
       />

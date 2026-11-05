@@ -2,29 +2,6 @@ import { expect, test } from "@playwright/test";
 
 import { signIn } from "./support/sign-in";
 
-test("refuses cross-origin and oversized administration calls", async ({ page }) => {
-  await signIn(page);
-  const body = { name: "North Clinic", slug: "north-clinic" };
-
-  const crossOrigin = await page.request.post("/api/admin/organisations", {
-    headers: { origin: "https://evil.example" },
-    data: body,
-  });
-  expect(crossOrigin.status()).toBe(403);
-
-  const oversized = await page.request.post("/api/admin/organisations", {
-    headers: { origin: "http://localhost:3100" },
-    data: { ...body, name: "x".repeat(9_000) },
-  });
-  expect(oversized.status()).toBe(413);
-});
-
-test("refuses an administration call without a session", async ({ request }) => {
-  const response = await request.get("/api/admin/organisations");
-  expect(response.status()).toBe(401);
-  expect(await response.json()).toEqual({ error: { code: "AUTH_REQUIRED" } });
-});
-
 test("shows organisations, staff and the audit log", async ({ page }) => {
   await signIn(page);
 
@@ -46,7 +23,7 @@ test("shows organisations, staff and the audit log", async ({ page }) => {
   await expect(page.getByText("test-request")).toBeVisible();
 });
 
-test("creates an organisation through the BFF", async ({ page }) => {
+test("creates an organisation through a server action", async ({ page }) => {
   await signIn(page);
   await page.goto("/dashboard/organizations");
   await page.getByLabel("Name").fill("North Clinic");

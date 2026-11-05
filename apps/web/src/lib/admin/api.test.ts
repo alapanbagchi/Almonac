@@ -45,6 +45,9 @@ describe("administrative list loading", () => {
 
     expect(page.items.map((item) => item.name)).toEqual(["First", "Second"]);
     expect(page.nextOffset).toBeNull();
-    expect(urls).toEqual(["/v1/admin/organisations", "/v1/admin/organisations?offset=1"]);
+    expect(urls).toEqual([
+      "/v1/admin/organisations?limit=100",
+      "/v1/admin/organisations?limit=100&offset=1",
+    ]);
   });
 });

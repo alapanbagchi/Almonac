@@ -1,15 +1,16 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
 
 import { FormError } from "@/components/form/form-error";
-import { useShake } from "@/components/motion/use-shake";
-import { adminRequest } from "@/lib/admin/client";
 import { SubmitButton } from "@/components/form/submit-button";
+import { useShake } from "@/components/motion/use-shake";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { createInvitation } from "@/lib/admin/actions";
 import type { Hospital, Role } from "@/lib/admin/model";
+import { useAdminMutation } from "@/lib/admin/mutations";
+import { actionErrorMessage, AdminActionError } from "@/lib/admin/result";
 
 export function InviteForm({
   organisationId,
@@ -20,44 +21,45 @@ export function InviteForm({
   hospitals: Hospital[];
   roles: Role[];
 }) {
-  const router = useRouter();
   const { ref: formRef, shake } = useShake<HTMLFormElement>();
-  const [pending, setPending] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [hospitalId, setHospitalId] = React.useState("");
   const [roleId, setRoleId] = React.useState("");
+  const invite = useAdminMutation(createInvitation);
 
   const available = roles.filter((role) =>
     hospitalId === "" ? role.scope === "organisation" : role.scope === "hospital",
   );
 
-  async function submit(event: React.FormEvent<HTMLFormElement>) {
+  function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formElement = event.currentTarget;
     const form = new FormData(formElement);
-    setPending(true);
     setError(null);
-    try {
-      await adminRequest(`organisations/${organisationId}/invitations`, "POST", {
+    invite.mutate(
+      {
+        organisationId,
         email: String(form.get("email") ?? "").trim(),
         displayName: String(form.get("displayName") ?? "").trim() || undefined,
         hospitalId: hospitalId === "" ? null : hospitalId,
         roleIds: roleId === "" ? [] : [roleId],
-      });
-      formElement.reset();
-      setHospitalId("");
-      setRoleId("");
-      router.refresh();
-    } catch (failure) {
-      setError(
-        failure instanceof Error && failure.message === "CONFLICT"
-          ? "That person cannot be invited. Check the email and existing membership."
-          : "The invitation could not be sent.",
-      );
-      shake();
-    } finally {
-      setPending(false);
-    }
+      },
+      {
+        onSuccess: () => {
+          formElement.reset();
+          setHospitalId("");
+          setRoleId("");
+        },
+        onError: (failure) => {
+          setError(
+            failure instanceof AdminActionError && failure.code === "CONFLICT"
+              ? "That person cannot be invited. Check the email and existing membership."
+              : actionErrorMessage(failure, "The invitation could not be sent."),
+          );
+          shake();
+        },
+      },
+    );
   }
 
   return (
@@ -115,8 +117,8 @@ export function InviteForm({
         </select>
       </div>
       <div className="sm:col-span-2">
-        <SubmitButton disabled={pending || roleId === ""}>
-          {pending ? "Sending..." : "Send invitation"}
+        <SubmitButton disabled={invite.isPending || roleId === ""}>
+          {invite.isPending ? "Sending..." : "Send invitation"}
         </SubmitButton>
       </div>
     </form>

@@ -14,7 +14,7 @@ export const organisationSchema = z.object({
   id,
   zitadelOrgId: zitadelId.nullable(),
   name: z.string().min(1).max(200),
-  slug: z.string().min(1).max(64),
+  slug: z.string().min(1).max(63),
   status: z.enum(["pending", "active", "suspended", "archived"]),
   provisionedAt: timestamp.nullable(),
   createdAt: timestamp,
@@ -24,7 +24,7 @@ export const hospitalSchema = z.object({
   id,
   organisationId: id,
   name: z.string().min(1).max(200),
-  slug: z.string().min(1).max(64),
+  slug: z.string().min(1).max(63),
   timezone: z.string().min(1).max(64),
   status: z.enum(["pending", "active", "suspended", "closed"]),
   primaryDomainId: id.nullable(),
@@ -34,7 +34,11 @@ export const hospitalSchema = z.object({
 export const domainSchema = z.object({
   id,
   hospitalId: id,
-  domain: z.string().min(1).max(253),
+  domain: z
+    .string()
+    .min(4)
+    .max(253)
+    .regex(/^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/),
   verifiedAt: timestamp.nullable(),
   retiredAt: timestamp.nullable(),
   createdAt: timestamp,
@@ -47,7 +51,7 @@ export const membershipSchema = z.object({
   displayName: z.string().min(1).max(200),
   organisationId: id,
   hospitalId: id.nullable(),
-  status: z.enum(["invited", "active", "suspended", "revoked", "expired"]),
+  status: z.enum(["active", "suspended", "revoked", "expired"]),
   acceptedAt: timestamp,
   endsAt: timestamp.nullable(),
   roles: z.array(z.string().min(1).max(64)),
@@ -57,7 +61,7 @@ export const roleSchema = z.object({
   id,
   key: z.string().min(1).max(64),
   name: z.string().min(1).max(200),
-  scope: z.enum(["platform", "organisation", "hospital"]),
+  scope: z.enum(["organisation", "hospital"]),
   permissions: z.array(z.string().min(1).max(128)),
 });
 

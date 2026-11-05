@@ -66,7 +66,8 @@ export function createAdminApi({
     const items: T[] = [];
     let offset = 0;
     for (;;) {
-      const query = offset === 0 ? "" : `?offset=${offset}`;
+      // Ask for the API's maximum page size; the default would double the round trips.
+      const query = offset === 0 ? "?limit=100" : `?limit=100&offset=${offset}`;
       const page = await load(query);
       items.push(...page.items);
       if (page.nextOffset === null || page.nextOffset <= offset) {
@@ -116,8 +117,6 @@ export function createAdminApi({
   return {
     listOrganisations: (token: string): Promise<OrganisationPage> =>
       allPages((query) => call(token, "GET", `/organisations${query}`, organisationPageSchema)),
-    getOrganisation: (token: string, id: string): Promise<Organisation> =>
-      call(token, "GET", `/organisations/${id}`, organisationSchema),
     createOrganisation: (
       token: string,
       input: { name: string; slug: string },
@@ -202,17 +201,6 @@ export function createAdminApi({
       allPages((query) =>
         call(token, "GET", `/organisations/${organisationId}/roles${query}`, rolePageSchema),
       ),
-    assignRole: (token: string, membershipId: string, roleId: string): Promise<void> =>
-      call(token, "POST", `/memberships/${membershipId}/roles`, okSchema, { roleId }).then(
-        () => undefined,
-      ),
-    removeRole: (token: string, membershipId: string, roleId: string): Promise<void> =>
-      call(
-        token,
-        "DELETE",
-        `/memberships/${membershipId}/roles/${roleId}`,
-        okSchema,
-      ).then(() => undefined),
     listInvitations: (token: string, organisationId: string): Promise<InvitationPage> =>
       allPages((query) =>
         call(

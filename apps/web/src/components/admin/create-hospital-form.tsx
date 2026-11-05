@@ -1,41 +1,46 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
 
 import { FormError } from "@/components/form/form-error";
-import { useShake } from "@/components/motion/use-shake";
-import { adminRequest } from "@/lib/admin/client";
 import { SubmitButton } from "@/components/form/submit-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useShake } from "@/components/motion/use-shake";
+import { createHospital } from "@/lib/admin/actions";
+import { useAdminMutation } from "@/lib/admin/mutations";
+import { adminKeys } from "@/lib/admin/queries";
+import { actionErrorMessage, AdminActionError } from "@/lib/admin/result";
 
 export function CreateHospitalForm({ organisationId }: { organisationId: string }) {
-  const router = useRouter();
   const { ref: formRef, shake } = useShake<HTMLFormElement>();
-  const [pending, setPending] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const create = useAdminMutation(createHospital, adminKeys.facilities(organisationId));
 
-  async function submit(event: React.FormEvent<HTMLFormElement>) {
+  function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formElement = event.currentTarget;
     const form = new FormData(formElement);
-    setPending(true);
     setError(null);
-    try {
-      await adminRequest(`organisations/${organisationId}/hospitals`, "POST", {
+    create.mutate(
+      {
+        organisationId,
         name: String(form.get("name") ?? ""),
         slug: String(form.get("slug") ?? ""),
         timezone: String(form.get("timezone") ?? "UTC"),
-      });
-      formElement.reset();
-      router.refresh();
-    } catch {
-      setError("The hospital could not be created.");
-      shake();
-    } finally {
-      setPending(false);
-    }
+      },
+      {
+        onSuccess: () => formElement.reset(),
+        onError: (failure) => {
+          setError(
+            failure instanceof AdminActionError && failure.code === "CONFLICT"
+              ? "A hospital with this slug already exists."
+              : actionErrorMessage(failure, "The hospital could not be created."),
+          );
+          shake();
+        },
+      },
+    );
   }
 
   return (
@@ -75,8 +80,8 @@ export function CreateHospitalForm({ organisationId }: { organisationId: string 
           maxLength={64}
         />
       </div>
-      <SubmitButton disabled={pending}>
-        {pending ? "Adding..." : "Add hospital"}
+      <SubmitButton disabled={create.isPending}>
+        {create.isPending ? "Adding..." : "Add hospital"}
       </SubmitButton>
     </form>
   );

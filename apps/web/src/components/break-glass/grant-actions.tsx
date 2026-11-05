@@ -1,48 +1,44 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
 
 import { FormError } from "@/components/form/form-error";
-import { useShake } from "@/components/motion/use-shake";
 import { SubmitButton } from "@/components/form/submit-button";
-import { breakGlassRequest, BreakGlassRequestError } from "@/lib/break-glass/client";
+import { useShake } from "@/components/motion/use-shake";
+import { reviewGrant, revokeGrant } from "@/lib/admin/actions";
+import { useAdminMutation } from "@/lib/admin/mutations";
+import { adminKeys } from "@/lib/admin/queries";
+import { actionErrorMessage, AdminActionError } from "@/lib/admin/result";
 
-// The API answers with the codes documented in apps/api/AGENTS.md; the
-// specific reason travels in the message and is not shown to the browser.
 function failureMessage(error: unknown): string {
-  if (error instanceof BreakGlassRequestError) {
+  if (error instanceof AdminActionError) {
     if (error.code === "CONFLICT") return "This grant already changed. Reload the page.";
     if (error.code === "RULE_VIOLATION") return "The grant does not allow that action now.";
     if (error.code === "FORBIDDEN") return "Your account cannot change this grant.";
   }
-  return "The action could not be completed.";
+  return actionErrorMessage(error, "The action could not be completed.");
 }
 
 export function RevokeGrant({ grantId }: { grantId: string }) {
-  const router = useRouter();
   const { ref: formRef, shake } = useShake<HTMLFormElement>();
-  const [pending, setPending] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const revoke = useAdminMutation(revokeGrant, adminKeys.breakGlass());
 
-  async function submit(event: React.FormEvent<HTMLFormElement>) {
+  function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formElement = event.currentTarget;
     const form = new FormData(formElement);
-    setPending(true);
     setError(null);
-    try {
-      await breakGlassRequest(`grants/${grantId}/revoke`, "POST", {
-        reason: String(form.get("reason") ?? "").trim(),
-      });
-      formElement.reset();
-      router.refresh();
-    } catch (failure) {
-      setError(failureMessage(failure));
-      shake();
-    } finally {
-      setPending(false);
-    }
+    revoke.mutate(
+      { grantId, reason: String(form.get("reason") ?? "").trim() },
+      {
+        onSuccess: () => formElement.reset(),
+        onError: (failure) => {
+          setError(failureMessage(failure));
+          shake();
+        },
+      },
+    );
   }
 
   return (
@@ -61,8 +57,8 @@ export function RevokeGrant({ grantId }: { grantId: string }) {
           placeholder="Reason for ending access"
           className="h-9 rounded-lg border border-input bg-card px-3 text-sm"
         />
-        <SubmitButton variant="outline" size="sm" disabled={pending}>
-          {pending ? "Ending..." : "End access"}
+        <SubmitButton variant="outline" size="sm" disabled={revoke.isPending}>
+          {revoke.isPending ? "Ending..." : "End access"}
         </SubmitButton>
       </div>
     </form>
@@ -70,30 +66,32 @@ export function RevokeGrant({ grantId }: { grantId: string }) {
 }
 
 export function ReviewGrant({ grantId }: { grantId: string }) {
-  const router = useRouter();
   const { ref: formRef, shake } = useShake<HTMLFormElement>();
-  const [pending, setPending] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const review = useAdminMutation(reviewGrant, adminKeys.breakGlass());
 
-  async function submit(event: React.FormEvent<HTMLFormElement>) {
+  function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formElement = event.currentTarget;
     const form = new FormData(formElement);
-    setPending(true);
     setError(null);
-    try {
-      await breakGlassRequest(`grants/${grantId}/review`, "POST", {
-        decision: String(form.get("decision") ?? "upheld"),
+    review.mutate(
+      {
+        grantId,
+        decision: String(form.get("decision") ?? "upheld") as
+          | "upheld"
+          | "overturned"
+          | "escalated",
         notes: String(form.get("notes") ?? "").trim() || null,
-      });
-      formElement.reset();
-      router.refresh();
-    } catch (failure) {
-      setError(failureMessage(failure));
-      shake();
-    } finally {
-      setPending(false);
-    }
+      },
+      {
+        onSuccess: () => formElement.reset(),
+        onError: (failure) => {
+          setError(failureMessage(failure));
+          shake();
+        },
+      },
+    );
   }
 
   return (
@@ -122,8 +120,8 @@ export function ReviewGrant({ grantId }: { grantId: string }) {
           placeholder="Notes (optional)"
           className="h-9 rounded-lg border border-input bg-card px-3 text-sm"
         />
-        <SubmitButton variant="outline" size="sm" disabled={pending}>
-          {pending ? "Recording..." : "Record review"}
+        <SubmitButton variant="outline" size="sm" disabled={review.isPending}>
+          {review.isPending ? "Recording..." : "Record review"}
         </SubmitButton>
       </div>
     </form>
