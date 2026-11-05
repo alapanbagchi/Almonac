@@ -8,11 +8,6 @@ const errorEnvelope = z.object({
   error: z.object({ code: z.string(), message: z.string(), requestId: z.string() }),
 });
 
-const loginStart = z.object({
-  authorizationUrl: z.string().url(),
-  expiresAt: z.string().datetime(),
-});
-
 const browserLogin = z.object({ callbackUrl: z.string().url() });
 
 const verificationSent = z.object({ status: z.literal("verification_sent") });
@@ -49,7 +44,6 @@ const session = z.object({
 const logoutResult = z.object({ endSessionUrl: z.string().url().nullable() });
 
 export type AuthSession = z.infer<typeof session>;
-export type LoginStart = { authorizationUrl: string; expiresAt: Date };
 export type LoginResult = { token: string; expiresAt: Date; returnTo: string };
 
 export class AuthApiError extends Error {
@@ -148,33 +142,39 @@ export function createAuthApi({
       );
     },
 
-    async startLogin(returnTo: string): Promise<LoginStart> {
-      const data = await call(
-        "/v1/auth/login-attempts",
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ returnTo }),
-        },
-        loginStart,
-      );
-      return { authorizationUrl: data.authorizationUrl, expiresAt: new Date(data.expiresAt) };
-    },
-
-    async startStepUp(token: string, returnTo: string): Promise<LoginStart> {
-      const data = await call(
-        "/v1/auth/step-up-attempts",
+    async stepUp(
+      token: string,
+      input: { password: string; returnTo: string },
+    ): Promise<{ callbackUrl: string }> {
+      return call(
+        "/v1/auth/step-up",
         {
           method: "POST",
           headers: {
             authorization: `Bearer ${token}`,
             "content-type": "application/json",
           },
-          body: JSON.stringify({ returnTo }),
+          body: JSON.stringify(input),
         },
-        loginStart,
+        browserLogin,
       );
-      return { authorizationUrl: data.authorizationUrl, expiresAt: new Date(data.expiresAt) };
+    },
+
+    async claimInvitation(input: {
+      token: string;
+      fullName: string;
+      password: string;
+      returnTo: string;
+    }): Promise<{ callbackUrl: string }> {
+      return call(
+        "/v1/auth/invitation-registration",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(input),
+        },
+        browserLogin,
+      );
     },
 
     async completeLogin(code: string, state: string, token: string | null = null): Promise<LoginResult> {

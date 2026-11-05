@@ -132,7 +132,7 @@ const app = createApp({
   auth,
   onboarding: { db: pool, transaction, audit, organisationIdentity, sessions, users },
   admin,
-  invitations: { ...admin, mailer: createSmtpMailer(smtpOptions), identity: zitadel },
+  invitations: { ...admin, mailer: createSmtpMailer(smtpOptions) },
   breakGlass: {
     db: pool,
     transaction,

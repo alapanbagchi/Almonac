@@ -374,7 +374,7 @@ describe('control database schema', () => {
       'select version from control.schema_metadata where id = 1',
     )
 
-    expect(result.rows[0]?.version).toBe(10)
+    expect(result.rows[0]?.version).toBe(11)
   })
 })
 
@@ -1955,7 +1955,7 @@ describe('access model', () => {
     ])
     expect(links.rows[0]!.count).toBe(13)
     expect(versions.rows[0]!.count).toBe(4)
-    expect(events.rows[0]!.count).toBe(13)
+    expect(events.rows[0]!.count).toBe(14)
   })
 })
 
@@ -2596,13 +2596,6 @@ describe('invitation service', () => {
           sent.token = input.token
         },
       },
-      identity: {
-        async createHumanUser() {
-          return `zitadel-user-${randomUUID()}`
-        },
-        async resendInitialization() {},
-        async deactivateUser() {},
-      },
     }
   }
 
@@ -2784,13 +2777,6 @@ describe('admin routes', () => {
     return {
       ...admin,
       mailer: { async send() {} },
-      identity: {
-        async createHumanUser() {
-          return `zitadel-user-${randomUUID()}`
-        },
-        async resendInitialization() {},
-        async deactivateUser() {},
-      },
     }
   }
 

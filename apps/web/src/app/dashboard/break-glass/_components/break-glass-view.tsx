@@ -13,9 +13,11 @@ import { breakGlassQuery } from "@/lib/admin/queries";
 import { queryErrorMessage } from "@/lib/admin/result";
 
 const FAILURE_TEXT: Record<StepUpFailure, string> = {
+  credentials: "The password was not correct.",
   denied: "The request did not come from Almonac.",
   failed: "The identity check did not finish.",
   invalid: "The return address was not valid.",
+  mfa: "This account requires multi-factor authentication.",
   session: "Your session ended before the check started.",
   unavailable: "The identity service is unavailable.",
 };

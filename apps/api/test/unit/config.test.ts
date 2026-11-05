@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { ConfigError, loadConfig } from '../../src/config'
 
 const validDatabaseUrl =
-  'postgresql://almonac:local-password@127.0.0.1:5433/almonac_control'
+  'postgresql://almonac:local-password@127.0.0.1:5433/almonac_registry'
 
 describe('loadConfig', () => {
   test('applies local defaults', () => {

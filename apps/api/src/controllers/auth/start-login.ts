@@ -15,11 +15,6 @@ const ENCODED_UNSAFE = /%(?:0[0-9a-f]|1[0-9a-f]|2f|5c|7f)/i
 // eslint-disable-next-line no-control-regex
 const CONTROL_CHARACTER = /[\u0000-\u001f\u007f]/
 
-export interface LoginStartDto {
-  readonly authorizationUrl: string
-  readonly expiresAt: string
-}
-
 export class InvalidReturnToError extends Error {
   constructor() {
     super('returnTo must be an internal path')
@@ -51,25 +46,16 @@ export function normaliseReturnTo(value: unknown, fallback = '/'): string {
   return target
 }
 
-/** Begin a login attempt. Only the state and nonce hashes are stored. */
-export async function startLogin(
-  dependencies: AuthDependencies,
-  context: LoginRequestContext,
-  returnTo: unknown,
-): Promise<LoginStartDto> {
-  return beginLoginAttempt(dependencies, context, returnTo, null)
-}
-
 /**
- * Shared with step-up: the only difference is who the attempt belongs to and
- * that the provider must re-authenticate the user.
+ * Start a provider attempt. Only the state and nonce hashes are stored. A
+ * step-up sets the owner and asks the provider to re-authenticate them.
  */
 export async function beginLoginAttempt(
   dependencies: AuthDependencies,
   context: LoginRequestContext,
   returnTo: unknown,
   userId: string | null,
-): Promise<LoginStartDto> {
+): Promise<{ authorizationUrl: string; expiresAt: string }> {
   let target: string
   try {
     target = normaliseReturnTo(returnTo)

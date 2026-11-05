@@ -111,10 +111,10 @@ describe('auth route denials', () => {
   test('step-up without a bearer starts no attempt', async () => {
     const db = new FakeDatabase()
     const response = await api(baseDependencies({ db })).handle(
-      request('/v1/auth/step-up-attempts', {
+      request('/v1/auth/step-up', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ password: 'secret' }),
       }),
     )
 

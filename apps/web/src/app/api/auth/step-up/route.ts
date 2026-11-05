@@ -3,17 +3,20 @@ import { NextResponse } from "next/server";
 
 import { createAuthApi, AuthApiError } from "@/lib/auth/api";
 import { loadWebConfig, type WebConfig } from "@/lib/auth/config";
-import { LOGIN_COOKIE_NAME, loginCookieOptions } from "@/lib/auth/cookies";
 import { InvalidReturnToError, normaliseReturnTo } from "@/lib/auth/return-to";
-import { noStore, serviceUnavailable, stepUpFailureResponse } from "@/lib/auth/responses";
+import {
+  browserCallbackRedirect,
+  noStore,
+  serviceUnavailable,
+  stepUpFailureResponse,
+} from "@/lib/auth/responses";
 import { hasTrustedOrigin } from "@/lib/auth/same-origin";
 import { getSessionToken } from "@/lib/auth/session";
-import { readLoginState } from "@/lib/auth/tokens";
 import { BodyTooLargeError, readBoundedBody } from "@/lib/http/bounded-body";
 
 /**
- * Starts a step-up check for the signed-in member. The API rotates the session
- * on the callback, so the browser receives a new opaque token.
+ * Re-authenticates the signed-in member with their password. The API rotates
+ * the session on the callback, so the browser receives a new opaque token.
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
   let config: WebConfig;
@@ -33,9 +36,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
   }
 
+  let password: string;
   let rawReturnTo: string | null;
   try {
-    rawReturnTo = new URLSearchParams(await readBoundedBody(request)).get("returnTo");
+    const form = new URLSearchParams(await readBoundedBody(request));
+    password = form.get("password") ?? "";
+    rawReturnTo = form.get("returnTo");
   } catch (error) {
     if (error instanceof BodyTooLargeError) {
       return noStore(
@@ -63,24 +69,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return noStore(NextResponse.redirect(url, 303));
   }
 
-  let authorizationUrl: string;
+  if (password.length === 0) return stepUpFailureResponse(origin, returnTo, "credentials");
+
   try {
-    ({ authorizationUrl } = await createAuthApi({ baseUrl: config.apiUrl }).startStepUp(
-      token,
+    const { callbackUrl } = await createAuthApi({ baseUrl: config.apiUrl }).stepUp(token, {
+      password,
       returnTo,
-    ));
+    });
+    return browserCallbackRedirect(callbackUrl, origin);
   } catch (error) {
-    const failure =
-      error instanceof AuthApiError && (error.status === 0 || error.status === 503)
-        ? "unavailable"
-        : "failed";
-    return stepUpFailureResponse(origin, returnTo, failure);
+    return stepUpFailureResponse(origin, returnTo, stepUpFailureOf(error));
   }
+}
 
-  const state = readLoginState(authorizationUrl);
-  if (state === null) return stepUpFailureResponse(origin, returnTo, "unavailable");
-
-  const response = NextResponse.redirect(authorizationUrl, 303);
-  response.cookies.set(LOGIN_COOKIE_NAME, state, loginCookieOptions());
-  return noStore(response);
+function stepUpFailureOf(error: unknown): "credentials" | "failed" | "mfa" | "unavailable" {
+  if (!(error instanceof AuthApiError)) return "failed";
+  if (error.status === 0 || error.status === 503) return "unavailable";
+  if (error.code === "MFA_REQUIRED") return "mfa";
+  if (error.status === 401) return "credentials";
+  return "failed";
 }

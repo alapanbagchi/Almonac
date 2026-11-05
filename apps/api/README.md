@@ -78,8 +78,8 @@ production data.
 | POST | `/v1/auth/register` | Start a sign-up: stores a pending registration and emails a verification link |
 | POST | `/v1/auth/verify-email` | Consume the verification token and create the Zitadel user |
 | POST | `/v1/auth/password-login` | Sign in with an email and password: returns a callback URL |
-| POST | `/v1/auth/login-attempts` | Start a login: returns the Zitadel authorization URL and its expiry |
-| POST | `/v1/auth/step-up-attempts` | Start a step-up: forces `prompt=login` and `max_age=0`; requires a bearer session token |
+| POST | `/v1/auth/step-up` | Re-authenticate the current session with a password; requires a bearer session token |
+| POST | `/v1/auth/invitation-registration` | Claim an invitation: creates a verified account and returns a callback URL |
 | POST | `/v1/auth/callback` | Complete a login or step-up: consumes the attempt, exchanges the code and returns a session token once; `expiresAt` is the absolute expiry |
 | GET | `/v1/auth/session` | Current user, active memberships and permissions; requires a bearer session token |
 | POST | `/v1/auth/logout` | Revoke the current session and return an optional Zitadel end-session URL; idempotent |

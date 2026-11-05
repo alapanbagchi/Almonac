@@ -30,7 +30,6 @@ export const createHospitalInput = z.object({
 
 export const createInvitationInput = z.object({
   email: z.email().max(320),
-  displayName: z.string().trim().max(200).optional(),
   hospitalId: uuid.nullable(),
   roleIds: z.array(uuid).max(10),
 });

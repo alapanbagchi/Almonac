@@ -34,9 +34,23 @@ export function browserLoginResponse(
   if (callback === null) {
     return authError(502, "AUTH_INVALID_RESPONSE", "The sign-in response was not valid.");
   }
+  return bindLogin(NextResponse.json({ redirectUrl: callback.url }), callback.state);
+}
 
-  const response = NextResponse.json({ redirectUrl: callback.url });
-  response.cookies.set(LOGIN_COOKIE_NAME, callback.state, loginCookieOptions());
+/** Same binding as browserLoginResponse, for a form that navigates instead of fetching. */
+export function browserCallbackRedirect(
+  callbackUrl: string,
+  publicOrigin: string,
+): NextResponse {
+  const callback = readCallback(callbackUrl, publicOrigin);
+  if (callback === null) {
+    return authError(502, "AUTH_INVALID_RESPONSE", "The sign-in response was not valid.");
+  }
+  return bindLogin(NextResponse.redirect(callback.url, 303), callback.state);
+}
+
+function bindLogin(response: NextResponse, state: string): NextResponse {
+  response.cookies.set(LOGIN_COOKIE_NAME, state, loginCookieOptions());
   return noStore(response);
 }
 

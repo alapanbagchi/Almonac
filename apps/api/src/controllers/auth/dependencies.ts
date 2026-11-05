@@ -59,21 +59,21 @@ export function metricsOf(dependencies: AuthDependencies): Metrics {
 }
 
 export type RateLimitRoute =
-  | 'login'
   | 'callback'
   | 'step_up'
   | 'register'
   | 'verify'
   | 'password'
+  | 'invitation_claim'
 
 /** Requests allowed per client address per minute, per route. */
 export const RATE_LIMITS: Readonly<Record<RateLimitRoute, number>> = {
-  login: 30,
   callback: 30,
   step_up: 10,
   register: 5,
   verify: 10,
   password: 10,
+  invitation_claim: 5,
 }
 
 const WINDOW_SECONDS = 60

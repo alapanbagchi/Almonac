@@ -1,23 +1,22 @@
 # Local development stack
 
 This stack is for development and CI only. It runs one single-replica Zitadel
-deployment, the Login v2 UI, the Zitadel database, a separate control database
-and a development proxy. Email goes to a real SMTP relay that you configure;
-the stack runs no mail catcher. It is not the production topology. See ADR-013.
+deployment, the Zitadel database, and a separate registry database. It does not
+run a hosted login UI or a development proxy; normal sign-in, step-up and
+invitation onboarding are first-party. Email goes to a real SMTP relay that you
+configure; the stack runs no mail catcher. It is not the production topology.
+See ADR-013 and ADR-016.
 
 ## What runs
 
 | Service | Purpose | Reachable at |
 | --- | --- | --- |
-| `proxy` | Single public origin, routes the login UI and API | http://localhost:8080 |
-| `zitadel-api` | Zitadel API and OIDC provider | internal `zitadel-api:8080` |
-| `zitadel-login` | Login v2 UI | http://localhost:8080/ui/v2/login/ |
+| `zitadel-api` | Zitadel API and OIDC provider | http://localhost:8080 |
 | `postgres` | Zitadel database | internal only |
-| `control-postgres` | Almonac control database and test database | `127.0.0.1:5433` |
+| `registry-postgres` | Almonac registry database and test database | `127.0.0.1:5433` |
 
-Only the proxy and control PostgreSQL publish host ports. Both bind to
-127.0.0.1. The Zitadel API, the login container and the Zitadel database are
-reachable only on the Compose network.
+Only the Zitadel API and the registry PostgreSQL publish host ports. Both bind
+to 127.0.0.1. The Zitadel database is reachable only on the Compose network.
 
 ## Prerequisites
 
@@ -37,10 +36,9 @@ Set the required values in `.env`:
 | Variable | Requirement |
 | --- | --- |
 | `ZITADEL_MASTERKEY` | Exactly 32 bytes. Generate with `openssl rand -hex 16`. |
-| `LOGIN_SESSION_COOKIE_SECRET` | At least 32 characters. Generate with `openssl rand -hex 32`. |
 | `ZITADEL_ADMIN_PASSWORD` | Must meet the Zitadel default password policy. Use a password manager. |
 | `POSTGRES_PASSWORD` | Letters and digits only. Generate with `openssl rand -hex 16`. |
-| `CONTROL_POSTGRES_PASSWORD` | Letters and digits only. Generate with `openssl rand -hex 16`. |
+| `REGISTRY_POSTGRES_PASSWORD` | Letters and digits only. Generate with `openssl rand -hex 16`. |
 
 The stack embeds `POSTGRES_PASSWORD` in a local connection URL. Letters and
 digits avoid URL encoding problems. Use a different password for each database.
@@ -52,36 +50,42 @@ docker compose up -d --wait
 ```
 
 The first start creates the Zitadel database schema, the first instance, the
-administrator and the login client. It also creates the control database and
-the control test database. It does not create an Almonac project, OIDC
+administrator and the login client. It also creates the registry database and
+the registry test database. It does not create an Almonac project, OIDC
 application, SMTP provider or users. Product provisioning is not implemented.
 
 Keep `ZITADEL_MASTERKEY` unchanged while the database volume exists. A
 different key makes the existing data unreadable.
 
-## Control database
+Login v2 is a required feature flag in Zitadel 4.x. The stack leaves its URLs
+configured, but no login container runs and the API never sends a browser to
+them. The login client reads the authorization redirect and creates the
+Zitadel session directly.
 
-The control PostgreSQL service is separate from the Zitadel database. It uses
-the values in `.env`:
+## Registry database
+
+The registry PostgreSQL service is separate from the Zitadel database. It holds
+Almonac identity, tenancy, access and audit rows, not Zitadel credentials. It
+uses the values in `.env`:
 
 | Setting | Default |
 | --- | --- |
-| Database | `almonac_control` |
-| Test database | `almonac_control_test` |
+| Database | `almonac_registry` |
+| Test database | `almonac_registry_test` |
 | User | `almonac` |
 | Host and port | `127.0.0.1:5433` |
-| Password | `CONTROL_POSTGRES_PASSWORD` |
+| Password | `REGISTRY_POSTGRES_PASSWORD` |
 
-The init script creates the test database only when the control volume is
+The init script creates the test database only when the registry volume is
 empty. If the volume already existed before the test database was added, reset
 the stack.
 
 Create `apps/api/.env` from `apps/api/.env.example` and set both URLs. Use the
-password from `CONTROL_POSTGRES_PASSWORD`:
+password from `REGISTRY_POSTGRES_PASSWORD`:
 
 ```sh
-DATABASE_URL=postgresql://almonac:<password>@127.0.0.1:5433/almonac_control
-TEST_DATABASE_URL=postgresql://almonac:<password>@127.0.0.1:5433/almonac_control_test
+DATABASE_URL=postgresql://almonac:<password>@127.0.0.1:5433/almonac_registry
+TEST_DATABASE_URL=postgresql://almonac:<password>@127.0.0.1:5433/almonac_registry_test
 ```
 
 Add the authentication and administration variables:
@@ -107,7 +111,8 @@ Add the authentication and administration variables:
 
 The local Zitadel instance must contain an Almonac project, a web OIDC
 application with that redirect URI, and a machine user with `IAM_OWNER`. The
-product does not create these objects. Local provisioning is manual. Reset the
+product does not create these objects. Provision them through the Zitadel
+management API; this stack intentionally serves no product login UI. Reset the
 stack only when you can provision them again.
 
 Then start the API:
@@ -145,7 +150,7 @@ Run the tests:
 
 ```sh
 bun run test              # unit tests, no database
-bun run test:integration  # control database tests
+bun run test:integration  # registry database tests
 bun test                  # all tests
 ```
 
@@ -158,29 +163,20 @@ version is current and the runtime role cannot update or delete audit events.
 
 ## Sign in
 
-Open http://localhost:3000/login. The page sends you to the Zitadel hosted login.
-Sign in with an account that has an invitation or a membership.
-
-The first Zitadel administrator, `admin@almonac.local`, can open the console at
-http://localhost:8080/ui/console/ with the password in
-`ZITADEL_ADMIN_PASSWORD`. The console is for local development only. The
-production console is not public (ADR-013).
+Open http://localhost:3000/login and enter your email and password. Step-up
+asks for the password again on the page; it does not open the Zitadel login UI.
+An invited user opens the invitation link, chooses a name and password, and is
+signed in after the account is created.
 
 ## Email
 
-There is no mail catcher. Two senders use a real relay:
-
-- **The API** sends the sign-up verification link and the invitation link.
-  Set `SMTP_URL`, `SMTP_USER`, `SMTP_PASSWORD`, `MAIL_FROM` and
-  `MAIL_FROM_NAME` in `apps/api/.env`. Use `smtps://` on port 465, or
-  `smtp://` on port 587 with STARTTLS. In production the API requires SMTP
-  credentials, refuses a loopback host and requires STARTTLS on an `smtp`
-  URL. It sends only the token link, never the token in a request line.
-- **Zitadel** sends the initialisation mail for an invited user who has no
-  password yet, and password-reset mail. Add an SMTP provider in the local
-  console at http://localhost:8080/ui/console/ (Settings → SMTP) and activate
-  it. Zitadel v4.20 does not persist
-  `ZITADEL_DEFAULTINSTANCE_SMTPCONFIGURATION_*` as a provider.
+There is no mail catcher. The API uses a real relay to send the sign-up
+verification link and the invitation link. Set `SMTP_URL`, `SMTP_USER`,
+`SMTP_PASSWORD`, `MAIL_FROM` and `MAIL_FROM_NAME` in `apps/api/.env`. Use
+`smtps://` on port 465, or `smtp://` on port 587 with STARTTLS. In production
+the API requires SMTP credentials, refuses a loopback host and requires STARTTLS
+on an `smtp` URL. It sends only the token link, never the token in a request
+line.
 
 The relay must be allowed to send as `MAIL_FROM`. Publish SPF, DKIM and DMARC
 for that domain; many providers reject or quarantine a sender without them.
@@ -193,8 +189,8 @@ Test with a real mailbox before inviting staff. A failed send surfaces as a
 docker compose down -v
 ```
 
-This deletes the Zitadel database, the control database and the setup volume.
-The next start creates a fresh instance and empty control databases. There is
+This deletes the Zitadel database, the registry database and the setup volume.
+The next start creates a fresh instance and empty registry databases. There is
 no migration path for local data.
 
 ## Troubleshooting
@@ -204,16 +200,13 @@ no migration path for local data.
   reset the stack.
 - **Masterkey changed after first start**: the existing data cannot be
   decrypted. Restore the old key or reset the stack.
-- **Login page 404**: the login container is not healthy. Check
-  `docker compose ps` and `docker compose logs zitadel-login`.
-- **Port already in use**: change `PROXY_PORT` or `CONTROL_POSTGRES_PORT`
-  in `.env`.
-- **No email arrives**: check the API log for `SMTP` errors, confirm the relay
-  accepts `MAIL_FROM`, and confirm Zitadel has an active SMTP provider for
-  initialisation mail.
-- **Control database connection refused**: check that `control-postgres` is
+- **Port already in use**: change `ZITADEL_EXTERNALPORT` or
+  `REGISTRY_POSTGRES_PORT` in `.env`.
+- **No email arrives**: check the API log for `SMTP` errors and confirm the
+  relay accepts `MAIL_FROM`.
+- **Registry database connection refused**: check that `registry-postgres` is
   healthy and that `DATABASE_URL` uses port 5433.
-- **Test database does not exist**: the control volume was created before the
+- **Test database does not exist**: the registry volume was created before the
   init script existed. Run `docker compose down -v` and start again.
 - **Migration fails with authentication error**: check the user and password in
   `apps/api/.env`, then run `bun run db:migrate` again.
@@ -225,10 +218,11 @@ no migration path for local data.
 
 - `.env` and `apps/api/.env` are ignored and must not be committed. The example
   files contain no secret values.
-- The proxy and control PostgreSQL bind to 127.0.0.1. Do not publish this
+- The Zitadel API and registry PostgreSQL bind to 127.0.0.1. Do not publish this
   stack on a shared network.
 - The login-client PAT has a long expiry and lives in the Docker volume. The
-  admin password and control database password are local only.
-- The control database contains identity, authorisation and audit records, not
-  patient records. It is still sensitive. Do not copy it to staging or production.
+  admin password and registry database password are local only.
+- The registry database contains identity, authorisation and audit records, not
+  patient records. It is still sensitive. Do not copy it to staging or
+  production.
 - Do not reuse these values in staging or production.

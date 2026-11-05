@@ -119,6 +119,22 @@ const role = {
   permissions: ["clinical.read", "clinical.write"],
 };
 
+const invitation = {
+  id: "00000000-0000-4000-8000-000000000006",
+  email: SESSION.user.email,
+  organisationId: ORG_ID,
+  hospitalId: HOSPITAL_ID,
+  kind: "existing_user",
+  zitadelSub: "zitadel-user-1",
+  status: "accepted",
+  expiresAt: "2026-01-09T00:00:00.000Z",
+  createdAt: "2026-01-02T00:00:00.000Z",
+  acceptedAt: "2026-01-03T00:00:00.000Z",
+  acceptedByUserId: SESSION.user.id,
+  invitedBy: SESSION.user.id,
+  roleIds: [ROLE_ID],
+};
+
 const auditEntry = {
   id: "1",
   occurredAt: "2026-01-03T00:00:00.000Z",
@@ -142,6 +158,10 @@ function json(status: number, body: unknown): Response {
 
 function failure(status: number, code: string): Response {
   return json(status, { error: { code, message: "Request failed.", requestId: "test" } });
+}
+
+function page<T>(items: T[]) {
+  return json(200, { items, nextOffset: null });
 }
 
 function authorised(request: Request): boolean {
@@ -187,7 +207,7 @@ Bun.serve({
       if (!authorised(request)) return failure(401, "AUTH_FAILED");
       const path = pathname.slice("/v1/admin/".length);
 
-      if (path === "organisations" && request.method === "GET") return json(200, organisations);
+      if (path === "organisations" && request.method === "GET") return page(organisations);
       if (path === "organisations" && request.method === "POST") {
         const body: unknown = await request.json();
         const name =
@@ -212,17 +232,17 @@ Bun.serve({
       }
       if (path === `organisations/${ORG_ID}`) return json(200, organisations[0]);
       if (path === `organisations/${ORG_ID}/hospitals`) {
-        return request.method === "GET" ? json(200, [hospital]) : failure(404, "NOT_FOUND");
+        return request.method === "GET" ? page([hospital]) : failure(404, "NOT_FOUND");
       }
-      if (path === `organisations/${ORG_ID}/memberships`) return json(200, [membership]);
-      if (path === `organisations/${ORG_ID}/roles`) return json(200, [role]);
-      if (path === `organisations/${ORG_ID}/invitations`) return json(200, []);
+      if (path === `organisations/${ORG_ID}/memberships`) return page([membership]);
+      if (path === `organisations/${ORG_ID}/roles`) return page([role]);
+      if (path === `organisations/${ORG_ID}/invitations`) return page([]);
       if (path === `organisations/${ORG_ID}/audit`) {
         return json(200, { entries: [auditEntry], nextCursor: null });
       }
-      if (path === `hospitals/${HOSPITAL_ID}/domains`) return json(200, []);
+      if (path === `hospitals/${HOSPITAL_ID}/domains`) return page([]);
       if (path === "invitations/accept" && request.method === "POST") {
-        return json(200, { status: "accepted" });
+        return json(200, invitation);
       }
       return failure(404, "NOT_FOUND");
     }
@@ -231,7 +251,7 @@ Bun.serve({
       if (!authorised(request)) return failure(401, "AUTH_FAILED");
       const path = pathname.slice("/v1/break-glass/".length);
 
-      if (path === "grants" && request.method === "GET") return json(200, grants);
+      if (path === "grants" && request.method === "GET") return page(grants);
       if (path === "grants" && request.method === "POST") {
         if (request.headers.get("authorization") !== `Bearer ${STEP_UP_TOKEN}`) {
           return failure(403, "STEP_UP_REQUIRED");
@@ -347,20 +367,36 @@ Bun.serve({
       return json(201, { id: ORG_ID, name, slug, status: "active" });
     }
 
-    if (pathname === "/v1/auth/login-attempts" || pathname === "/v1/auth/step-up-attempts") {
-      const stepUp = pathname.endsWith("step-up-attempts");
-      if (stepUp && !authorised(request)) return failure(401, "AUTH_FAILED");
+    if (pathname === "/v1/auth/step-up") {
+      if (!authorised(request)) return failure(401, "AUTH_FAILED");
       const body: unknown = await request.json();
+      const password =
+        typeof body === "object" && body !== null && "password" in body && typeof body.password === "string"
+          ? body.password
+          : "";
+      if (password !== "LocalPassword1!") return failure(401, "AUTH_FAILED");
       const returnTo =
         typeof body === "object" && body !== null && "returnTo" in body && typeof body.returnTo === "string"
           ? body.returnTo
           : "/dashboard";
       const state = crypto.randomUUID().replaceAll("-", "").padEnd(43, "x");
-      attempts.set(state, { returnTo, stepUp, fresh: false });
-      return json(201, {
-        authorizationUrl: `http://localhost:3100/api/auth/callback?code=test-code&state=${state}`,
-        expiresAt: new Date(Date.now() + 600_000).toISOString(),
-        returnTo,
+      attempts.set(state, { returnTo, stepUp: true, fresh: false });
+      return json(200, {
+        callbackUrl: `http://localhost:3100/api/auth/callback?code=test-code&state=${state}`,
+      });
+    }
+
+    if (pathname === "/v1/auth/invitation-registration") {
+      const body: unknown = await request.json();
+      const token =
+        typeof body === "object" && body !== null && "token" in body && typeof body.token === "string"
+          ? body.token
+          : "";
+      if (token.startsWith("X")) return failure(409, "INVITATION_UNAVAILABLE");
+      const state = crypto.randomUUID().replaceAll("-", "").padEnd(43, "x");
+      attempts.set(state, { returnTo: "/dashboard", stepUp: false, fresh: false });
+      return json(200, {
+        callbackUrl: `http://localhost:3100/api/auth/callback?code=test-code&state=${state}`,
       });
     }
 

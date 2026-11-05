@@ -6,7 +6,6 @@ import {
   LOGIN_ATTEMPT_TTL_MS,
   beginLoginAttempt,
   normaliseReturnTo,
-  startLogin,
 } from '../../src/controllers/auth/start-login'
 import { AppError } from '../../src/shared/errors'
 import { open } from '../../src/shared/sealed'
@@ -73,15 +72,16 @@ describe('returnTo', () => {
   })
 })
 
-describe('startLogin', () => {
+describe('beginLoginAttempt', () => {
   test('stores only hashes and seals the verifier', async () => {
     const db = new FakeDatabase([
       { match: /insert into identity\.login_attempt/, rows: loginAttemptRow },
     ])
-    const started = await startLogin(
+    const started = await beginLoginAttempt(
       baseDependencies({ db, clock: () => NOW }),
       CONTEXT,
       '/dashboard',
+      null,
     )
 
     expect(started.expiresAt).toBe(new Date(NOW.getTime() + LOGIN_ATTEMPT_TTL_MS).toISOString())
@@ -131,7 +131,9 @@ describe('startLogin', () => {
       },
     })
 
-    const failure = await rejection(startLogin(dependencies, CONTEXT, 'https://evil.test'))
+    const failure = await rejection(
+      beginLoginAttempt(dependencies, CONTEXT, 'https://evil.test', null),
+    )
     expect(failure.code).toBe('VALIDATION_FAILED')
     expect(failure.status).toBe(400)
     expect(called).toBe(false)
@@ -158,7 +160,7 @@ describe('startLogin', () => {
       },
     })
 
-    const failure = await rejection(startLogin(dependencies, CONTEXT, undefined))
+    const failure = await rejection(beginLoginAttempt(dependencies, CONTEXT, undefined, null))
     expect(failure.code).toBe('AUTH_UNAVAILABLE')
     expect(failure.status).toBe(503)
     expect(db.statements).toHaveLength(0)

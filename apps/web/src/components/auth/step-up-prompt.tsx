@@ -1,17 +1,20 @@
 import { buttonVariants } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import type { StepUpFailure } from "@/lib/auth/redirects";
 
 const MESSAGES: Record<StepUpFailure, string> = {
+  credentials: "The password is not correct. Try again.",
   denied: "This request did not come from Almonac. Try again from this page.",
   failed: "The identity check did not finish. Try again.",
   invalid: "That return address is not valid. Open the page again.",
+  mfa: "This account requires multi-factor authentication, which is not available here.",
   session: "Your session ended before the check started. Sign in again.",
   unavailable: "The identity service is unavailable. Try again shortly.",
 };
 
 /**
  * Asks the signed-in member to confirm their identity again. The form posts to
- * the BFF, which starts the OIDC step-up and rotates the session on return.
+ * the BFF, which checks the password and rotates the session on return.
  */
 export function StepUpPrompt({
   returnTo,
@@ -28,9 +31,22 @@ export function StepUpPrompt({
           Confirm your identity
         </h2>
         <p className="text-[14px] leading-relaxed text-moss-bright">
-          This action needs a recent sign-in. You will return to this page after the identity
-          service verifies you.
+          This action needs a recent sign-in. Enter your password to confirm it is you.
         </p>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor="step-up-password" className="text-[13px] font-medium text-parchment">
+          Password
+        </label>
+        <Input
+          id="step-up-password"
+          name="password"
+          type="password"
+          autoComplete="current-password"
+          required
+          maxLength={1024}
+          placeholder="Enter your password"
+        />
       </div>
       {failure === null ? null : (
         <p

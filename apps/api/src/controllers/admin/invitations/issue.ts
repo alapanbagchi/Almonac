@@ -42,23 +42,9 @@ export interface InvitationMailer {
   }): Promise<void>
 }
 
-/**
- * The identity provider port: the slice needs three Zitadel calls and nothing
- * else, so `ZitadelManagementClient` plugs in without being imported here.
- */
-export interface IdentityProvider {
-  createHumanUser(
-    organisationId: string | null,
-    input: { email: string; displayName: string },
-  ): Promise<string>
-  resendInitialization(organisationId: string, userId: string): Promise<void>
-  deactivateUser(organisationId: string, userId: string): Promise<void>
-}
-
-/** Admin capabilities plus the two outbound ports invitations need. */
+/** Admin capabilities plus the outbound port invitations need. */
 export interface InvitationDependencies extends AdminDependencies {
   readonly mailer: InvitationMailer
-  readonly identity: IdentityProvider
 }
 
 /** The organisation and optional hospital an invitation belongs to. */
@@ -148,17 +134,6 @@ export async function requireNoMembership(
     hospitalId: target.hospitalId ?? null,
   })
   if (membership !== null) throw conflict('This person already has access.')
-}
-
-/** Re-send the identity provider's initialisation mail for a pending new user. */
-export async function resendInitialisation(
-  d: InvitationDependencies,
-  organisation: Organisation,
-  invitation: Invitation,
-): Promise<void> {
-  if (invitation.kind !== 'new_user' || invitation.zitadelSub === null) return
-  if (organisation.zitadelOrgId === null) return
-  await d.identity.resendInitialization(organisation.zitadelOrgId, invitation.zitadelSub)
 }
 
 /** The invitation fields worth carrying across when a link is reissued. */
@@ -297,7 +272,11 @@ export async function prepareInvitation(
 export function assertInvitationAcceptable(invitation: Invitation, actor: AppUser, at: Date): void {
   if (invitation.status !== 'pending') throw conflict('Invitation is no longer pending.')
   if (invitation.expiresAt <= at) throw conflict('Invitation has expired.')
-  if (invitation.zitadelSub !== null && invitation.zitadelSub !== actor.zitadelSubject) {
+
+  // A claimed invitation is bound to a subject; an unclaimed one to its address.
+  if (invitation.zitadelSub === null) {
+    if (invitation.email !== actor.email) throw forbidden()
+  } else if (invitation.zitadelSub !== actor.zitadelSubject) {
     throw forbidden()
   }
 }

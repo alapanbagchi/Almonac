@@ -6,7 +6,6 @@ import {
   issue,
   now,
   requireInvitation,
-  resendInitialisation,
   type InvitationDependencies,
 } from './issue'
 import { invitationResponse, type InvitationResponse } from './responses'
@@ -26,7 +25,6 @@ export async function resendInvitation(
   }
 
   const scope = await invitationScope(d.db, invitation.organisationId, invitation.hospitalId)
-  await resendInitialisation(d, scope.organisation, invitation)
   const reissued = await issue(d, context, draftOf(invitation), scope.delivery, {
     reasonCode: 'invitation.resend',
     replaces: invitation,

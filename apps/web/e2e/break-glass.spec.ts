@@ -14,6 +14,7 @@ test("needs a fresh identity check before emergency access", async ({ page }) =>
   await page.getByRole("button", { name: "Request emergency access" }).click();
 
   await expect(page.getByRole("heading", { name: "Confirm your identity" })).toBeVisible();
+  await page.getByLabel("Password").fill("LocalPassword1!");
   await page.getByRole("button", { name: "Verify again" }).click();
   await expect(page).toHaveURL(/\/dashboard\/break-glass$/);
 
