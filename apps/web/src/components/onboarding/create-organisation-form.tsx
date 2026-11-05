@@ -3,7 +3,9 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 
-import { FormError, SubmitAction } from "@/components/auth/form-parts";
+import { SubmitAction } from "@/components/auth/form-parts";
+import { FormError } from "@/components/form/form-error";
+import { useShake } from "@/components/motion/use-shake";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
@@ -18,6 +20,7 @@ function slugify(value: string): string {
 
 export function CreateOrganisationForm() {
   const router = useRouter();
+  const { ref: formRef, shake } = useShake<HTMLFormElement>();
   const [name, setName] = React.useState("");
   const [slug, setSlug] = React.useState("");
   const [slugTouched, setSlugTouched] = React.useState(false);
@@ -45,15 +48,18 @@ export function CreateOrganisationForm() {
         | { error?: { message?: string } }
         | null;
       setError(payload?.error?.message ?? "The organisation could not be created.");
+      shake();
     } catch {
       setError("The service did not respond. Try again shortly.");
+      shake();
     } finally {
       setPending(false);
     }
   }
 
   return (
-    <form noValidate className="flex flex-col gap-6" onSubmit={submit}>
+    <form ref={formRef} noValidate className="flex flex-col gap-6" onSubmit={submit}>
+      <FormError message={error} />
       <div className="flex flex-col gap-2">
         <Label htmlFor="organisation-name">Organisation name</Label>
         <Input
@@ -86,8 +92,6 @@ export function CreateOrganisationForm() {
           Lowercase letters, numbers and dashes. Used in your workspace address.
         </p>
       </div>
-
-      <FormError message={error} />
 
       <SubmitAction
         pending={pending}

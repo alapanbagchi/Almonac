@@ -3,6 +3,8 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 
+import { FormError } from "@/components/form/form-error";
+import { useShake } from "@/components/motion/use-shake";
 import { adminRequest } from "@/lib/admin/client";
 import { SubmitButton } from "@/components/form/submit-button";
 import { Input } from "@/components/ui/input";
@@ -17,8 +19,9 @@ function errorMessage(error: unknown): string {
 
 export function CreateOrganisationForm() {
   const router = useRouter();
-  const [error, setError] = React.useState<string | null>(null);
+  const { ref: formRef, shake } = useShake<HTMLFormElement>();
   const [pending, setPending] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -35,13 +38,19 @@ export function CreateOrganisationForm() {
       router.refresh();
     } catch (failure) {
       setError(errorMessage(failure));
+      shake();
     } finally {
       setPending(false);
     }
   }
 
   return (
-    <form onSubmit={submit} className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+    <form
+      ref={formRef}
+      onSubmit={submit}
+      className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end"
+    >
+      <FormError message={error} />
       <div className="space-y-1.5">
         <Label htmlFor="organisation-name">Name</Label>
         <Input id="organisation-name" name="name" required maxLength={200} autoComplete="off" />
@@ -60,11 +69,6 @@ export function CreateOrganisationForm() {
       <SubmitButton disabled={pending}>
         {pending ? "Creating..." : "Create"}
       </SubmitButton>
-      {error === null ? null : (
-        <p role="alert" className="text-sm text-destructive sm:col-span-3">
-          {error}
-        </p>
-      )}
     </form>
   );
 }

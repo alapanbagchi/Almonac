@@ -3,6 +3,8 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 
+import { FormError } from "@/components/form/form-error";
+import { useShake } from "@/components/motion/use-shake";
 import { adminRequest } from "@/lib/admin/client";
 import { SubmitButton } from "@/components/form/submit-button";
 import { Button } from "@/components/ui/button";
@@ -21,8 +23,11 @@ export function DomainManager({
   canManage: boolean;
 }) {
   const router = useRouter();
+  const { ref, shake } = useShake<HTMLDivElement>();
+  const { ref: addRef, shake: shakeAdd } = useShake<HTMLFormElement>();
   const [pending, setPending] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [addError, setAddError] = React.useState<string | null>(null);
   const [token, setToken] = React.useState<{ domain: string; value: string } | null>(null);
 
   async function add(event: React.FormEvent<HTMLFormElement>) {
@@ -30,7 +35,7 @@ export function DomainManager({
     const formElement = event.currentTarget;
     const form = new FormData(formElement);
     setPending(true);
-    setError(null);
+    setAddError(null);
     try {
       const result = await adminRequest(`hospitals/${hospitalId}/domains`, "POST", {
         domain: String(form.get("domain") ?? "").trim().toLowerCase(),
@@ -41,11 +46,12 @@ export function DomainManager({
       formElement.reset();
       router.refresh();
     } catch (failure) {
-      setError(
+      setAddError(
         failure instanceof Error && failure.message === "DOMAIN_TAKEN"
           ? "That domain is already registered."
           : "The domain could not be added.",
       );
+      shakeAdd();
     } finally {
       setPending(false);
     }
@@ -61,6 +67,7 @@ export function DomainManager({
       router.refresh();
     } catch {
       setError("The domain could not be verified. Check the token and try again.");
+      shake();
     } finally {
       setPending(false);
     }
@@ -74,13 +81,15 @@ export function DomainManager({
       router.refresh();
     } catch {
       setError("The primary domain could not be changed.");
+      shake();
     } finally {
       setPending(false);
     }
   }
 
   return (
-    <div className="space-y-3">
+    <div ref={ref} className="space-y-3">
+      <FormError message={error} />
       {domains.length === 0 ? (
         <p className="text-sm text-moss-bright">No domains yet.</p>
       ) : (
@@ -130,7 +139,8 @@ export function DomainManager({
       )}
 
       {canManage ? (
-        <form onSubmit={add} className="flex flex-wrap items-end gap-2">
+        <form ref={addRef} onSubmit={add} className="flex flex-wrap items-end gap-2">
+          <FormError message={addError} />
           <div className="space-y-1.5">
             <Label htmlFor={`domain-${hospitalId}`}>Add a domain</Label>
             <Input
@@ -154,11 +164,6 @@ export function DomainManager({
           <p className="font-medium">Publish this TXT record for {token.domain}:</p>
           <code className="mt-1 block break-all font-mono text-xs">{token.value}</code>
         </div>
-      )}
-      {error === null ? null : (
-        <p role="alert" className="text-sm text-destructive">
-          {error}
-        </p>
       )}
     </div>
   );

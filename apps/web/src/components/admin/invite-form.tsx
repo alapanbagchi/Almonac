@@ -3,6 +3,8 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 
+import { FormError } from "@/components/form/form-error";
+import { useShake } from "@/components/motion/use-shake";
 import { adminRequest } from "@/lib/admin/client";
 import { SubmitButton } from "@/components/form/submit-button";
 import { Input } from "@/components/ui/input";
@@ -19,6 +21,7 @@ export function InviteForm({
   roles: Role[];
 }) {
   const router = useRouter();
+  const { ref: formRef, shake } = useShake<HTMLFormElement>();
   const [pending, setPending] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [hospitalId, setHospitalId] = React.useState("");
@@ -51,13 +54,15 @@ export function InviteForm({
           ? "That person cannot be invited. Check the email and existing membership."
           : "The invitation could not be sent.",
       );
+      shake();
     } finally {
       setPending(false);
     }
   }
 
   return (
-    <form onSubmit={submit} className="grid gap-3 sm:grid-cols-2">
+    <form ref={formRef} onSubmit={submit} className="grid gap-3 sm:grid-cols-2">
+      <FormError message={error} />
       <div className="space-y-1.5">
         <Label htmlFor="invite-email">Work email</Label>
         <Input
@@ -114,11 +119,6 @@ export function InviteForm({
           {pending ? "Sending..." : "Send invitation"}
         </SubmitButton>
       </div>
-      {error === null ? null : (
-        <p role="alert" className="text-sm text-destructive sm:col-span-2">
-          {error}
-        </p>
-      )}
     </form>
   );
 }

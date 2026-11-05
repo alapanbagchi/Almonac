@@ -3,6 +3,8 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 
+import { FormError } from "@/components/form/form-error";
+import { useShake } from "@/components/motion/use-shake";
 import { SubmitButton } from "@/components/form/submit-button";
 import { breakGlassRequest, BreakGlassRequestError } from "@/lib/break-glass/client";
 
@@ -19,6 +21,7 @@ function failureMessage(error: unknown): string {
 
 export function RevokeGrant({ grantId }: { grantId: string }) {
   const router = useRouter();
+  const { ref: formRef, shake } = useShake<HTMLFormElement>();
   const [pending, setPending] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -36,39 +39,39 @@ export function RevokeGrant({ grantId }: { grantId: string }) {
       router.refresh();
     } catch (failure) {
       setError(failureMessage(failure));
+      shake();
     } finally {
       setPending(false);
     }
   }
 
   return (
-    <form onSubmit={submit} className="flex flex-col gap-2 sm:flex-row sm:items-center">
-      <label htmlFor={`revoke-${grantId}`} className="sr-only">
-        Revocation reason
-      </label>
-      <input
-        id={`revoke-${grantId}`}
-        name="reason"
-        required
-        minLength={1}
-        maxLength={500}
-        placeholder="Reason for ending access"
-        className="h-9 rounded-lg border border-input bg-card px-3 text-sm"
-      />
-      <SubmitButton variant="outline" size="sm" disabled={pending}>
-        {pending ? "Ending..." : "End access"}
-      </SubmitButton>
-      {error === null ? null : (
-        <p role="alert" className="text-xs text-destructive">
-          {error}
-        </p>
-      )}
+    <form ref={formRef} onSubmit={submit} className="flex flex-col gap-2">
+      <FormError message={error} />
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <label htmlFor={`revoke-${grantId}`} className="sr-only">
+          Revocation reason
+        </label>
+        <input
+          id={`revoke-${grantId}`}
+          name="reason"
+          required
+          minLength={1}
+          maxLength={500}
+          placeholder="Reason for ending access"
+          className="h-9 rounded-lg border border-input bg-card px-3 text-sm"
+        />
+        <SubmitButton variant="outline" size="sm" disabled={pending}>
+          {pending ? "Ending..." : "End access"}
+        </SubmitButton>
+      </div>
     </form>
   );
 }
 
 export function ReviewGrant({ grantId }: { grantId: string }) {
   const router = useRouter();
+  const { ref: formRef, shake } = useShake<HTMLFormElement>();
   const [pending, setPending] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -87,43 +90,42 @@ export function ReviewGrant({ grantId }: { grantId: string }) {
       router.refresh();
     } catch (failure) {
       setError(failureMessage(failure));
+      shake();
     } finally {
       setPending(false);
     }
   }
 
   return (
-    <form onSubmit={submit} className="flex flex-col gap-2 sm:flex-row sm:items-center">
-      <label htmlFor={`decision-${grantId}`} className="sr-only">
-        Review decision
-      </label>
-      <select
-        id={`decision-${grantId}`}
-        name="decision"
-        className="h-9 rounded-lg border border-input bg-card px-3 text-sm"
-      >
-        <option value="upheld">Upheld</option>
-        <option value="overturned">Overturned</option>
-        <option value="escalated">Escalated</option>
-      </select>
-      <label htmlFor={`notes-${grantId}`} className="sr-only">
-        Review notes
-      </label>
-      <input
-        id={`notes-${grantId}`}
-        name="notes"
-        maxLength={1000}
-        placeholder="Notes (optional)"
-        className="h-9 rounded-lg border border-input bg-card px-3 text-sm"
-      />
-      <SubmitButton variant="outline" size="sm" disabled={pending}>
-        {pending ? "Recording..." : "Record review"}
-      </SubmitButton>
-      {error === null ? null : (
-        <p role="alert" className="text-xs text-destructive">
-          {error}
-        </p>
-      )}
+    <form ref={formRef} onSubmit={submit} className="flex flex-col gap-2">
+      <FormError message={error} />
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <label htmlFor={`decision-${grantId}`} className="sr-only">
+          Review decision
+        </label>
+        <select
+          id={`decision-${grantId}`}
+          name="decision"
+          className="h-9 rounded-lg border border-input bg-card px-3 text-sm"
+        >
+          <option value="upheld">Upheld</option>
+          <option value="overturned">Overturned</option>
+          <option value="escalated">Escalated</option>
+        </select>
+        <label htmlFor={`notes-${grantId}`} className="sr-only">
+          Review notes
+        </label>
+        <input
+          id={`notes-${grantId}`}
+          name="notes"
+          maxLength={1000}
+          placeholder="Notes (optional)"
+          className="h-9 rounded-lg border border-input bg-card px-3 text-sm"
+        />
+        <SubmitButton variant="outline" size="sm" disabled={pending}>
+          {pending ? "Recording..." : "Record review"}
+        </SubmitButton>
+      </div>
     </form>
   );
 }

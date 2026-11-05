@@ -4,6 +4,8 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 
 import { StepUpPrompt } from "@/components/auth/step-up-prompt";
+import { FormError } from "@/components/form/form-error";
+import { useShake } from "@/components/motion/use-shake";
 import { SubmitButton } from "@/components/form/submit-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -32,9 +34,10 @@ export function RequestGrantForm({
   returnTo: string;
 }) {
   const router = useRouter();
+  const { ref: formRef, shake } = useShake<HTMLFormElement>();
   const [pending, setPending] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
   const [stepUp, setStepUp] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -60,6 +63,7 @@ export function RequestGrantForm({
         return;
       }
       setError(message(failure));
+      shake();
     } finally {
       setPending(false);
     }
@@ -68,7 +72,8 @@ export function RequestGrantForm({
   if (stepUp) return <StepUpPrompt returnTo={returnTo} />;
 
   return (
-    <form onSubmit={submit} className="grid gap-3">
+    <form ref={formRef} onSubmit={submit} className="grid gap-3">
+      <FormError message={error} />
       <div className="space-y-1.5">
         <Label htmlFor="grant-hospital">Hospital</Label>
         <select
@@ -119,11 +124,6 @@ export function RequestGrantForm({
       <SubmitButton disabled={pending}>
         {pending ? "Requesting..." : "Request emergency access"}
       </SubmitButton>
-      {error === null ? null : (
-        <p role="alert" className="text-sm text-destructive">
-          {error}
-        </p>
-      )}
     </form>
   );
 }

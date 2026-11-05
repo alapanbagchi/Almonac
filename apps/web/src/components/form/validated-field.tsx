@@ -4,6 +4,7 @@ import * as React from "react";
 import { Field as TanStackField, type AnyFieldApi, type AnyFormApi } from "@tanstack/react-form";
 import type { ZodType } from "zod";
 
+import { Shake } from "@/components/motion/shake";
 import { Field, FieldError, FieldLabel } from "@/components/ui/field";
 
 /**
@@ -16,6 +17,7 @@ import { Field, FieldError, FieldLabel } from "@/components/ui/field";
  *   field clears immediately instead of staying red until the next blur
  * - the red border / red background come free from the Input and SelectTrigger
  *   primitives, which style `aria-invalid` by default
+ * - a field that turns invalid shakes itself, independently of the whole form
  */
 export interface ValidatedFieldRender {
   field: AnyFieldApi;
@@ -142,50 +144,57 @@ export function ValidatedField({
         const describedBy = error ? errorId : undefined;
 
         return (
-          <Field>
-            <FieldLabel
-              htmlFor={inputId}
-              className={invalid ? "text-sm font-semibold text-destructive transition-colors" : "text-sm font-semibold text-foreground transition-colors"}
-            >
-              {label}
-            </FieldLabel>
-            {children({
-              field,
-              invalid,
-              error,
-              input: {
-                id: inputId,
-                name,
-                value: (field.state.value ?? "") as string,
-                onChange: (event) =>
-                  updateFieldValue(field, event.target.value),
-                onBlur: () => field.handleBlur(),
-                "aria-invalid": invalid,
-                "aria-describedby": describedBy,
-              },
-              select: {
-                value: (field.state.value ?? "") as string,
-                onValueChange: (next) =>
-                  updateFieldValue(field, String(next)),
-                onOpenChange: (open) => {
-                  if (!open) field.handleBlur();
-                },
-                triggerProps: {
+          // A second submit with the same message still shakes.
+          <Shake
+            trigger={error}
+            pulse={field.form.state.submissionAttempts}
+            className="w-full"
+          >
+            <Field>
+              <FieldLabel
+                htmlFor={inputId}
+                className={invalid ? "text-sm font-semibold text-destructive transition-colors" : "text-sm font-semibold text-foreground transition-colors"}
+              >
+                {label}
+              </FieldLabel>
+              {children({
+                field,
+                invalid,
+                error,
+                input: {
                   id: inputId,
+                  name,
+                  value: (field.state.value ?? "") as string,
+                  onChange: (event) =>
+                    updateFieldValue(field, event.target.value),
+                  onBlur: () => field.handleBlur(),
                   "aria-invalid": invalid,
                   "aria-describedby": describedBy,
                 },
-              },
-            })}
-            <FieldError
-              errors={error ? [{ message: error }] : []}
-              id={errorId}
-              className="text-[13px] font-medium"
-            />
-            {!error && hint ? (
-              <p className="text-[12px] leading-relaxed text-moss-bright">{hint}</p>
-            ) : null}
-          </Field>
+                select: {
+                  value: (field.state.value ?? "") as string,
+                  onValueChange: (next) =>
+                    updateFieldValue(field, String(next)),
+                  onOpenChange: (open) => {
+                    if (!open) field.handleBlur();
+                  },
+                  triggerProps: {
+                    id: inputId,
+                    "aria-invalid": invalid,
+                    "aria-describedby": describedBy,
+                  },
+                },
+              })}
+              <FieldError
+                errors={error ? [{ message: error }] : []}
+                id={errorId}
+                className="text-[13px] font-medium"
+              />
+              {!error && hint ? (
+                <p className="text-[12px] leading-relaxed text-moss-bright">{hint}</p>
+              ) : null}
+            </Field>
+          </Shake>
         );
       }}
     </TanStackField>

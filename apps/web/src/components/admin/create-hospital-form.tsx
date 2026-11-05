@@ -3,6 +3,8 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 
+import { FormError } from "@/components/form/form-error";
+import { useShake } from "@/components/motion/use-shake";
 import { adminRequest } from "@/lib/admin/client";
 import { SubmitButton } from "@/components/form/submit-button";
 import { Input } from "@/components/ui/input";
@@ -10,6 +12,7 @@ import { Label } from "@/components/ui/label";
 
 export function CreateHospitalForm({ organisationId }: { organisationId: string }) {
   const router = useRouter();
+  const { ref: formRef, shake } = useShake<HTMLFormElement>();
   const [pending, setPending] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -29,13 +32,19 @@ export function CreateHospitalForm({ organisationId }: { organisationId: string 
       router.refresh();
     } catch {
       setError("The hospital could not be created.");
+      shake();
     } finally {
       setPending(false);
     }
   }
 
   return (
-    <form onSubmit={submit} className="grid gap-3 sm:grid-cols-[1fr_1fr_10rem_auto] sm:items-end">
+    <form
+      ref={formRef}
+      onSubmit={submit}
+      className="grid gap-3 sm:grid-cols-[1fr_1fr_10rem_auto] sm:items-end"
+    >
+      <FormError message={error} />
       <div className="space-y-1.5">
         <Label htmlFor={`hospital-name-${organisationId}`}>Hospital</Label>
         <Input
@@ -69,11 +78,6 @@ export function CreateHospitalForm({ organisationId }: { organisationId: string 
       <SubmitButton disabled={pending}>
         {pending ? "Adding..." : "Add hospital"}
       </SubmitButton>
-      {error === null ? null : (
-        <p role="alert" className="text-sm text-destructive sm:col-span-4">
-          {error}
-        </p>
-      )}
     </form>
   );
 }
