@@ -2,7 +2,12 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { LoaderCircle } from "lucide-react";
 
+import { ArrowRight02 } from "@/components/animate-ui/icons/hugeicons/arrow-right-02";
+import { AuthShell } from "@/components/auth/form-parts";
+import { FormError } from "@/components/form/form-error";
+import { buttonVariants } from "@/components/ui/button";
 import { submitCredentials } from "@/lib/auth/browser";
 
 type State =
@@ -10,14 +15,25 @@ type State =
   | { status: "verified" }
   | { status: "error"; message: string };
 
+const SUBTITLES: Record<State["status"], string> = {
+  verifying: "This only takes a moment.",
+  verified: "Your email is verified. Sign in to create your first organisation.",
+  error: "We could not verify this link.",
+};
+
 /**
  * The verification token arrives in the fragment so it never reaches a server
  * log. The fragment is cleared before the token is posted to our BFF.
  */
 export function VerifyEmail() {
   const [state, setState] = React.useState<State>({ status: "verifying" });
+  const started = React.useRef(false);
 
   React.useEffect(() => {
+    // Strict mode runs the effect twice; the first run consumes the token.
+    if (started.current) return;
+    started.current = true;
+
     const token = new URLSearchParams(window.location.hash.slice(1)).get("token");
     window.history.replaceState(null, "", "/verify-email");
     if (token === null || !/^[A-Za-z0-9_-]{32,128}$/.test(token)) {
@@ -44,41 +60,40 @@ export function VerifyEmail() {
   }, []);
 
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col justify-center px-6 py-16">
-      <div className="rounded-2xl border border-border bg-card p-8">
-        <h1 className="font-display text-2xl font-medium tracking-[-0.02em]">
-          Verify your email
-        </h1>
-        {state.status === "verifying" ? (
-          <p className="mt-3 text-sm text-moss-bright" role="status">
-            Checking your verification link...
-          </p>
-        ) : state.status === "verified" ? (
-          <>
-            <p className="mt-3 text-sm text-moss-bright" role="status">
-              Your email is verified. Sign in to create your first organisation.
-            </p>
+    <AuthShell title="Verify your email" subtitle={SUBTITLES[state.status]}>
+      {state.status === "verifying" ? (
+        <p role="status" className="flex items-center gap-2.5 text-[15px] text-moss-bright">
+          <LoaderCircle size={16} aria-hidden="true" className="animate-spin" />
+          Checking your verification link...
+        </p>
+      ) : state.status === "verified" ? (
+        <Link
+          href="/login?verified=1&returnTo=/onboarding/organisation"
+          className={buttonVariants({
+            size: "lg",
+            className: "group h-[52px] w-full rounded-xl text-[15px] font-semibold",
+          })}
+        >
+          Continue to sign in
+          <ArrowRight02
+            size={16}
+            className="transition-transform duration-300 ease-out group-hover:translate-x-1"
+          />
+        </Link>
+      ) : (
+        <div className="flex flex-col gap-5">
+          <FormError message={state.message} />
+          <p className="text-sm text-moss-bright">
             <Link
-              className="mt-6 inline-flex rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground"
-              href="/login?verified=1&returnTo=/onboarding/organisation"
-            >
-              Continue to sign in
-            </Link>
-          </>
-        ) : (
-          <>
-            <p className="mt-3 text-sm text-destructive" role="alert">
-              {state.message}
-            </p>
-            <Link
-              className="mt-6 inline-flex rounded-lg border border-border px-3 py-2 text-sm"
               href="/signup"
+              className="font-medium text-foreground underline underline-offset-4"
             >
               Create the account again
-            </Link>
-          </>
-        )}
-      </div>
-    </main>
+            </Link>{" "}
+            if the link has expired.
+          </p>
+        </div>
+      )}
+    </AuthShell>
   );
 }
